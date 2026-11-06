@@ -41,6 +41,9 @@ services:
     # -ffmpeg 변형은 alpine 기반이라 훅(runOnOnline 등)에서 wget을 쓸 수 있다
     image: bluenviron/mediamtx:1.21.3-ffmpeg
     restart: unless-stopped
+    # 인가(authHTTPAddress)와 훅을 api에 위임하므로 api가 먼저 떠 있어야 한다
+    depends_on:
+      - api
     ports:
       - "8189:8189/udp"
       - "8189:8189/tcp"
@@ -49,6 +52,7 @@ services:
       MTX_WEBRTCADDITIONALHOSTS: ${MEDIA_PUBLIC_HOST:-127.0.0.1}
     volumes:
       - ./infra/mediamtx/mediamtx.yml:/mediamtx.yml:ro
+      - ./infra/mediamtx/hooks:/hooks:ro
       - recordings:/recordings
 
 volumes:

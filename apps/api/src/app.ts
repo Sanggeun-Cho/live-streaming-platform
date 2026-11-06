@@ -2,6 +2,7 @@ import Fastify, { type FastifyError } from 'fastify'
 import type { Config } from './config.js'
 import type { Db } from './db/client.js'
 import { healthRoutes } from './routes/health.js'
+import { internalMediaRoutes } from './routes/internal-media.js'
 
 export type AppDeps = {
   config: Config
@@ -31,6 +32,7 @@ export async function buildApp({ config, db }: AppDeps) {
   })
 
   await app.register(healthRoutes(db), { prefix: '/api' })
+  await app.register(internalMediaRoutes, { prefix: '/internal' })
 
   app.addHook('onClose', async () => {
     db.sqlite.close()

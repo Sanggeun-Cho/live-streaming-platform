@@ -28,31 +28,33 @@ webrtcLocalTCPAddress: :8189
 webrtcIPsFromInterfaces: no
 webrtcAdditionalHosts: []
 
-# TODO(#6): authMethod를 http로 바꾸고 api의 /internal/media/auth로 송출 권한을 위임한다.
-# 지금은 골격·스파이크 단계라 누구나 송출·시청할 수 있다. 이 상태로 배포하지 않는다.
-authMethod: internal
-authInternalUsers:
-  - user: any
-    pass:
-    ips: []
-    permissions:
-      - action: publish
-      - action: read
-      - action: playback
-  # Control API는 docker 내부 네트워크에서만 허용
-  - user: any
-    pass:
-    ips: ["127.0.0.1", "::1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
-    permissions:
-      - action: api
+# 인가는 api에 위임한다. publish/read 요청마다 api의 /internal/media/auth를 호출하고, 2xx면 허용한다.
+# #2 스파이크 단계의 api는 모두 허용하므로 아직 배포하지 않는다. TODO(#6): 토큰·방송 상태 검증
+authMethod: http
+authHTTPAddress: http://api:3000/internal/media/auth
+# Control API는 api 컨테이너만 쓴다. 9997 포트는 외부에 공개하지 않으므로 HTTP 인가에서 제외한다.
+authHTTPExclude:
+  - action: api
+  - action: metrics
+  - action: pprof
 
 pathDefaults:
   # 같은 방송에 새 송출이 들어오면 기존 송출을 대체한다 (탭 중복, 재연결)
   overridePublisher: yes
   # 기본값 1d면 녹화가 하루 뒤 삭제된다. 영구 저장 요구사항 때문에 끈다.
   recordDeleteAfter: 0s
+  recordFormat: fmp4
+  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f_%z
+  # 방송 중 세그먼트를 나누는 주기. 송출이 끝나면 그 시점까지가 한 세그먼트로 닫힌다.
+  recordSegmentDuration: 1h
   record: no
+
+  # 상태 머신 입력. 훅이 유실돼도 #6의 Control API 주기 대조로 보정한다.
+  runOnOnline: sh /hooks/notify.sh online
+  runOnOffline: sh /hooks/notify.sh offline
+  runOnRecordSegmentComplete: sh /hooks/notify.sh segment
 
 paths:
   # 방송 회차 하나 = path 하나 (live/{broadcastId})
   "~^live/[0-9]+$":
+    record: yes
