@@ -25,6 +25,8 @@ COPY --from=prod-deps /repo/node_modules node_modules
 COPY package.json ./
 COPY apps/api/package.json apps/api/
 COPY --from=build /repo/apps/api/dist apps/api/dist
+# 기동 시 적용할 마이그레이션 (dist/db/client.js 기준 ../../drizzle)
+COPY apps/api/drizzle apps/api/drizzle
 RUN mkdir -p /data && chown node:node /data
 WORKDIR /repo/apps/api
 USER node

@@ -86,7 +86,12 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 
 ## 5. 인증·인가
 
-- **사용자 인증**: 세션 ID를 HttpOnly + Secure + SameSite=Lax 쿠키에 담는다. 세션은 SQLite 테이블에 저장해 서버 재시작 후에도 유지한다. 비밀번호는 argon2로 해시한다.
+- **사용자 인증**: 세션 ID를 HttpOnly + Secure + SameSite=Lax 쿠키에 담는다. 세션은 SQLite 테이블에 저장해 서버 재시작 후에도 유지한다. 비밀번호는 argon2id로 해시한다.
+  - 쿠키에는 무작위 토큰(32바이트)을, DB에는 그 **SHA-256 해시**를 저장한다. DB가 유출되어도 세션을 바로 탈취할 수 없다.
+  - 수명 30일, 남은 기간이 절반 이하일 때 요청이 오면 연장한다(슬라이딩). 로그인 시 기존 세션 쿠키는 폐기한다(세션 고정 방지).
+  - 없는 이메일과 틀린 비밀번호는 같은 401 응답을 주고, 없는 이메일도 해시 검증을 수행해 응답 시간으로 계정 존재 여부가 드러나지 않게 한다.
+  - CSRF: SameSite=Lax로 교차 사이트 POST에 쿠키가 실리지 않고, API는 JSON 본문만 받는다(폼 전송은 415).
+  - 회원가입 시 사용자와 채널을 한 트랜잭션으로 만든다. 가입 직후 바로 로그인 상태가 된다.
 - **송출 인가 (두 단계)**
   1. `POST /api/broadcasts/:id/publish-token`에서 로그인 여부, 소유자 여부, 상태(READY 또는 LIVE)를 검증한 뒤 짧은 수명의 publish 토큰을 발급한다.
   2. 브라우저가 이 토큰으로 WHIP 송출을 시도하면 MediaMTX가 `authHTTPAddress`로 api에 다시 묻는다. api는 토큰, path, 방송 상태를 검증한다.

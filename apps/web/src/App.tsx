@@ -1,37 +1,56 @@
-import { useEffect, useState } from 'react'
+import { Link, Route, Routes } from 'react-router'
+import { useAuth } from './auth/context'
+import { AuthForm } from './pages/AuthForm'
+import { HomePage } from './pages/HomePage'
 
-type Health = { status: string; db: string; time: string }
+function Header() {
+  const { status, user, logout } = useAuth()
+  return (
+    <header className="header">
+      <Link to="/" className="brand">
+        Live
+      </Link>
+      <nav className="nav">
+        {status === 'authenticated' && user && (
+          <>
+            <span>{user.nickname}</span>
+            <button type="button" className="link-button" onClick={() => void logout()}>
+              로그아웃
+            </button>
+          </>
+        )}
+        {status === 'anonymous' && (
+          <>
+            <Link to="/login">로그인</Link>
+            <Link to="/signup">회원가입</Link>
+          </>
+        )}
+      </nav>
+    </header>
+  )
+}
+
+function NotFound() {
+  return (
+    <>
+      <h1>페이지를 찾을 수 없습니다</h1>
+      <Link to="/">홈으로</Link>
+    </>
+  )
+}
 
 export default function App() {
-  const [health, setHealth] = useState<Health | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    fetch('/api/health')
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return res.json() as Promise<Health>
-      })
-      .then(setHealth)
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
-  }, [])
-
   return (
-    <main className="container">
-      <h1>Live Streaming Platform</h1>
-      <p>골격 동작 확인용 화면입니다.</p>
-      <section>
-        <h2>API 상태</h2>
-        {error && <p className="error">연결 실패: {error}</p>}
-        {!error && !health && <p>확인 중…</p>}
-        {health && (
-          <ul>
-            <li>status: {health.status}</li>
-            <li>db: {health.db}</li>
-            <li>server time: {health.time}</li>
-          </ul>
-        )}
-      </section>
-    </main>
+    <>
+      <Header />
+      <main className="container">
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/login" element={<AuthForm key="login" mode="login" />} />
+          <Route path="/signup" element={<AuthForm key="signup" mode="signup" />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </main>
+    </>
   )
 }

@@ -8,7 +8,17 @@ PC 화면 공유와 모바일 카메라로 라이브 방송을 송출하고, 로
 TBD
 
 ## 테스트 계정
-TBD
+| 역할 | 이메일 | 비밀번호 |
+|---|---|---|
+| 방송자 A | `streamer@test.com` | `test1234!` |
+| 시청자 B | `viewer@test.com` | `test1234!` |
+
+로컬에서는 시드 명령으로 만든다. 여러 번 실행해도 안전하다.
+
+```bash
+npm run db:seed -w @live/api                        # 개발 모드
+docker compose exec api node dist/db/seed.js        # Docker
+```
 
 ## 실행 방법
 
@@ -31,6 +41,7 @@ npm run dev:api   # http://localhost:3000
 npm run dev:web   # http://localhost:5173 (/api는 3000으로 프록시)
 npm test
 ```
+- DB 마이그레이션은 api 기동 시 자동 적용된다. 스키마를 바꾸면 `npm run db:generate -w @live/api`로 마이그레이션 파일을 만든다.
 
 ### 구성
 | 디렉터리 | 내용 |

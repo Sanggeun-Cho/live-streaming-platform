@@ -1,6 +1,10 @@
 import Fastify, { type FastifyError } from 'fastify'
 import type { Config } from './config.js'
 import type { Db } from './db/client.js'
+import { authPlugin } from './auth/plugin.js'
+import { createAuthService } from './auth/service.js'
+import { AppError } from './errors.js'
+import { authRoutes } from './routes/auth.js'
 import { healthRoutes } from './routes/health.js'
 import { internalMediaRoutes } from './routes/internal-media.js'
 
@@ -16,7 +20,7 @@ export async function buildApp({ config, db }: AppDeps) {
     trustProxy: true,
   })
 
-  app.setErrorHandler<FastifyError>((error, request, reply) => {
+  app.setErrorHandler<FastifyError | AppError>((error, request, reply) => {
     const statusCode = error.statusCode ?? 500
     if (statusCode >= 500) {
       request.log.error({ err: error }, 'unhandled error')
@@ -31,7 +35,12 @@ export async function buildApp({ config, db }: AppDeps) {
     reply.code(404).send({ code: 'NOT_FOUND', message: '요청한 리소스를 찾을 수 없습니다' })
   })
 
+  const auth = createAuthService(db, { sessionTtlDays: config.SESSION_TTL_DAYS })
+  auth.deleteExpiredSessions()
+  await app.register(authPlugin, { config, auth })
+
   await app.register(healthRoutes(db), { prefix: '/api' })
+  await app.register(authRoutes({ config, auth }), { prefix: '/api' })
   await app.register(internalMediaRoutes, { prefix: '/internal' })
 
   app.addHook('onClose', async () => {
