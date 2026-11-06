@@ -1,0 +1,58 @@
+name: live
+
+services:
+  caddy:
+    build:
+      context: .
+      dockerfile: infra/caddy/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
+      WWW_ADDRESS: ${WWW_ADDRESS:-www.localhost}
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - mediamtx
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:?INTERNAL_SECRET를 .env에 설정하세요}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - api_data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  mediamtx:
+    # -ffmpeg 변형은 alpine 기반이라 훅(runOnOnline 등)에서 wget을 쓸 수 있다
+    image: bluenviron/mediamtx:1.21.3-ffmpeg
+    restart: unless-stopped
+    ports:
+      - "8189:8189/udp"
+      - "8189:8189/tcp"
+    environment:
+      # 브라우저가 미디어를 보낼 주소. 운영: galle.cloud / 로컬 휴대폰 테스트: PC의 LAN IP
+      MTX_WEBRTCADDITIONALHOSTS: ${MEDIA_PUBLIC_HOST:-127.0.0.1}
+    volumes:
+      - ./infra/mediamtx/mediamtx.yml:/mediamtx.yml:ro
+      - recordings:/recordings
+
+volumes:
+  caddy_data:
+  caddy_config:
+  api_data:
+  recordings:

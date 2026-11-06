@@ -24,7 +24,7 @@
  │   └─ /recordings/* → 녹화 파일 정적 서빙                           │
  │                                                                  │
  │  mediamtx ── authHTTP ──▶ api /internal/media/auth               │
- │           ── runOnReady / runOnNotReady / runOnRecordSegmentComplete │
+ │           ── runOnOnline / runOnOffline / runOnRecordSegmentComplete │
  │                          ──▶ api /internal/media/events           │
  │  미디어 UDP 8189 + ICE-TCP 8189 는 Caddy를 거치지 않고 직접 노출  │
  │                                                                  │
@@ -74,9 +74,9 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 
 | 현재 | 이벤트 | 다음 | 비고 |
 |---|---|---|---|
-| READY | 소유자 송출 시작(publish 인증 통과 + runOnReady) | LIVE | `started_at` 기록 |
+| READY | 소유자 송출 시작(publish 인증 통과 + runOnOnline) | LIVE | `started_at` 기록 |
 | LIVE | 소유자 종료 요청 | ENDED | MediaMTX에서 publisher를 강제로 끊는다 (Control API kick) |
-| LIVE | runOnNotReady (비정상 이탈) | LIVE + `disconnected_at` 기록 | 유예 시간 시작 |
+| LIVE | runOnOffline (비정상 이탈) | LIVE + `disconnected_at` 기록 | 유예 시간 시작 |
 | LIVE(disconnected) | 유예 시간 내 재송출 | LIVE | `disconnected_at` 해제 |
 | LIVE(disconnected) | 유예 시간(45초) 경과 | ENDED | 스케줄러가 확정 |
 | LIVE | 훅 유실 | ENDED | 스케줄러가 MediaMTX Control API로 path 상태를 주기적으로 대조해 보정 |
@@ -138,7 +138,7 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 6. 원장은 삭제하지 않는다. 방송별 내역과 합계는 원장에서 집계한다.
 
 ### 녹화·다시보기
-- MediaMTX `record: yes`, 포맷은 fMP4, path별 디렉터리에 저장한다.
+- MediaMTX `record: yes`, 포맷은 fMP4, path별 디렉터리에 저장한다. 기본값 `recordDeleteAfter: 1d`는 영구 저장 요구와 충돌하므로 `0s`로 끈다.
 - `runOnRecordSegmentComplete` 훅을 받으면 `recordings` 테이블(broadcastId, 파일 경로, 시작 시각, 길이)에 저장한다.
 - 재연결로 세그먼트가 여러 개 생기면 회차 상세에서 순서대로 재생한다.
 

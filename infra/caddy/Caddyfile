@@ -1,0 +1,38 @@
+# SITE_ADDRESS
+#   로컬: localhost (Caddy 내부 CA로 자동 HTTPS)
+#   휴대폰 테스트: "localhost, 192.168.x.x" (PC의 LAN IP)
+#   운영: galle.cloud
+{$SITE_ADDRESS:localhost} {
+	encode zstd gzip
+
+	# API (SSE 포함. Caddy는 text/event-stream 응답을 버퍼링 없이 즉시 흘려보낸다)
+	handle /api/* {
+		reverse_proxy api:3000
+	}
+
+	# WebRTC 시그널링 (WHIP 송출 / WHEP 시청): /live/{broadcastId}/whip|whep
+	# 영상 자체는 Caddy를 거치지 않고 8189(UDP/TCP)로 MediaMTX에 직접 연결된다.
+	handle /live/* {
+		reverse_proxy mediamtx:8889
+	}
+
+	# React SPA
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		# 송출 화면에서 카메라·마이크·화면 공유를 쓰므로 자기 출처에만 허용
+		Permissions-Policy "camera=(self), microphone=(self), display-capture=(self)"
+	}
+}
+
+# 운영에서만 의미가 있다: www → 루트 리다이렉트
+{$WWW_ADDRESS:www.localhost} {
+	redir https://{$SITE_ADDRESS:localhost}{uri} permanent
+}

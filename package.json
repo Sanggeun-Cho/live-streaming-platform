@@ -1,0 +1,17 @@
+{
+  "name": "live-streaming-platform",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev:api": "npm run dev -w @live/api",
+    "dev:web": "npm run dev -w @live/web",
+    "build": "npm run build -w @live/api && npm run build -w @live/web",
+    "typecheck": "npm run typecheck -w @live/api && npm run build -w @live/web",
+    "test": "npm test -w @live/api"
+  }
+}
