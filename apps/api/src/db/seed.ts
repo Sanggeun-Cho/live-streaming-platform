@@ -7,7 +7,7 @@ import { loadConfig } from '../config.js'
 import { createDb } from './client.js'
 import { users } from './schema.js'
 
-export const SEED_ACCOUNTS = [
+const SEED_ACCOUNTS = [
   { email: 'streamer@test.com', password: 'test1234!', nickname: '방송자A' },
   { email: 'viewer@test.com', password: 'test1234!', nickname: '시청자B' },
 ] as const

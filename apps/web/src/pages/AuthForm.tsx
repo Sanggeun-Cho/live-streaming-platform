@@ -3,9 +3,17 @@ import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
 import { useAuth } from '../auth/context'
 import { errorMessage } from '../lib/api'
 
-// 외부 주소로의 오픈 리다이렉트를 막기 위해 같은 사이트 내부 경로만 허용한다
+// 외부 주소로의 오픈 리다이렉트를 막기 위해 같은 출처의 경로만 허용한다.
+// '//evil.com', '/\evil.com' 같은 변형은 브라우저가 외부 주소로 해석하므로 URL로 풀어서 출처를 비교한다.
 function safeNext(next: string | null): string {
-  return next && next.startsWith('/') && !next.startsWith('//') ? next : '/'
+  if (!next || !next.startsWith('/')) return '/'
+  try {
+    const url = new URL(next, window.location.origin)
+    if (url.origin !== window.location.origin) return '/'
+    return url.pathname + url.search + url.hash
+  } catch {
+    return '/'
+  }
 }
 
 export function AuthForm({ mode }: { mode: 'login' | 'signup' }) {

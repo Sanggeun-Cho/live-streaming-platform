@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ApiError, api } from '../lib/api'
 import { AuthContext, type AuthState, type User } from './context'
 
@@ -7,12 +7,16 @@ type UserResponse = { user: User }
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [status, setStatus] = useState<AuthState['status']>('loading')
+  // 첫 /me 응답보다 로그인·가입·로그아웃이 먼저 끝나면, 늦게 온 /me 결과로 상태를 덮어쓰지 않게 막는다
+  const meController = useRef<AbortController | null>(null)
 
   // 새로고침해도 서버 세션 기준으로 로그인 상태를 복원한다
   useEffect(() => {
     const controller = new AbortController()
+    meController.current = controller
     api<UserResponse>('/auth/me', { signal: controller.signal })
       .then(({ user }) => {
+        if (controller.signal.aborted) return
         setUser(user)
         setStatus('authenticated')
       })
@@ -27,6 +31,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const applyUser = useCallback((next: User) => {
+    meController.current?.abort()
     setUser(next)
     setStatus('authenticated')
     return next
@@ -43,6 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   const logout = useCallback(async () => {
+    meController.current?.abort()
     try {
       await api<void>('/auth/logout', { method: 'POST' })
     } finally {

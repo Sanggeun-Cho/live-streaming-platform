@@ -47,6 +47,8 @@ export const authPlugin = fp<AuthPluginOptions>(async (app, { config, auth }) =>
   app.decorateRequest('user', null)
 
   app.addHook('onRequest', async (request, reply) => {
+    // 사용자 세션이 필요 없는 경로(/internal 훅, 헬스체크)는 DB 조회를 건너뛴다
+    if (!request.url.startsWith('/api/') || request.url.startsWith('/api/health')) return
     const token = request.cookies[SESSION_COOKIE]
     if (!token) return
     const session = auth.findSession(token)

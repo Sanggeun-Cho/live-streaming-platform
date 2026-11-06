@@ -133,6 +133,26 @@ describe('인증 API', () => {
     expect(sessionCookie(forged)?.value).toBe('')
   })
 
+  it('JSON이 아닌 본문(text/plain, 폼)은 415로 거부한다', async () => {
+    for (const contentType of ['text/plain', 'application/x-www-form-urlencoded']) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/auth/login',
+        headers: { 'content-type': contentType },
+        payload: 'email=a@b.com&password=x',
+      })
+      expect(res.statusCode).toBe(415)
+    }
+  })
+
+  it('로그인은 IP당 분당 10회를 넘으면 429', async () => {
+    const body = { email: 'nobody@example.com', password: 'whatever1' }
+    for (let i = 0; i < 10; i++) {
+      expect((await login(body)).statusCode).toBe(401)
+    }
+    expect((await login(body)).statusCode).toBe(429)
+  })
+
   it('만료된 세션은 거부된다', async () => {
     const sid = sessionCookie(await signup())!.value
     db.orm.update(sessions).set({ expiresAt: new Date(Date.now() - 1000) }).run()

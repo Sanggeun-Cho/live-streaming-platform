@@ -23,10 +23,6 @@ export type SessionInfo = {
 
 export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex')
 
-// 존재하지 않는 이메일로 로그인해도 검증 시간을 맞춰 계정 존재 여부가 드러나지 않게 한다
-let dummyHash: Promise<string> | undefined
-const getDummyHash = () => (dummyHash ??= hash('timing-equalizer-password'))
-
 function isUniqueViolation(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { code?: string }).code === 'SQLITE_CONSTRAINT_UNIQUE'
 }
@@ -34,6 +30,9 @@ function isUniqueViolation(err: unknown): boolean {
 export function createAuthService(db: Db, opts: { sessionTtlDays: number }) {
   const ttlMs = opts.sessionTtlDays * DAY_MS
   const { orm } = db
+  // 존재하지 않는 이메일로 로그인해도 해시 검증을 한 번 수행해 응답 시간으로 계정 존재 여부가 드러나지 않게 한다.
+  // 첫 요청에서 해시 생성 비용이 더해지지 않도록 기동 시점에 미리 만든다.
+  const dummyHash = hash('timing-equalizer-password')
 
   function loadUser(userId: number): AuthUser | undefined {
     return orm
@@ -78,7 +77,7 @@ export function createAuthService(db: Db, opts: { sessionTtlDays: number }) {
         .where(eq(users.email, email))
         .get()
       if (!row) {
-        await verify(await getDummyHash(), password)
+        await verify(await dummyHash, password)
         throw invalid()
       }
       if (!(await verify(row.passwordHash, password))) throw invalid()

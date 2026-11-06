@@ -36,10 +36,13 @@ function parse<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
   return result.data
 }
 
+// 비밀번호 추측과 argon2 연산으로 CPU를 소모시키는 요청 폭주를 막는다
+const authRateLimit = { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }
+
 export const authRoutes =
   ({ config, auth }: { config: Config; auth: AuthService }): FastifyPluginAsync =>
   async (app) => {
-    app.post('/auth/signup', async (request, reply) => {
+    app.post('/auth/signup', authRateLimit, async (request, reply) => {
       const input = parse(signupBody, request.body)
       const user = await auth.signup(input)
       // 가입 직후 바로 로그인 상태로 만든다
@@ -48,13 +51,12 @@ export const authRoutes =
       return reply.code(201).send({ user })
     })
 
-    app.post('/auth/login', async (request, reply) => {
+    app.post('/auth/login', authRateLimit, async (request, reply) => {
       const input = parse(loginBody, request.body)
       const user = await auth.verifyCredentials(input.email, input.password)
       // 이전 세션 쿠키가 있으면 폐기하고 새로 발급한다 (세션 고정 방지)
       const previous = request.cookies[SESSION_COOKIE]
       if (previous) auth.deleteSession(previous)
-      auth.deleteExpiredSessions()
       const session = auth.createSession(user.id)
       setSessionCookie(reply, config, session.token, session.expiresAt)
       return reply.send({ user })

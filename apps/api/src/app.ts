@@ -1,3 +1,4 @@
+import rateLimit from '@fastify/rate-limit'
 import Fastify, { type FastifyError } from 'fastify'
 import type { Config } from './config.js'
 import type { Db } from './db/client.js'
@@ -35,8 +36,17 @@ export async function buildApp({ config, db }: AppDeps) {
     reply.code(404).send({ code: 'NOT_FOUND', message: '요청한 리소스를 찾을 수 없습니다' })
   })
 
+  // 기본 text/plain 파서를 제거해 JSON 본문만 받는다.
+  // 교차 사이트 <form enctype="text/plain"> 전송은 415로 막힌다 (SameSite=Lax와 함께 CSRF 방어).
+  app.removeContentTypeParser('text/plain')
+
+  // 로그인·가입은 IP당 시도 횟수를 제한한다 (라우트별 config.rateLimit로 켠다)
+  await app.register(rateLimit, { global: false })
+
   const auth = createAuthService(db, { sessionTtlDays: config.SESSION_TTL_DAYS })
   auth.deleteExpiredSessions()
+  const cleanup = setInterval(() => auth.deleteExpiredSessions(), 60 * 60 * 1000)
+  cleanup.unref()
   await app.register(authPlugin, { config, auth })
 
   await app.register(healthRoutes(db), { prefix: '/api' })
@@ -44,6 +54,7 @@ export async function buildApp({ config, db }: AppDeps) {
   await app.register(internalMediaRoutes, { prefix: '/internal' })
 
   app.addHook('onClose', async () => {
+    clearInterval(cleanup)
     db.sqlite.close()
   })
 

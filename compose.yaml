@@ -29,6 +29,8 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       INTERNAL_SECRET: ${INTERNAL_SECRET:?INTERNAL_SECRET를 .env에 설정하세요}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
     volumes:
       - api_data:/data
     healthcheck:
