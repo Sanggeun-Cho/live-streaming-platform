@@ -14,7 +14,7 @@
 ## 2. 아키텍처
 
 ```
-                 https://<name>.duckdns.org  (VM 1대, docker compose)
+        https://galle.cloud  (Oracle Cloud Always Free VM 1대, docker compose)
  ┌──────────────────────────────────────────────────────────────────┐
  │  Caddy (자동 HTTPS)                                               │
  │   ├─ /            → web   (React 정적 파일)                       │
@@ -46,11 +46,15 @@
 | 프론트 | React + Vite + TypeScript | 송출 화면의 상태 전이(권한 → 미리보기 → 송출 → 재연결 → 종료) 관리 |
 | 결제 | 토스페이먼츠 테스트 모드 | 서버 승인 API로 금액·주문 검증 |
 | 리버스 프록시 | Caddy | 자동 HTTPS (Let's Encrypt) |
-| 도메인 | DuckDNS | 무료 서브도메인 |
+| 도메인 | `galle.cloud` (가비아 DNS) | 보유 도메인. `www`는 루트로 리다이렉트 |
+| 호스팅 | Oracle Cloud Always Free (춘천 리전) | 0원. AMD Micro(1GB)로 충분하고, ARM(A1)을 확보하면 이전 |
+| 이미지 빌드 | GitHub Actions → GHCR (amd64 + arm64) | VM이 약해서 빌드는 CI에서 하고, VM은 pull만 한다 |
 
 ### 기각한 대안
 - **LiveKit Cloud / Egress**: 무료 한도에 의존하고, 녹화(Egress)는 비용이나 무거운 자체 호스팅이 필요하다.
 - **Render 무료 플랜**: HTTP 포트 하나만 노출되어 WebRTC 미디어를 처리할 수 없다. 15분 유휴 시 슬립하고, 디스크가 휘발성이다. 미디어용 VM은 어차피 필요하므로 컴포넌트를 나누면 장애 지점만 늘어난다.
+- **Vercel(프론트) + Oracle(백엔드) 분리**: 출처가 갈라져 iOS Safari에서 세션 쿠키가 서드파티로 차단된다. rewrite, CORS, 경로별 분기가 필요하고 배포 대상이 2개로 늘어난다. 단일 출처가 더 단순하다.
+- **AWS**: 프리티어가 만료되어 비용이 발생한다.
 - **Spring Boot**: 이번 범위에서는 메모리(1GB VM)와 개발 속도 면에서 불리하다.
 - **HLS 시청**: 지연이 3~10초다. WebRTC 경로가 실패할 때를 위한 플랜 B로 남긴다.
 
@@ -142,7 +146,9 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 
 | 위험 | 대응 |
 |---|---|
-| 배포 호스트 미확보 | 11-07까지 결정. Oracle AMD Micro(무료) → 실패 시 AWS/GCP 무료 크레딧 |
+| Oracle 가입·VM 생성 실패 | 춘천 → 서울 → 도쿄·오사카 리전 순으로 시도. 모두 실패하면 GCP 무료 크레딧 |
+| Always Free 유휴 인스턴스 회수 | 제출 직전 Pay As You Go 전환 여부를 결정하고 $1 예산 알림을 설정 ([INFRA_SETUP.md](INFRA_SETUP.md) §9) |
+| 1GB 메모리 부족 | 2GB 스왑, 이미지 빌드는 CI에서만 |
 | 실기기 WebRTC 연결 실패 | 1~2일차 스파이크. 실패 시 시청 경로를 LL-HLS로 전환 |
 | 로컬 모바일 테스트에 HTTPS 필요 | Caddy `tls internal` 또는 mkcert + LAN IP |
 | 훅 유실로 유령 LIVE | 스케줄러가 Control API와 대조해 보정 |
