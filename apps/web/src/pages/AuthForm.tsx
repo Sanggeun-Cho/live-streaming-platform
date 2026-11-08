@@ -1,7 +1,10 @@
 import { type FormEvent, useState } from 'react'
-import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
+import { Link, Navigate, useSearchParams } from 'react-router'
 import { useAuth } from '../auth/context'
 import { errorMessage } from '../lib/api'
+
+// 로그인 후 돌아갈 수 없는 경로. 로그인 상태로 이 화면들에 오면 다시 next로 보내므로 자기 자신을 가리키면 멈추거나 반복된다
+const AUTH_PATHS = new Set(['/login', '/signup'])
 
 // 외부 주소로의 오픈 리다이렉트를 막기 위해 같은 출처의 경로만 허용한다.
 // '//evil.com', '/\evil.com' 같은 변형은 브라우저가 외부 주소로 해석하므로 URL로 풀어서 출처를 비교한다.
@@ -10,6 +13,7 @@ function safeNext(next: string | null): string {
   try {
     const url = new URL(next, window.location.origin)
     if (url.origin !== window.location.origin) return '/'
+    if (AUTH_PATHS.has(url.pathname.replace(/\/+$/, '') || '/')) return '/'
     return url.pathname + url.search + url.hash
   } catch {
     return '/'
@@ -18,7 +22,6 @@ function safeNext(next: string | null): string {
 
 export function AuthForm({ mode }: { mode: 'login' | 'signup' }) {
   const { status, login, signup } = useAuth()
-  const navigate = useNavigate()
   const [params] = useSearchParams()
   const next = safeNext(params.get('next'))
 
@@ -28,7 +31,8 @@ export function AuthForm({ mode }: { mode: 'login' | 'signup' }) {
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
-  if (status === 'authenticated' && !submitting) return <Navigate to={next} replace />
+  // 로그인 성공 시 이동도 여기 한 곳에서 처리한다 (status가 바뀌면 다시 렌더링되며 이동)
+  if (status === 'authenticated') return <Navigate to={next} replace />
 
   const isSignup = mode === 'signup'
 
@@ -39,7 +43,6 @@ export function AuthForm({ mode }: { mode: 'login' | 'signup' }) {
     try {
       if (isSignup) await signup({ email, password, nickname })
       else await login({ email, password })
-      navigate(next, { replace: true })
     } catch (err) {
       setError(errorMessage(err))
       setSubmitting(false)

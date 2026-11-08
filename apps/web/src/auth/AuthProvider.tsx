@@ -10,8 +10,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // 첫 /me 응답보다 로그인·가입·로그아웃이 먼저 끝나면, 늦게 온 /me 결과로 상태를 덮어쓰지 않게 막는다
   const meController = useRef<AbortController | null>(null)
 
-  // 새로고침해도 서버 세션 기준으로 로그인 상태를 복원한다
-  useEffect(() => {
+  // 서버 세션 기준으로 로그인 상태를 확인한다 (새로고침 복원, '다시 시도')
+  const checkSession = useCallback(() => {
+    meController.current?.abort()
     const controller = new AbortController()
     meController.current = controller
     api<UserResponse>('/auth/me', { signal: controller.signal })
@@ -22,13 +23,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       .catch((e: unknown) => {
         if (controller.signal.aborted) return
-        // 401 외의 실패(서버 다운 등)도 비로그인으로 보여주고, 다음 요청에서 다시 확인된다
-        if (!(e instanceof ApiError && e.status === 401)) console.warn('세션 확인 실패', e)
         setUser(null)
-        setStatus('anonymous')
+        if (e instanceof ApiError && e.status === 401) {
+          setStatus('anonymous')
+          return
+        }
+        // 서버 다운·네트워크 오류: 세션은 유효할 수 있으므로 비로그인으로 단정하지 않는다.
+        // 다시 로그인하면 불필요한 세션만 늘어나므로, 화면에서 '다시 시도'를 안내한다
+        console.warn('세션 확인 실패', e)
+        setStatus('error')
       })
-    return () => controller.abort()
+    return controller
   }, [])
+
+  useEffect(() => {
+    const controller = checkSession()
+    return () => controller.abort()
+  }, [checkSession])
+
+  // 오류 상태에서 네트워크가 돌아오면 자동으로 다시 확인한다
+  useEffect(() => {
+    if (status !== 'error') return
+    const onOnline = () => {
+      setStatus('loading')
+      checkSession()
+    }
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
+  }, [status, checkSession])
 
   const applyUser = useCallback((next: User) => {
     meController.current?.abort()
@@ -58,9 +80,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const refresh = useCallback(() => {
+    setStatus('loading')
+    checkSession()
+  }, [checkSession])
+
   const value = useMemo<AuthState>(
-    () => ({ status, user, login, signup, logout }),
-    [status, user, login, signup, logout],
+    () => ({ status, user, login, signup, logout, refresh }),
+    [status, user, login, signup, logout, refresh],
   )
 
   return <AuthContext value={value}>{children}</AuthContext>

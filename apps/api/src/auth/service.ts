@@ -46,6 +46,12 @@ export function createAuthService(db: Db, opts: { sessionTtlDays: number }) {
   return {
     /** 사용자와 채널을 한 트랜잭션에서 만든다 */
     async signup(input: { email: string; password: string; nickname: string }): Promise<AuthUser> {
+      const emailTaken = () => new AppError(409, 'EMAIL_TAKEN', '이미 가입된 이메일입니다')
+      // 중복이면 비싼 argon2 해시 전에 끝낸다. 동시 가입 경합은 아래 UNIQUE 제약이 막는다.
+      // 가입 단계에서 이메일 사용 여부가 드러나는 것은 허용한다 (시도 횟수 제한으로 대량 조회만 막는다).
+      if (orm.select({ id: users.id }).from(users).where(eq(users.email, input.email)).get()) {
+        throw emailTaken()
+      }
       const passwordHash = await hash(input.password)
       try {
         return orm.transaction((tx) => {
@@ -62,9 +68,7 @@ export function createAuthService(db: Db, opts: { sessionTtlDays: number }) {
           return { id: user.id, email: input.email, nickname: input.nickname, channelId: channel.id }
         })
       } catch (err) {
-        if (isUniqueViolation(err)) {
-          throw new AppError(409, 'EMAIL_TAKEN', '이미 가입된 이메일입니다')
-        }
+        if (isUniqueViolation(err)) throw emailTaken()
         throw err
       }
     },
@@ -98,22 +102,26 @@ export function createAuthService(db: Db, opts: { sessionTtlDays: number }) {
     findSession(token: string): SessionInfo | undefined {
       const id = hashToken(token)
       const now = Date.now()
-      const session = orm
-        .select()
+      // 모든 /api 요청에서 호출되므로 세션·사용자·채널을 한 번의 조인으로 읽는다
+      const row = orm
+        .select({
+          expiresAt: sessions.expiresAt,
+          user: { id: users.id, email: users.email, nickname: users.nickname, channelId: channels.id },
+        })
         .from(sessions)
+        .innerJoin(users, eq(users.id, sessions.userId))
+        .innerJoin(channels, eq(channels.userId, users.id))
         .where(and(eq(sessions.id, id), gt(sessions.expiresAt, new Date(now))))
         .get()
-      if (!session) return undefined
+      if (!row) return undefined
+      const { user, expiresAt: currentExpiry } = row
 
-      const user = loadUser(session.userId)
-      if (!user) return undefined
-
-      if (session.expiresAt.getTime() - now < ttlMs / 2) {
+      if (currentExpiry.getTime() - now < ttlMs / 2) {
         const expiresAt = new Date(now + ttlMs)
         orm.update(sessions).set({ expiresAt }).where(eq(sessions.id, id)).run()
         return { user, expiresAt, renewed: true }
       }
-      return { user, expiresAt: session.expiresAt, renewed: false }
+      return { user, expiresAt: currentExpiry, renewed: false }
     },
 
     deleteSession(token: string): void {

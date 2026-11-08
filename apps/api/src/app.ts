@@ -17,8 +17,9 @@ export type AppDeps = {
 export async function buildApp({ config, db }: AppDeps) {
   const app = Fastify({
     logger: config.NODE_ENV === 'test' ? false : { level: config.LOG_LEVEL },
-    // Caddy 뒤에서 동작하므로 X-Forwarded-* 헤더를 신뢰한다
-    trustProxy: true,
+    // 지정한 프록시(Caddy)가 보낸 X-Forwarded-*만 믿는다. request.ip는 시도 횟수 제한의 기준이라
+    // 아무나 보낸 헤더를 믿으면 요청마다 IP를 바꿔 제한을 우회할 수 있다.
+    trustProxy: config.TRUST_PROXY.length > 0 ? config.TRUST_PROXY : false,
   })
 
   app.setErrorHandler<FastifyError | AppError>((error, request, reply) => {
@@ -41,7 +42,16 @@ export async function buildApp({ config, db }: AppDeps) {
   app.removeContentTypeParser('text/plain')
 
   // 로그인·가입은 IP당 시도 횟수를 제한한다 (라우트별 config.rateLimit로 켠다)
-  await app.register(rateLimit, { global: false })
+  await app.register(rateLimit, {
+    global: false,
+    // 기본 응답은 code 없이 영어 메시지라 공통 에러 형식으로 바꾼다 (던진 값은 setErrorHandler로 간다)
+    errorResponseBuilder: (_request, context) =>
+      new AppError(
+        429,
+        'TOO_MANY_REQUESTS',
+        `요청이 너무 많습니다. ${Math.max(1, Math.ceil(context.ttl / 1000))}초 후 다시 시도하세요`,
+      ),
+  })
 
   const auth = createAuthService(db, { sessionTtlDays: config.SESSION_TTL_DAYS })
   auth.deleteExpiredSessions()

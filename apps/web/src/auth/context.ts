@@ -8,12 +8,17 @@ export type User = {
 }
 
 export type AuthState = {
-  /** loading: 첫 /me 확인 중. 이 동안은 로그인 여부를 판단하지 않는다 */
-  status: 'loading' | 'authenticated' | 'anonymous'
+  /**
+   * loading: /me 확인 중. 이 동안은 로그인 여부를 판단하지 않는다
+   * error: 서버에 연결하지 못해 로그인 여부를 모른다 (세션이 유효할 수 있으므로 비로그인으로 취급하지 않는다)
+   */
+  status: 'loading' | 'authenticated' | 'anonymous' | 'error'
   user: User | null
   login: (input: { email: string; password: string }) => Promise<User>
   signup: (input: { email: string; password: string; nickname: string }) => Promise<User>
   logout: () => Promise<void>
+  /** 세션 상태를 서버에 다시 확인한다 (status가 error일 때 '다시 시도') */
+  refresh: () => void
 }
 
 export const AuthContext = createContext<AuthState | null>(null)

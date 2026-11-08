@@ -19,6 +19,10 @@ services:
     depends_on:
       - api
       - mediamtx
+    networks:
+      default:
+        # api가 X-Forwarded-For를 믿는 유일한 주소 (api의 TRUST_PROXY와 짝)
+        ipv4_address: 10.89.0.10
 
   api:
     build:
@@ -31,6 +35,8 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
       SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
+      # Caddy 컨테이너만 프록시로 믿는다. 같은 네트워크의 다른 컨테이너가 보낸 X-Forwarded-For는 무시된다
+      TRUST_PROXY: 10.89.0.10
     volumes:
       - api_data:/data
     healthcheck:
@@ -56,6 +62,14 @@ services:
       - ./infra/mediamtx/mediamtx.yml:/mediamtx.yml:ro
       - ./infra/mediamtx/hooks:/hooks:ro
       - recordings:/recordings
+
+networks:
+  default:
+    ipam:
+      config:
+        # Caddy에 고정 IP를 주기 위해 서브넷을 고정한다.
+        # Docker 기본 대역(172.17~31, 192.168)과 Oracle VCN 기본값(10.0.0.0/16)을 피했다
+        - subnet: 10.89.0.0/24
 
 volumes:
   caddy_data:

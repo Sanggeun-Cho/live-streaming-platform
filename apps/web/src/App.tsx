@@ -4,7 +4,7 @@ import { AuthForm } from './pages/AuthForm'
 import { HomePage } from './pages/HomePage'
 
 function Header() {
-  const { status, user, logout } = useAuth()
+  const { status, user, logout, refresh } = useAuth()
   return (
     <header className="header">
       <Link to="/" className="brand">
@@ -16,6 +16,14 @@ function Header() {
             <span>{user.nickname}</span>
             <button type="button" className="link-button" onClick={() => void logout()}>
               로그아웃
+            </button>
+          </>
+        )}
+        {status === 'error' && (
+          <>
+            <span className="error">서버 연결 오류</span>
+            <button type="button" className="link-button" onClick={refresh}>
+              다시 시도
             </button>
           </>
         )}

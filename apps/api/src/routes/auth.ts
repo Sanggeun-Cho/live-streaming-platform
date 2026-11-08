@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from 'fastify'
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import { clearSessionCookie, requireAuth, SESSION_COOKIE, setSessionCookie } from '../auth/plugin.js'
 import type { AuthService } from '../auth/service.js'
@@ -42,10 +42,18 @@ const authRateLimit = { config: { rateLimit: { max: 10, timeWindow: '1 minute' }
 export const authRoutes =
   ({ config, auth }: { config: Config; auth: AuthService }): FastifyPluginAsync =>
   async (app) => {
+    // 새 세션을 발급하기 전에, 이 요청(=이 브라우저)에 실려 온 이전 세션을 폐기한다 (세션 고정 방지).
+    // 다른 기기의 세션은 건드리지 않는다.
+    const revokePreviousSession = (request: FastifyRequest) => {
+      const previous = request.cookies[SESSION_COOKIE]
+      if (previous) auth.deleteSession(previous)
+    }
+
     app.post('/auth/signup', authRateLimit, async (request, reply) => {
       const input = parse(signupBody, request.body)
       const user = await auth.signup(input)
-      // 가입 직후 바로 로그인 상태로 만든다
+      // 가입 직후 바로 로그인 상태로 만든다. 이 브라우저의 이전 세션은 폐기한다
+      revokePreviousSession(request)
       const session = auth.createSession(user.id)
       setSessionCookie(reply, config, session.token, session.expiresAt)
       return reply.code(201).send({ user })
@@ -54,9 +62,7 @@ export const authRoutes =
     app.post('/auth/login', authRateLimit, async (request, reply) => {
       const input = parse(loginBody, request.body)
       const user = await auth.verifyCredentials(input.email, input.password)
-      // 이전 세션 쿠키가 있으면 폐기하고 새로 발급한다 (세션 고정 방지)
-      const previous = request.cookies[SESSION_COOKIE]
-      if (previous) auth.deleteSession(previous)
+      revokePreviousSession(request)
       const session = auth.createSession(user.id)
       setSessionCookie(reply, config, session.token, session.expiresAt)
       return reply.send({ user })

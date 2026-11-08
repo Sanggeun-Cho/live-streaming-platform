@@ -16,8 +16,8 @@ function sessionCookie(res: { cookies: Array<{ name: string; value: string }> })
   return res.cookies.find((c) => c.name === 'sid')
 }
 
-async function makeApp(path = ':memory:') {
-  const config = loadConfig({ NODE_ENV: 'test', DATABASE_PATH: path })
+async function makeApp(path = ':memory:', env: Record<string, string> = {}) {
+  const config = loadConfig({ NODE_ENV: 'test', DATABASE_PATH: path, ...env })
   const db = createDb(path)
   const app = await buildApp({ config, db })
   return { app, db }
@@ -145,12 +145,38 @@ describe('인증 API', () => {
     }
   })
 
-  it('로그인은 IP당 분당 10회를 넘으면 429', async () => {
+  it('로그인은 IP당 분당 10회를 넘으면 429 TOO_MANY_REQUESTS', async () => {
     const body = { email: 'nobody@example.com', password: 'whatever1' }
     for (let i = 0; i < 10; i++) {
       expect((await login(body)).statusCode).toBe(401)
     }
-    expect((await login(body)).statusCode).toBe(429)
+    const res = await login(body)
+    expect(res.statusCode).toBe(429)
+    expect(res.json()).toMatchObject({ code: 'TOO_MANY_REQUESTS' })
+    expect(res.json().message).toMatch(/초 후 다시 시도/)
+  })
+
+  it('신뢰하지 않는 출처가 보낸 X-Forwarded-For로는 시도 제한을 우회할 수 없다', async () => {
+    const body = { email: 'nobody@example.com', password: 'whatever1' }
+    const spoofed = (i: number) =>
+      app.inject({ method: 'POST', url: '/api/auth/login', payload: body, headers: { 'x-forwarded-for': `10.0.0.${i}` } })
+    for (let i = 0; i < 10; i++) {
+      expect((await spoofed(i)).statusCode).toBe(401)
+    }
+    expect((await spoofed(99)).statusCode).toBe(429)
+  })
+
+  it('회원가입도 요청에 실려 온 이전 세션을 폐기한다', async () => {
+    const old = sessionCookie(await signup())!.value
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/auth/signup',
+      payload: { ...ACCOUNT, email: 'bob@example.com', nickname: '밥아저씨' },
+      cookies: { sid: old },
+    })
+    expect(res.statusCode).toBe(201)
+    expect((await me(old)).statusCode).toBe(401)
+    expect((await me(sessionCookie(res)!.value)).json().user.email).toBe('bob@example.com')
   })
 
   it('만료된 세션은 거부된다', async () => {
@@ -169,6 +195,23 @@ describe('인증 API', () => {
     expect(sessionCookie(res)?.value).toBe(sid)
     const row = db.orm.select().from(sessions).get()!
     expect(row.expiresAt.getTime()).toBeGreaterThan(soon.getTime())
+  })
+})
+
+describe('리버스 프록시 신뢰 (TRUST_PROXY)', () => {
+  it('신뢰하는 프록시(Caddy)가 전달한 클라이언트 IP별로 시도 횟수를 센다', async () => {
+    // inject 요청의 소켓 주소는 127.0.0.1이다. 운영에서는 Caddy 컨테이너 IP가 이 자리에 온다.
+    const { app } = await makeApp(':memory:', { TRUST_PROXY: '127.0.0.1' })
+    const body = { email: 'nobody@example.com', password: 'whatever1' }
+    const from = (ip: string) =>
+      app.inject({ method: 'POST', url: '/api/auth/login', payload: body, headers: { 'x-forwarded-for': ip } })
+    for (let i = 0; i < 10; i++) {
+      expect((await from('203.0.113.1')).statusCode).toBe(401)
+    }
+    expect((await from('203.0.113.1')).statusCode).toBe(429)
+    // 다른 사용자는 영향을 받지 않는다
+    expect((await from('203.0.113.2')).statusCode).toBe(401)
+    await app.close()
   })
 })
 

@@ -18,6 +18,17 @@ const envSchema = z
       .default('true')
       .transform((v) => v === 'true'),
     SESSION_TTL_DAYS: z.coerce.number().int().positive().default(30),
+    // X-Forwarded-For를 믿을 프록시 주소(IP/CIDR, 쉼표 구분). 비우면 아무도 믿지 않고 소켓 주소를 쓴다.
+    // compose에서는 Caddy 컨테이너의 고정 IP만 넣는다. 다른 주소가 보낸 X-Forwarded-For는 무시된다.
+    TRUST_PROXY: z
+      .string()
+      .default('')
+      .transform((v) =>
+        v
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+      ),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && env.INTERNAL_SECRET === DEV_INTERNAL_SECRET) {
