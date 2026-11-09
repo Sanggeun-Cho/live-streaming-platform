@@ -1,0 +1,72 @@
+import rateLimit from '@fastify/rate-limit'
+import Fastify, { type FastifyError } from 'fastify'
+import type { Config } from './config.js'
+import type { Db } from './db/client.js'
+import { authPlugin } from './auth/plugin.js'
+import { createAuthService } from './auth/service.js'
+import { AppError } from './errors.js'
+import { authRoutes } from './routes/auth.js'
+import { healthRoutes } from './routes/health.js'
+import { internalMediaRoutes } from './routes/internal-media.js'
+
+export type AppDeps = {
+  config: Config
+  db: Db
+}
+
+export async function buildApp({ config, db }: AppDeps) {
+  const app = Fastify({
+    logger: config.NODE_ENV === 'test' ? false : { level: config.LOG_LEVEL },
+    // 지정한 프록시(Caddy)가 보낸 X-Forwarded-*만 믿는다. request.ip는 시도 횟수 제한의 기준이라
+    // 아무나 보낸 헤더를 믿으면 요청마다 IP를 바꿔 제한을 우회할 수 있다.
+    trustProxy: config.TRUST_PROXY.length > 0 ? config.TRUST_PROXY : false,
+  })
+
+  app.setErrorHandler<FastifyError | AppError>((error, request, reply) => {
+    const statusCode = error.statusCode ?? 500
+    if (statusCode >= 500) {
+      request.log.error({ err: error }, 'unhandled error')
+    }
+    reply.code(statusCode).send({
+      code: error.code ?? 'INTERNAL_ERROR',
+      message: statusCode >= 500 ? '서버 오류가 발생했습니다' : error.message,
+    })
+  })
+
+  app.setNotFoundHandler((_request, reply) => {
+    reply.code(404).send({ code: 'NOT_FOUND', message: '요청한 리소스를 찾을 수 없습니다' })
+  })
+
+  // 기본 text/plain 파서를 제거해 JSON 본문만 받는다.
+  // 교차 사이트 <form enctype="text/plain"> 전송은 415로 막힌다 (SameSite=Lax와 함께 CSRF 방어).
+  app.removeContentTypeParser('text/plain')
+
+  // 로그인·가입은 IP당 시도 횟수를 제한한다 (라우트별 config.rateLimit로 켠다)
+  await app.register(rateLimit, {
+    global: false,
+    // 기본 응답은 code 없이 영어 메시지라 공통 에러 형식으로 바꾼다 (던진 값은 setErrorHandler로 간다)
+    errorResponseBuilder: (_request, context) =>
+      new AppError(
+        429,
+        'TOO_MANY_REQUESTS',
+        `요청이 너무 많습니다. ${Math.max(1, Math.ceil(context.ttl / 1000))}초 후 다시 시도하세요`,
+      ),
+  })
+
+  const auth = createAuthService(db, { sessionTtlDays: config.SESSION_TTL_DAYS })
+  auth.deleteExpiredSessions()
+  const cleanup = setInterval(() => auth.deleteExpiredSessions(), 60 * 60 * 1000)
+  cleanup.unref()
+  await app.register(authPlugin, { config, auth })
+
+  await app.register(healthRoutes(db), { prefix: '/api' })
+  await app.register(authRoutes({ config, auth }), { prefix: '/api' })
+  await app.register(internalMediaRoutes, { prefix: '/internal' })
+
+  app.addHook('onClose', async () => {
+    clearInterval(cleanup)
+    db.sqlite.close()
+  })
+
+  return app
+}

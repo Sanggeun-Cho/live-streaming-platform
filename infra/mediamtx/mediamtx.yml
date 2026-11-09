@@ -1,0 +1,60 @@
+# MediaMTX v1.21.3 설정. 명시하지 않은 항목은 기본값을 따른다.
+# 기본값 전체: https://github.com/bluenviron/mediamtx/blob/v1.21.3/mediamtx.yml
+# 환경변수로 덮어쓸 수 있다. 예) MTX_WEBRTCADDITIONALHOSTS=galle.cloud
+
+logLevel: info
+
+# 사용하지 않는 프로토콜은 끈다 (메모리 절약, 공격 면 축소)
+rtsp: no
+rtmp: no
+hls: no
+srt: no
+moq: no
+
+# Control API: api 컨테이너가 path 상태 조회와 송출 강제 종료에 사용한다 (외부 비공개)
+api: yes
+apiAddress: :9997
+
+# 녹화 재생 서버 (#12에서 사용)
+playback: no
+
+webrtc: yes
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+# UDP가 막힌 네트워크(일부 이동통신망·사내망)를 위한 ICE-TCP 폴백
+webrtcLocalTCPAddress: :8189
+# 컨테이너 내부 IP는 외부에서 도달할 수 없으므로 광고하지 않는다.
+# 대신 MTX_WEBRTCADDITIONALHOSTS로 공인 도메인/IP(로컬에서는 PC의 LAN IP)를 지정한다.
+webrtcIPsFromInterfaces: no
+webrtcAdditionalHosts: []
+
+# 인가는 api에 위임한다. publish/read 요청마다 api의 /internal/media/auth를 호출하고, 2xx면 허용한다.
+# #2 스파이크 단계의 api는 모두 허용하므로 아직 배포하지 않는다. TODO(#6): 토큰·방송 상태 검증
+authMethod: http
+authHTTPAddress: http://api:3000/internal/media/auth
+# Control API는 api 컨테이너만 쓴다. 9997 포트는 외부에 공개하지 않으므로 HTTP 인가에서 제외한다.
+authHTTPExclude:
+  - action: api
+  - action: metrics
+  - action: pprof
+
+pathDefaults:
+  # 같은 방송에 새 송출이 들어오면 기존 송출을 대체한다 (탭 중복, 재연결)
+  overridePublisher: yes
+  # 기본값 1d면 녹화가 하루 뒤 삭제된다. 영구 저장 요구사항 때문에 끈다.
+  recordDeleteAfter: 0s
+  recordFormat: fmp4
+  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f_%z
+  # 방송 중 세그먼트를 나누는 주기. 송출이 끝나면 그 시점까지가 한 세그먼트로 닫힌다.
+  recordSegmentDuration: 1h
+  record: no
+
+  # 상태 머신 입력. 훅이 유실돼도 #6의 Control API 주기 대조로 보정한다.
+  runOnOnline: sh /hooks/notify.sh online
+  runOnOffline: sh /hooks/notify.sh offline
+  runOnRecordSegmentComplete: sh /hooks/notify.sh segment
+
+paths:
+  # 방송 회차 하나 = path 하나 (live/{broadcastId})
+  "~^live/[0-9]+$":
+    record: yes

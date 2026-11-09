@@ -1,0 +1,81 @@
+name: live
+
+services:
+  caddy:
+    # 로컬: up --build로 직접 빌드 / 서버: CI가 올린 이미지를 pull만 한다 (.github/workflows/images.yml)
+    image: ghcr.io/sanggeun-cho/live-streaming-platform/caddy:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: infra/caddy/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
+      WWW_ADDRESS: ${WWW_ADDRESS:-www.localhost}
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - mediamtx
+    networks:
+      default:
+        # api가 X-Forwarded-For를 믿는 유일한 주소 (api의 TRUST_PROXY와 짝)
+        ipv4_address: 10.89.0.10
+
+  api:
+    image: ghcr.io/sanggeun-cho/live-streaming-platform/api:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:?INTERNAL_SECRET를 .env에 설정하세요}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
+      # Caddy 컨테이너만 프록시로 믿는다. 같은 네트워크의 다른 컨테이너가 보낸 X-Forwarded-For는 무시된다
+      TRUST_PROXY: 10.89.0.10
+    volumes:
+      - api_data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  mediamtx:
+    # -ffmpeg 변형은 alpine 기반이라 훅(runOnOnline 등)에서 wget을 쓸 수 있다
+    image: bluenviron/mediamtx:1.21.3-ffmpeg
+    restart: unless-stopped
+    # 인가(authHTTPAddress)와 훅을 api에 위임하므로 api가 먼저 떠 있어야 한다
+    depends_on:
+      - api
+    ports:
+      - "8189:8189/udp"
+      - "8189:8189/tcp"
+    environment:
+      # 브라우저가 미디어를 보낼 주소. 운영: galle.cloud / 로컬 휴대폰 테스트: PC의 LAN IP
+      MTX_WEBRTCADDITIONALHOSTS: ${MEDIA_PUBLIC_HOST:-127.0.0.1}
+    volumes:
+      - ./infra/mediamtx/mediamtx.yml:/mediamtx.yml:ro
+      - ./infra/mediamtx/hooks:/hooks:ro
+      - recordings:/recordings
+
+networks:
+  default:
+    ipam:
+      config:
+        # Caddy에 고정 IP를 주기 위해 서브넷을 고정한다.
+        # Docker 기본 대역(172.17~31, 192.168)과 Oracle VCN 기본값(10.0.0.0/16)을 피했다
+        - subnet: 10.89.0.0/24
+
+volumes:
+  caddy_data:
+  caddy_config:
+  api_data:
+  recordings:

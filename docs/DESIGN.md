@@ -14,7 +14,7 @@
 ## 2. 아키텍처
 
 ```
-                 https://<name>.duckdns.org  (VM 1대, docker compose)
+        https://galle.cloud  (Oracle Cloud Always Free VM 1대, docker compose)
  ┌──────────────────────────────────────────────────────────────────┐
  │  Caddy (자동 HTTPS)                                               │
  │   ├─ /            → web   (React 정적 파일)                       │
@@ -24,7 +24,7 @@
  │   └─ /recordings/* → 녹화 파일 정적 서빙                           │
  │                                                                  │
  │  mediamtx ── authHTTP ──▶ api /internal/media/auth               │
- │           ── runOnReady / runOnNotReady / runOnRecordSegmentComplete │
+ │           ── runOnOnline / runOnOffline / runOnRecordSegmentComplete │
  │                          ──▶ api /internal/media/events           │
  │  미디어 UDP 8189 + ICE-TCP 8189 는 Caddy를 거치지 않고 직접 노출  │
  │                                                                  │
@@ -46,11 +46,15 @@
 | 프론트 | React + Vite + TypeScript | 송출 화면의 상태 전이(권한 → 미리보기 → 송출 → 재연결 → 종료) 관리 |
 | 결제 | 토스페이먼츠 테스트 모드 | 서버 승인 API로 금액·주문 검증 |
 | 리버스 프록시 | Caddy | 자동 HTTPS (Let's Encrypt) |
-| 도메인 | DuckDNS | 무료 서브도메인 |
+| 도메인 | `galle.cloud` (가비아 DNS) | 보유 도메인. `www`는 루트로 리다이렉트 |
+| 호스팅 | Oracle Cloud Always Free (도쿄 리전) | 0원. AMD Micro(1GB)로 운영 중이고, ARM(A1)을 확보하면 이전 |
+| 이미지 빌드 | GitHub Actions → GHCR (amd64 + arm64) | 빌드는 CI에서 하고, VM은 pull만 한다. A1으로 옮겨도 유지한다 (배포가 서버 사양에 묶이지 않고, 같은 이미지를 재현할 수 있다) |
 
 ### 기각한 대안
 - **LiveKit Cloud / Egress**: 무료 한도에 의존하고, 녹화(Egress)는 비용이나 무거운 자체 호스팅이 필요하다.
 - **Render 무료 플랜**: HTTP 포트 하나만 노출되어 WebRTC 미디어를 처리할 수 없다. 15분 유휴 시 슬립하고, 디스크가 휘발성이다. 미디어용 VM은 어차피 필요하므로 컴포넌트를 나누면 장애 지점만 늘어난다.
+- **Vercel(프론트) + Oracle(백엔드) 분리**: 출처가 갈라져 iOS Safari에서 세션 쿠키가 서드파티로 차단된다. rewrite, CORS, 경로별 분기가 필요하고 배포 대상이 2개로 늘어난다. 단일 출처가 더 단순하다.
+- **AWS**: 프리티어가 만료되어 비용이 발생한다.
 - **Spring Boot**: 이번 범위에서는 메모리(1GB VM)와 개발 속도 면에서 불리하다.
 - **HLS 시청**: 지연이 3~10초다. WebRTC 경로가 실패할 때를 위한 플랜 B로 남긴다.
 
@@ -70,9 +74,9 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 
 | 현재 | 이벤트 | 다음 | 비고 |
 |---|---|---|---|
-| READY | 소유자 송출 시작(publish 인증 통과 + runOnReady) | LIVE | `started_at` 기록 |
+| READY | 소유자 송출 시작(publish 인증 통과 + runOnOnline) | LIVE | `started_at` 기록 |
 | LIVE | 소유자 종료 요청 | ENDED | MediaMTX에서 publisher를 강제로 끊는다 (Control API kick) |
-| LIVE | runOnNotReady (비정상 이탈) | LIVE + `disconnected_at` 기록 | 유예 시간 시작 |
+| LIVE | runOnOffline (비정상 이탈) | LIVE + `disconnected_at` 기록 | 유예 시간 시작 |
 | LIVE(disconnected) | 유예 시간 내 재송출 | LIVE | `disconnected_at` 해제 |
 | LIVE(disconnected) | 유예 시간(45초) 경과 | ENDED | 스케줄러가 확정 |
 | LIVE | 훅 유실 | ENDED | 스케줄러가 MediaMTX Control API로 path 상태를 주기적으로 대조해 보정 |
@@ -82,7 +86,17 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 
 ## 5. 인증·인가
 
-- **사용자 인증**: 세션 ID를 HttpOnly + Secure + SameSite=Lax 쿠키에 담는다. 세션은 SQLite 테이블에 저장해 서버 재시작 후에도 유지한다. 비밀번호는 argon2로 해시한다.
+- **사용자 인증**: 세션 ID를 HttpOnly + Secure + SameSite=Lax 쿠키에 담는다. 세션은 SQLite 테이블에 저장해 서버 재시작 후에도 유지한다. 비밀번호는 argon2id로 해시한다.
+  - 쿠키에는 무작위 토큰(32바이트)을, DB에는 그 **SHA-256 해시**를 저장한다. DB가 유출되어도 세션을 바로 탈취할 수 없다.
+  - 수명 30일, 남은 기간이 절반 이하일 때 요청이 오면 연장한다(슬라이딩). 로그인·회원가입 시 그 요청에 실려 온(같은 브라우저의) 기존 세션은 폐기한다(세션 고정 방지). 다른 기기의 세션은 유지한다.
+  - 없는 이메일과 틀린 비밀번호는 같은 401 응답을 주고, 없는 이메일도 해시 검증을 수행해 응답 시간으로 계정 존재 여부가 드러나지 않게 한다.
+  - 회원가입은 "이미 가입된 이메일"(409)을 알려준다. 가입 화면의 사용성을 위해 이 단계의 노출은 허용하고, 아래 시도 횟수 제한으로 대량 조회만 막는다. 중복 확인은 argon2 해시보다 먼저 한다.
+  - CSRF: SameSite=Lax로 교차 사이트 POST에 쿠키가 실리지 않고, API는 JSON 본문만 받는다(Fastify 기본 text/plain 파서를 제거해 폼·text/plain 전송은 415).
+  - 로그인·회원가입은 IP당 분당 10회로 제한한다(초과 시 429 `TOO_MANY_REQUESTS`). 비밀번호 추측과 argon2 연산을 이용한 CPU 소모를 막는다.
+  - 클라이언트 IP는 Caddy(compose 고정 IP)가 보낸 `X-Forwarded-For`에서만 읽는다(`TRUST_PROXY`). 다른 주소가 보낸 헤더는 무시해서 IP를 바꿔 가며 제한을 우회할 수 없다.
+  - 웹은 세션 확인(`/auth/me`)이 네트워크·서버 오류로 실패하면 비로그인으로 단정하지 않고 "서버 연결 오류 · 다시 시도"를 보여준다.
+  - 만료 세션은 기동 시와 1시간마다 정리한다.
+  - 회원가입 시 사용자와 채널을 한 트랜잭션으로 만든다. 가입 직후 바로 로그인 상태가 된다.
 - **송출 인가 (두 단계)**
   1. `POST /api/broadcasts/:id/publish-token`에서 로그인 여부, 소유자 여부, 상태(READY 또는 LIVE)를 검증한 뒤 짧은 수명의 publish 토큰을 발급한다.
   2. 브라우저가 이 토큰으로 WHIP 송출을 시도하면 MediaMTX가 `authHTTPAddress`로 api에 다시 묻는다. api는 토큰, path, 방송 상태를 검증한다.
@@ -134,7 +148,7 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 6. 원장은 삭제하지 않는다. 방송별 내역과 합계는 원장에서 집계한다.
 
 ### 녹화·다시보기
-- MediaMTX `record: yes`, 포맷은 fMP4, path별 디렉터리에 저장한다.
+- MediaMTX `record: yes`, 포맷은 fMP4, path별 디렉터리에 저장한다. 기본값 `recordDeleteAfter: 1d`는 영구 저장 요구와 충돌하므로 `0s`로 끈다.
 - `runOnRecordSegmentComplete` 훅을 받으면 `recordings` 테이블(broadcastId, 파일 경로, 시작 시각, 길이)에 저장한다.
 - 재연결로 세그먼트가 여러 개 생기면 회차 상세에서 순서대로 재생한다.
 
@@ -142,7 +156,9 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 
 | 위험 | 대응 |
 |---|---|
-| 배포 호스트 미확보 | 11-07까지 결정. Oracle AMD Micro(무료) → 실패 시 AWS/GCP 무료 크레딧 |
+| Oracle 가입·VM 생성 실패 | 춘천 → 서울 → 도쿄·오사카 리전 순으로 시도. 모두 실패하면 GCP 무료 크레딧 |
+| Always Free 유휴 인스턴스 회수 | 제출 직전 Pay As You Go 전환 여부를 결정하고 $1 예산 알림을 설정 ([INFRA_SETUP.md](INFRA_SETUP.md) §9) |
+| 1GB 메모리 부족 | 2GB 스왑, 이미지 빌드는 CI에서만 |
 | 실기기 WebRTC 연결 실패 | 1~2일차 스파이크. 실패 시 시청 경로를 LL-HLS로 전환 |
 | 로컬 모바일 테스트에 HTTPS 필요 | Caddy `tls internal` 또는 mkcert + LAN IP |
 | 훅 유실로 유령 LIVE | 스케줄러가 Control API와 대조해 보정 |
