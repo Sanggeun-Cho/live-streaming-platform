@@ -24,6 +24,11 @@ const envSchema = z
       .default('true')
       .transform((v) => v === 'true'),
     SESSION_TTL_DAYS: z.coerce.number().int().positive().default(30),
+    // 테스트 계정(README 공개)을 기동 시 만들고 로그인 화면에 "바로 로그인" 버튼을 보여준다 (심사·시연용)
+    SEED_TEST_ACCOUNTS: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((v) => v === 'true'),
     // MediaMTX Control API (path 상태 조회, 송출 강제 종료). compose 내부 주소
     MEDIAMTX_API_URL: z.url().default('http://mediamtx:9997'),
     // 송출이 끊긴 뒤 ENDED로 확정하기까지 기다리는 시간 (네트워크 전환·새로고침 후 재송출 허용)

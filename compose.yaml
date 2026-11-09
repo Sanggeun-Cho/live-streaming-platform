@@ -42,6 +42,8 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
       SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
+      # 심사·시연용 테스트 계정(README 공개)을 기동 시 만들고 로그인 화면에 "바로 로그인"을 보여준다
+      SEED_TEST_ACCOUNTS: ${SEED_TEST_ACCOUNTS:-true}
       # 토스페이먼츠 테스트 키. 비우면 후원 기능이 꺼진다 (.env.example 참고)
       TOSS_CLIENT_KEY: ${TOSS_CLIENT_KEY:-}
       TOSS_SECRET_KEY: ${TOSS_SECRET_KEY:-}

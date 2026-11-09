@@ -1261,3 +1261,23 @@ input[type='range'] {
     font-size: 0.68rem;
   }
 }
+
+/* ---- 테스트 계정 바로 로그인 (심사·시연용) ---- */
+.test-login {
+  margin: 0 0 20px;
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.test-login p {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+}
+
+.test-login-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}

@@ -4,6 +4,7 @@ import type { Config } from './config.js'
 import type { Db } from './db/client.js'
 import { authPlugin } from './auth/plugin.js'
 import { createAuthService } from './auth/service.js'
+import { ensureTestAccounts } from './db/test-accounts.js'
 import { createBroadcastLifecycle } from './broadcasts/lifecycle.js'
 import { createBroadcastService } from './broadcasts/service.js'
 import { createDonationService } from './donations/service.js'
@@ -97,6 +98,10 @@ export async function buildApp({ config, db, mediaControl, toss }: AppDeps) {
   })
 
   const auth = createAuthService(db, { sessionTtlDays: config.SESSION_TTL_DAYS })
+  if (config.SEED_TEST_ACCOUNTS) {
+    const created = await ensureTestAccounts(db, auth)
+    if (created.length > 0) app.log.info({ created }, '테스트 계정 생성')
+  }
   auth.deleteExpiredSessions()
   const cleanup = setInterval(() => auth.deleteExpiredSessions(), 60 * 60 * 1000)
   cleanup.unref()
