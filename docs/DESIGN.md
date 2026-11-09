@@ -47,8 +47,8 @@
 | 결제 | 토스페이먼츠 테스트 모드 | 서버 승인 API로 금액·주문 검증 |
 | 리버스 프록시 | Caddy | 자동 HTTPS (Let's Encrypt) |
 | 도메인 | `galle.cloud` (가비아 DNS) | 보유 도메인. `www`는 루트로 리다이렉트 |
-| 호스팅 | Oracle Cloud Always Free (춘천 리전) | 0원. AMD Micro(1GB)로 충분하고, ARM(A1)을 확보하면 이전 |
-| 이미지 빌드 | GitHub Actions → GHCR (amd64 + arm64) | VM이 약해서 빌드는 CI에서 하고, VM은 pull만 한다 |
+| 호스팅 | Oracle Cloud Always Free (도쿄 리전) | 0원. AMD Micro(1GB)로 운영 중이고, ARM(A1)을 확보하면 이전 |
+| 이미지 빌드 | GitHub Actions → GHCR (amd64 + arm64) | 빌드는 CI에서 하고, VM은 pull만 한다. A1으로 옮겨도 유지한다 (배포가 서버 사양에 묶이지 않고, 같은 이미지를 재현할 수 있다) |
 
 ### 기각한 대안
 - **LiveKit Cloud / Egress**: 무료 한도에 의존하고, 녹화(Egress)는 비용이나 무거운 자체 호스팅이 필요하다.
