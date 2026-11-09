@@ -7,6 +7,7 @@ import { createAuthService } from './auth/service.js'
 import { createBroadcastLifecycle } from './broadcasts/lifecycle.js'
 import { createBroadcastService } from './broadcasts/service.js'
 import { createDonationService } from './donations/service.js'
+import { createCommentService } from './comments/service.js'
 import { createMediaControl, type MediaControl } from './media/control.js'
 import { createPublishTokenSigner } from './media/token.js'
 import { createFakeTossClient, createTossClient, disabledTossClient, type TossClient } from './payments/toss.js'
@@ -16,6 +17,7 @@ import { authRoutes } from './routes/auth.js'
 import { broadcastRoutes } from './routes/broadcasts.js'
 import { channelRoutes } from './routes/channels.js'
 import { donationRoutes } from './routes/donations.js'
+import { commentRoutes } from './routes/comments.js'
 import { healthRoutes } from './routes/health.js'
 import { internalMediaRoutes } from './routes/internal-media.js'
 import { recordingRoutes } from './routes/recordings.js'
@@ -144,6 +146,7 @@ export async function buildApp({ config, db, mediaControl, toss }: AppDeps) {
     }),
     { prefix: '/api' },
   )
+  await app.register(commentRoutes({ comments: createCommentService(db), hub }), { prefix: '/api' })
   const recordings = createRecordingService(db, { recordingsDir: config.RECORDINGS_DIR })
   app.decorate('recordings', recordings)
   await app.register(recordingRoutes(recordings), { prefix: '/api' })

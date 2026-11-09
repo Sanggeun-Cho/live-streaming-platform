@@ -112,7 +112,7 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 - **시청 인가(read)**: 방송이 LIVE일 때만 허용한다(로그인 불필요).
 - **내부 훅 엔드포인트** `/internal/*`: Caddy는 `/api/*`·`/live/*`만 프록시하므로 외부에서 닿지 않는다. 같은 네트워크의 다른 컨테이너를 막기 위해 공유 시크릿을 한 번 더 확인한다. MediaMTX 인가 요청은 헤더를 붙일 수 없어 `authHTTPAddress`의 쿼리로, 훅은 `X-Internal-Secret` 헤더로 보낸다. api 로그는 `secret`·`token` 쿼리 값을 가린다.
 - MediaMTX는 인가 실패 응답에 `WWW-Authenticate: Basic`을 붙인다. 그대로 두면 브라우저가 로그인 창을 띄우므로 Caddy에서 지운다.
-- **실시간 이벤트(SSE)** `/api/broadcasts/:id/events`: `status`, `viewers`(방송자 본인 연결 제외), `updated`, `deleted`, `donation`(§7). 연결 직후 현재 상태를 보내 재연결 시 놓친 변경을 맞춘다.
+- **실시간 이벤트(SSE)** `/api/broadcasts/:id/events`: `status`, `viewers`(방송자 본인 연결 제외), `updated`, `deleted`, `donation`(§7), `comment`(§7). 연결 직후 현재 상태를 보내 재연결 시 놓친 변경을 맞춘다.
 
 ### 권한 매트릭스
 
@@ -150,6 +150,13 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 ### 댓글 (실시간)
 - REST CRUD가 기준이다. 작성·수정·삭제 이벤트는 SSE `/api/broadcasts/:id/events`로 전파한다.
 - 삭제는 Soft Delete이며 "삭제된 댓글입니다"로 표시한다.
+- API
+  - `GET /api/broadcasts/:id/comments?cursor&limit`(공개): 최신 `limit`개(기본 50, 최대 100)를 **오래된 것부터**(채팅 순서) 돌려주고, 더 오래된 댓글은 `nextCursor`로 읽는다. 삭제된 댓글은 `content`·`author`를 모두 null로 숨기고 자리만 남는다(본문은 DB에 보관).
+  - `POST /api/broadcasts/:id/comments`(로그인), `PATCH /api/comments/:id`·`DELETE /api/comments/:id`(작성자만, 아니면 403. 방송자도 남의 댓글은 403). 삭제 응답은 본문을 숨긴 댓글(200).
+  - 응답에 작성자 닉네임과 `isStreamer`(방송자 본인 댓글, 채팅에서 강조)를 담는다. 수정하면 `editedAt`을 채워 "(수정됨)"을 표시한다. 같은 내용으로 수정하면 아무것도 바꾸지 않는다(이벤트도 없음).
+  - 내용은 앞뒤 공백을 뺀 1~300자. 쓰기(작성·수정·삭제)는 합쳐서 사용자당 10초에 10번(초과 시 429). 세 라우트가 제한 핸들러 하나를 공유한다.
+  - 방송이 삭제되면 그 방송의 댓글 조회·작성·수정·삭제는 404. 방송 상태(READY·LIVE·ENDED)와 관계없이 작성할 수 있다.
+- SSE 이벤트 `comment`: `{ type: 'created' | 'updated' | 'deleted', comment }`. 웹은 방송 화면이 이미 연 SSE 연결로 받고(시청자 수 중복 집계 방지), 연결·재연결될 때마다 최신 목록을 다시 읽는다. 새 목록이 들고 있던 목록과 겹치지 않으면(끊긴 동안 한 페이지보다 많이 쌓임) 목록과 커서를 새 페이지로 바꿔 빈 구간을 "이전 채팅 보기"로 잇는다. 화면이 들고 있는 댓글은 500개까지이며, 맨 아래를 보고 있을 때만 오래된 것부터 정리한다.
 
 ### 도네이션
 1. `POST /api/broadcasts/:id/donation-orders`: 로그인(401), 본인 방송 아님(403), LIVE 상태(409 `BROADCAST_NOT_LIVE`)를 검증한다. 금액(1,000~1,000,000원, 1,000원 단위)과 메시지(선택, 100자)를 검증한 뒤 주문(무작위 `orderId`, 금액, 메시지, 대상 방송, 후원자)을 `PENDING`으로 생성한다.
