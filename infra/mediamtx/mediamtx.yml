@@ -27,6 +27,9 @@ webrtcLocalTCPAddress: :8189
 # 대신 MTX_WEBRTCADDITIONALHOSTS로 공인 도메인/IP(로컬에서는 PC의 LAN IP)를 지정한다.
 webrtcIPsFromInterfaces: no
 webrtcAdditionalHosts: []
+# 송출이 붙은 뒤 모든 트랙의 첫 패킷을 기다리는 시간(기본 2s). 이 안에 패킷이 없는 트랙은 버려진다.
+# 휴대폰·저사양 PC는 영상 인코더 시작이 늦어 첫 녹화 구간이 오디오만 남는 일이 있었다(#12 E2E) → 여유를 둔다
+webrtcTrackGatherTimeout: 5s
 
 # 인가는 api에 위임한다. publish/read 요청마다 api의 /internal/media/auth를 호출하고, 2xx면 허용한다.
 #   publish: 소유자에게 발급한 publish 토큰(WHIP Authorization: Bearer) + 방송 상태(READY/LIVE)
