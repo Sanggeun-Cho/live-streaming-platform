@@ -14,8 +14,9 @@ export default defineConfig({
   },
   server: {
     host: true,
+    // 여러 작업 트리를 동시에 띄울 때 api 포트를 바꿀 수 있게 한다 (기본 3000)
     proxy: {
-      '/api': 'http://localhost:3000',
+      '/api': process.env.API_PROXY_TARGET ?? 'http://localhost:3000',
     },
   },
 })
