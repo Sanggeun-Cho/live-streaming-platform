@@ -73,6 +73,8 @@ networks:
         # Caddy에 고정 IP를 주기 위해 서브넷을 고정한다.
         # Docker 기본 대역(172.17~31, 192.168)과 Oracle VCN 기본값(10.0.0.0/16)을 피했다
         - subnet: 10.89.0.0/24
+          # 자동 할당은 .128 이후만 쓰게 해서, 먼저 뜨는 api·mediamtx가 Caddy의 고정 IP(.10)를 가져가지 못하게 한다
+          ip_range: 10.89.0.128/25
 
 volumes:
   caddy_data:

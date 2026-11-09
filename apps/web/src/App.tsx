@@ -25,6 +25,7 @@ function Header() {
             <button type="button" className="link-button" onClick={refresh}>
               다시 시도
             </button>
+            <Link to="/login">로그인</Link>
           </>
         )}
         {status === 'anonymous' && (
