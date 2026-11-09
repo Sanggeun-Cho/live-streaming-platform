@@ -91,9 +91,12 @@ await step('화면 공유를 브라우저에서 중지하면 안내가 뜨고, �
     t.stop()
     t.dispatchEvent(new Event('ended'))
   })
-  await owner.getByText('화면 공유가 중지되었습니다').waitFor({ timeout: 5_000 })
+  await owner.getByText('화면 공유가 중지되어 송출을 멈췄습니다').waitFor({ timeout: 5_000 })
+  // 영상이 멈춘 채 마이크만 나가지 않는다: 송출이 끊겨 시청자에게 재연결 대기가 보인다
+  await viewer.getByText('다시 연결되기를 기다리는 중').waitFor({ timeout: 15_000 })
   await owner.getByRole('button', { name: '화면 다시 선택' }).click()
-  await phase(owner).getByText('LIVE').waitFor({ timeout: 15_000 })
+  await phase(owner).getByText('LIVE').waitFor({ timeout: 20_000 })
+  await waitPlaying(viewer)
 })
 
 await step('같은 방송을 다른 탭에서 송출하면 이전 탭은 "다른 곳에서 송출 중"으로 바뀌고, 다시 가져올 수 있다', async () => {
@@ -130,6 +133,26 @@ await step('방송을 종료하면 종료 화면으로 바뀌고 화면 공유·
   await owner.getByRole('heading', { name: '방송이 종료되었습니다' }).waitFor({ timeout: 10_000 })
   expectEqual(await liveCaptureTracks(owner), 0, '살아 있는 캡처 트랙')
   await viewer.getByTestId('status-line').getByText('방송 종료').waitFor({ timeout: 10_000 })
+})
+
+await step('화면 공유를 중지하고 그대로 두면 유예 시간 뒤 방송이 자동으로 종료된다', async () => {
+  await owner.goto(`${BASE}/broadcasts/new`)
+  await owner.getByLabel('제목').fill(`공유 중지 방치 ${Date.now()}`)
+  await owner.getByRole('button', { name: '만들기' }).click()
+  await owner.waitForURL(/\/broadcasts\/\d+$/)
+  const id2 = Number(new URL(owner.url()).pathname.split('/').pop())
+  await owner.goto(`${BASE}/broadcasts/${id2}/studio`)
+  await owner.getByRole('button', { name: /화면 공유/ }).click()
+  await owner.getByRole('button', { name: '방송 시작' }).click()
+  await phase(owner).getByText('LIVE').waitFor({ timeout: 20_000 })
+  const started = Date.now()
+  await owner.evaluate(() => {
+    const t = document.querySelector('[data-testid=studio-preview]').srcObject.getVideoTracks()[0]
+    t.stop()
+    t.dispatchEvent(new Event('ended'))
+  })
+  await owner.getByRole('heading', { name: '방송이 종료되었습니다' }).waitFor({ timeout: 70_000 })
+  return `${Math.round((Date.now() - started) / 1000)}초 뒤 종료`
 })
 
 await step('종료된 방송의 스튜디오에 다시 들어가면 새 방송을 만들라고 안내한다', async () => {

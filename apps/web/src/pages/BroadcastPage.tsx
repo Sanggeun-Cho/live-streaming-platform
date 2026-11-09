@@ -74,7 +74,7 @@ export function BroadcastPage() {
   return (
     <article className="broadcast-detail">
       {broadcast.status === 'LIVE' && !broadcast.disconnectedAt && !isOwner ? (
-        <LivePlayer broadcastId={id} reconnectKey={playerKey} />
+        <LivePlayer key={playerKey} broadcastId={id} />
       ) : (
         <div className="player-placeholder" data-testid="player-placeholder">
           <StatusBadge status={broadcast.status} />

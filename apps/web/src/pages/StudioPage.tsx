@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Link, useParams } from 'react-router'
 import { useAuth } from '../auth/context'
+import { useAuthErrorRedirect } from '../auth/useAuthErrorRedirect'
 import { useBroadcast } from '../hooks/useBroadcast'
 import { useBroadcastEvents } from '../hooks/useBroadcastEvents'
 import { isCameraSupported, isScreenShareSupported } from '../lib/webrtc/media'
-import { type Phase, Publisher } from '../lib/webrtc/publisher'
+import { ApiError } from '../lib/api'
+import { MAX_RECONNECT, type Phase, Publisher, SOURCE_ENDED_TIMEOUT_MS } from '../lib/webrtc/publisher'
 import { type RtcSummary, summarize } from '../lib/webrtc/stats'
 
 const PHASE_LABEL: Record<Phase, string> = {
@@ -26,14 +28,13 @@ function usePublisher(broadcastId: number) {
     (cb) => publisher.subscribe(cb),
     () => publisher.snapshot,
   )
+  // attach/해제를 effect 안에서 짝지어 StrictMode의 재마운트와 bfcache 복귀에도 같은 인스턴스를 다시 쓸 수 있다
+  useEffect(() => publisher.attach(), [publisher])
   useEffect(() => {
     // 탭을 닫을 때도 WHIP 세션을 바로 지운다 (안 지우면 서버가 ICE 타임아웃 약 30초 뒤에야 끊김을 안다)
-    const onPageHide = () => publisher.dispose()
+    const onPageHide = () => publisher.release()
     window.addEventListener('pagehide', onPageHide)
-    return () => {
-      window.removeEventListener('pagehide', onPageHide)
-      publisher.dispose()
-    }
+    return () => window.removeEventListener('pagehide', onPageHide)
   }, [publisher])
   return { publisher, state }
 }
@@ -70,7 +71,11 @@ export function StudioPage() {
       </section>
     )
   }
-  return <Studio broadcastId={id} title={broadcast.title} />
+  if (!window.isSecureContext) {
+    return <p className="error">카메라·마이크·화면 공유는 HTTPS 주소에서만 쓸 수 있습니다. https:// 로 접속하세요.</p>
+  }
+  // 방송이 바뀌면 송출 컨트롤러도 새로 만든다
+  return <Studio key={id} broadcastId={id} title={broadcast.title} />
 }
 
 function Studio({ broadcastId, title }: { broadcastId: number; title: string }) {
@@ -79,17 +84,21 @@ function Studio({ broadcastId, title }: { broadcastId: number; title: string }) 
   const [viewers, setViewers] = useState(0)
   const [stats, setStats] = useState<RtcSummary | null>(null)
   const [ending, setEnding] = useState(false)
-  const { phase } = state
+  const { phase, stream } = state
   const onAir = phase === 'live' || phase === 'reconnecting' || phase === 'sourceEnded' || phase === 'connecting'
+  const redirectIfUnauthorized = useAuthErrorRedirect()
+
+  useEffect(() => {
+    if (state.errorCode === 'UNAUTHORIZED') redirectIfUnauthorized(new ApiError(401, 'UNAUTHORIZED', ''))
+  }, [state.errorCode, redirectIfUnauthorized])
 
   useBroadcastEvents(broadcastId, {
     // 다른 탭에서 종료했거나 유예 시간이 지나 서버가 종료했다
-    status: (s) => s.status === 'ENDED' && publisher.toEnded(),
+    status: (s) => s.status === 'ENDED' && publisher.handleServerEnded(),
     viewers: (v) => setViewers(v.count),
   })
 
   // 미리보기는 캡처 스트림이 바뀔 때마다 다시 붙인다 (소스 전환, 카메라 전환)
-  const stream = publisher.stream
   useEffect(() => {
     if (previewRef.current && previewRef.current.srcObject !== stream) previewRef.current.srcObject = stream
   }, [stream])
@@ -145,7 +154,7 @@ function Studio({ broadcastId, title }: { broadcastId: number; title: string }) 
         <h1>{title}</h1>
         <span className={`studio-phase phase-${phase}`} data-testid="studio-phase">
           {PHASE_LABEL[phase]}
-          {phase === 'reconnecting' && ` (${state.reconnectAttempt}/5)`}
+          {phase === 'reconnecting' && ` (${state.reconnectAttempt}/${MAX_RECONNECT})`}
           {phase === 'live' && ` · 시청자 ${viewers}명`}
         </span>
       </div>
@@ -164,8 +173,8 @@ function Studio({ broadcastId, title }: { broadcastId: number; title: string }) 
       {phase === 'sourceEnded' && (
         <div className="notice" role="alert">
           <p>
-            화면 공유가 중지되었습니다. 시청자에게는 마지막 화면이 멈춰 보입니다. 다시 선택하지 않으면 약 45초 뒤
-            방송이 종료됩니다.
+            {state.source === 'camera' ? '카메라가 꺼져' : '화면 공유가 중지되어'} 송출을 멈췄습니다(마이크 포함).{' '}
+            {SOURCE_ENDED_TIMEOUT_MS / 1000}초 안에 다시 선택하면 방송이 이어지고, 그렇지 않으면 방송이 자동으로 종료됩니다.
           </p>
           <div className="row owner-actions">
             <button type="button" onClick={() => void publisher.selectSource('screen')}>
@@ -234,7 +243,7 @@ function Studio({ broadcastId, title }: { broadcastId: number; title: string }) 
                     min={0}
                     max={1}
                     step={0.05}
-                    defaultValue={1}
+                    value={state.displayVolume}
                     onChange={(e) => publisher.setDisplayVolume(Number(e.target.value))}
                   />
                 </label>
@@ -250,7 +259,7 @@ function Studio({ broadcastId, title }: { broadcastId: number; title: string }) 
                     min={0}
                     max={1.5}
                     step={0.05}
-                    defaultValue={1}
+                    value={state.micVolume}
                     onChange={(e) => publisher.setMicVolume(Number(e.target.value))}
                   />
                 </label>

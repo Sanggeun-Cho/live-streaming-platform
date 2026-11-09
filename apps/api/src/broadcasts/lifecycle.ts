@@ -130,9 +130,28 @@ export function createBroadcastLifecycle(deps: {
   }
 
   /** 송출이 실제로 끊겼을 때만 유예를 시작한다 (대체 송출이면 무시) */
-  async function markDisconnected(id: number) {
+  /**
+   * 송출이 실제로 끊겼을 때만 유예를 시작한다 (대체 송출이면 무시).
+   * offline 훅은 online 뒤에만 오므로, READY에서 offline을 받으면 online 훅이 유실된 것이다:
+   * MediaMTX는 offline이 되는 순간 실행 중인 runOnOnline 프로세스를 강제로 끝내서, 송출 직후 바로 끊기면
+   * online 통지가 전달되지 못한다. 이 경우 "잠깐 방송했다가 끊김"으로 기록해 유예 후 종료되게 한다.
+   */
+  async function markDisconnected(id: number, { fromOfflineHook = false } = {}) {
     const row = load(id)
-    if (!row || row.status !== 'LIVE' || row.disconnectedAt) return
+    if (!row || row.disconnectedAt || row.deletedAt) return
+    if (row.status === 'READY' && fromOfflineHook) {
+      const { source } = await sourceOf(mediaPath(id))
+      if (source) return markOnline(id, { verified: true })
+      const now = new Date()
+      const result = orm
+        .update(broadcasts)
+        .set({ status: 'LIVE', startedAt: now, disconnectedAt: now, updatedAt: now })
+        .where(and(eq(broadcasts.id, id), eq(broadcasts.status, 'READY'), isNull(broadcasts.deletedAt)))
+        .run()
+      if (result.changes > 0) emit(id)
+      return
+    }
+    if (row.status !== 'LIVE') return
     const checkedAt = Date.now()
     const { source } = await sourceOf(mediaPath(id))
     if (source) return
@@ -205,7 +224,7 @@ export function createBroadcastLifecycle(deps: {
 
     async onOffline(path: string) {
       const id = parseMediaPath(path)
-      if (id !== null) await markDisconnected(id)
+      if (id !== null) await markDisconnected(id, { fromOfflineHook: true })
     },
 
     // ---- 스케줄러 ----

@@ -12,7 +12,8 @@ const MAX_RETRIES = 5
  * - 자동재생 정책 때문에 음소거로 시작하고, 사용자가 소리를 켠다.
  * - 연결에 실패하거나 도중에 끊기면 몇 번 자동으로 다시 연결한다.
  */
-export function LivePlayer({ broadcastId, reconnectKey }: { broadcastId: number; reconnectKey: number }) {
+/** 방송자가 다시 연결되면 부모가 key를 바꿔 플레이어를 새로 만든다 */
+export function LivePlayer({ broadcastId }: { broadcastId: number }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
   const [connecting, setConnecting] = useState(true)
@@ -37,7 +38,10 @@ export function LivePlayer({ broadcastId, reconnectKey }: { broadcastId: number;
         return
       }
       failures.current += 1
-      retryTimer = setTimeout(() => setRetryKey((n) => n + 1), RETRY_DELAY_MS)
+      retryTimer = setTimeout(() => {
+        setConnecting(true)
+        setRetryKey((n) => n + 1)
+      }, RETRY_DELAY_MS)
     }
 
     view(`/live/${broadcastId}/whep`)
@@ -66,17 +70,26 @@ export function LivePlayer({ broadcastId, reconnectKey }: { broadcastId: number;
       clearTimeout(retryTimer)
       void session?.close()
     }
-  }, [broadcastId, reconnectKey, retryKey])
+  }, [broadcastId, retryKey])
 
   return (
     <div className="player" ref={boxRef}>
       <video ref={videoRef} autoPlay playsInline muted={muted} data-testid="live-video" />
-      {connecting && !error && <p className="player-overlay">방송에 연결하는 중…</p>}
+      {connecting && !error && (
+        <p className="player-overlay" role="status">
+          {retryKey > 0 ? '연결이 끊겨 다시 연결하는 중…' : '방송에 연결하는 중…'}
+        </p>
+      )}
       {blocked && (
         <button
           type="button"
           className="player-overlay play"
-          onClick={() => void videoRef.current?.play().then(() => setBlocked(false))}
+          onClick={() =>
+            void videoRef.current?.play().then(
+              () => setBlocked(false),
+              () => setBlocked(true),
+            )
+          }
         >
           ▶ 눌러서 재생
         </button>
@@ -85,7 +98,7 @@ export function LivePlayer({ broadcastId, reconnectKey }: { broadcastId: number;
         <button type="button" onClick={() => setMuted((m) => !m)} aria-pressed={!muted}>
           {muted ? '🔇 소리 켜기' : '🔊 소리 끄기'}
         </button>
-        <button type="button" onClick={() => void toggleFullscreen(boxRef.current, videoRef.current)}>
+        <button type="button" onClick={() => void toggleFullscreen(boxRef.current, videoRef.current).catch(() => undefined)}>
           ⛶ 전체 화면
         </button>
       </div>
@@ -96,6 +109,7 @@ export function LivePlayer({ broadcastId, reconnectKey }: { broadcastId: number;
             type="button"
             onClick={() => {
               setError(null)
+              setConnecting(true)
               failures.current = 0
               setRetryKey((k) => k + 1)
             }}

@@ -25,7 +25,9 @@ export async function step(name, fn) {
     console.log(`✓ ${name}${note ? ` — ${note}` : ''}`)
   } catch (e) {
     failed++
-    console.log(`✗ ${name}\n    ${String(e?.message ?? e).split('\n')[0]}`)
+    // E2E_VERBOSE=1이면 Playwright 호출 기록(어느 요소를 왜 못 눌렀는지)까지 보여준다
+    const lines = String(e?.message ?? e).split('\n')
+    console.log(`✗ ${name}\n    ${lines.slice(0, process.env.E2E_VERBOSE ? 15 : 1).join('\n    ')}`)
   }
 }
 
