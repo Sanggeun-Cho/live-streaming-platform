@@ -15,3 +15,4 @@ recordings/
 .idea/
 .vscode/
 .DS_Store
+.claude/worktrees/

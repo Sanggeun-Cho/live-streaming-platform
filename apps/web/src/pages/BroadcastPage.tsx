@@ -4,7 +4,6 @@ import { useAuth } from '../auth/context'
 import { useAuthErrorRedirect } from '../auth/useAuthErrorRedirect'
 import { StatusBadge } from '../components/BroadcastList'
 import { LivePlayer } from '../components/LivePlayer'
-import { PublishPanel } from '../components/PublishPanel'
 import { useBroadcastEvents } from '../hooks/useBroadcastEvents'
 import { useBroadcast } from '../hooks/useBroadcast'
 import { errorMessage } from '../lib/api'
@@ -83,7 +82,7 @@ export function BroadcastPage() {
             {broadcast.disconnectedAt
               ? '방송자의 연결이 끊겼습니다. 다시 연결되기를 기다리는 중…'
               : isOwner && broadcast.status === 'LIVE'
-                ? '방송 중입니다. 아래 미리보기로 송출 화면을 확인하세요'
+                ? '방송 중입니다. 송출 화면은 방송 스튜디오에서 확인하세요'
                 : PLAYER_MESSAGE[broadcast.status]}
           </p>
         </div>
@@ -102,6 +101,11 @@ export function BroadcastPage() {
 
       {isOwner && (
         <div className="row owner-actions">
+          {broadcast.status !== 'ENDED' && (
+            <Link to={`/broadcasts/${id}/studio`} className="button primary">
+              {broadcast.status === 'LIVE' ? '방송 스튜디오로 돌아가기' : '방송 시작하기'}
+            </Link>
+          )}
           <Link to={`/broadcasts/${id}/edit`} className="button">
             정보 수정
           </Link>
@@ -127,7 +131,6 @@ export function BroadcastPage() {
           {actionError}
         </p>
       )}
-      {isOwner && <PublishPanel broadcast={broadcast} onEnded={(s) => patch(s)} />}
     </article>
   )
 }

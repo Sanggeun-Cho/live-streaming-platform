@@ -6,6 +6,7 @@ import { EditBroadcastPage, NewBroadcastPage } from './pages/BroadcastFormPage'
 import { BroadcastPage } from './pages/BroadcastPage'
 import { ChannelPage } from './pages/ChannelPage'
 import { HomePage } from './pages/HomePage'
+import { StudioPage } from './pages/StudioPage'
 
 function Header() {
   const { status, user, logout, refresh } = useAuth()
@@ -77,6 +78,14 @@ export default function App() {
             element={
               <RequireAuth>
                 <EditBroadcastPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/broadcasts/:id/studio"
+            element={
+              <RequireAuth>
+                <StudioPage />
               </RequireAuth>
             }
           />
