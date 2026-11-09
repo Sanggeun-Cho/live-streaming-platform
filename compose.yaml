@@ -45,6 +45,8 @@ services:
       # 토스페이먼츠 테스트 키. 비우면 후원 기능이 꺼진다 (.env.example 참고)
       TOSS_CLIENT_KEY: ${TOSS_CLIENT_KEY:-}
       TOSS_SECRET_KEY: ${TOSS_SECRET_KEY:-}
+      # 로컬 docker E2E 전용 가짜 결제 (NODE_ENV=development와 함께. 운영에서는 api가 기동을 거부한다)
+      TOSS_FAKE_PAYMENTS: ${TOSS_FAKE_PAYMENTS:-false}
       # Caddy 컨테이너만 프록시로 믿는다. 같은 네트워크의 다른 컨테이너가 보낸 X-Forwarded-For는 무시된다
       TRUST_PROXY: 10.89.0.10
     volumes:
