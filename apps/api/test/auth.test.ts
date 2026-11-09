@@ -2,25 +2,17 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { buildApp } from '../src/app.js'
 import { hashToken } from '../src/auth/service.js'
-import { loadConfig } from '../src/config.js'
-import { createDb } from '../src/db/client.js'
+import type { createDb } from '../src/db/client.js'
 import { channels, sessions } from '../src/db/schema.js'
+import { makeApp, type TestApp } from './helpers.js'
 
-type App = Awaited<ReturnType<typeof buildApp>>
+type App = TestApp
 
 const ACCOUNT = { email: 'Alice@Example.com', password: 'password123', nickname: '앨리스' }
 
 function sessionCookie(res: { cookies: Array<{ name: string; value: string }> }) {
   return res.cookies.find((c) => c.name === 'sid')
-}
-
-async function makeApp(path = ':memory:', env: Record<string, string> = {}) {
-  const config = loadConfig({ NODE_ENV: 'test', DATABASE_PATH: path, ...env })
-  const db = createDb(path)
-  const app = await buildApp({ config, db })
-  return { app, db }
 }
 
 describe('인증 API', () => {

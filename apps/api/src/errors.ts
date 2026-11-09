@@ -18,3 +18,5 @@ export function validationError(error: ZodError): AppError {
 }
 
 export const unauthorized = () => new AppError(401, 'UNAUTHORIZED', '로그인이 필요합니다')
+
+export const forbidden = (message = '권한이 없습니다') => new AppError(403, 'FORBIDDEN', message)
