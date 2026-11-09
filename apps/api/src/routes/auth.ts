@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { clearSessionCookie, requireAuth, SESSION_COOKIE, setSessionCookie } from '../auth/plugin.js'
 import type { AuthService } from '../auth/service.js'
 import type { Config } from '../config.js'
-import { validationError } from '../errors.js'
+import { parse } from '../lib/validate.js'
 
 const email = z
   .string({ error: '이메일을 입력하세요' })
@@ -29,12 +29,6 @@ const loginBody = z.object({
   email,
   password: z.string({ error: '비밀번호를 입력하세요' }).min(1, { error: '비밀번호를 입력하세요' }).max(128),
 })
-
-function parse<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
-  const result = schema.safeParse(body ?? {})
-  if (!result.success) throw validationError(result.error)
-  return result.data
-}
 
 // 비밀번호 추측과 argon2 연산으로 CPU를 소모시키는 요청 폭주를 막는다
 const authRateLimit = { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }

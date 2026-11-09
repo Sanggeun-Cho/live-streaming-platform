@@ -1,6 +1,10 @@
 import { Link, Route, Routes } from 'react-router'
 import { useAuth } from './auth/context'
+import { RequireAuth } from './auth/RequireAuth'
 import { AuthForm } from './pages/AuthForm'
+import { EditBroadcastPage, NewBroadcastPage } from './pages/BroadcastFormPage'
+import { BroadcastPage } from './pages/BroadcastPage'
+import { ChannelPage } from './pages/ChannelPage'
 import { HomePage } from './pages/HomePage'
 
 function Header() {
@@ -13,7 +17,9 @@ function Header() {
       <nav className="nav">
         {status === 'authenticated' && user && (
           <>
-            <span>{user.nickname}</span>
+            <Link to="/broadcasts/new">방송하기</Link>
+            <Link to={`/channels/${user.channelId}`}>내 채널</Link>
+            <span className="muted">{user.nickname}</span>
             <button type="button" className="link-button" onClick={() => void logout()}>
               로그아웃
             </button>
@@ -57,6 +63,24 @@ export default function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/login" element={<AuthForm key="login" mode="login" />} />
           <Route path="/signup" element={<AuthForm key="signup" mode="signup" />} />
+          <Route
+            path="/broadcasts/new"
+            element={
+              <RequireAuth>
+                <NewBroadcastPage />
+              </RequireAuth>
+            }
+          />
+          <Route path="/broadcasts/:id" element={<BroadcastPage />} />
+          <Route
+            path="/broadcasts/:id/edit"
+            element={
+              <RequireAuth>
+                <EditBroadcastPage />
+              </RequireAuth>
+            }
+          />
+          <Route path="/channels/:channelId" element={<ChannelPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
