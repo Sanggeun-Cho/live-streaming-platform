@@ -111,7 +111,12 @@ describe('방송 API', () => {
       expect(page2.nextCursor).toBeNull()
     })
 
-    it('잘못된 목록 조건은 400', async () => {
+    it('잘못된 목록 조건은 한국어 메시지와 함께 400', async () => {
+      expect((await list('?limit=abc')).json()).toEqual({
+        code: 'VALIDATION_ERROR',
+        message: '개수는 1~50 사이의 숫자여야 합니다',
+      })
+      expect((await list('?channelId=-1')).json().message).toBe('채널 ID가 올바르지 않습니다')
       expect((await list('?status=PAUSED')).statusCode).toBe(400)
       expect((await list('?limit=0')).statusCode).toBe(400)
       expect((await list('?limit=51')).statusCode).toBe(400)
@@ -175,6 +180,18 @@ describe('방송 API', () => {
       expect((await del(id, other)).statusCode).toBe(403)
       expect((await get(id)).statusCode).toBe(200)
     })
+  })
+
+  it('채널 정보는 공개 조회되고, 없는 채널은 404', async () => {
+    const res = await app.inject({ method: 'GET', url: `/api/channels/${owner.user.channelId}` })
+    expect(res.json().channel).toEqual({
+      id: owner.user.channelId,
+      name: 'owner님의 채널',
+      owner: { id: owner.user.id, nickname: 'owner님' },
+    })
+    const missing = await app.inject({ method: 'GET', url: '/api/channels/999' })
+    expect(missing.statusCode).toBe(404)
+    expect(missing.json().code).toBe('CHANNEL_NOT_FOUND')
   })
 
   it('서버를 재시작해도 방송 정보가 유지된다', async () => {

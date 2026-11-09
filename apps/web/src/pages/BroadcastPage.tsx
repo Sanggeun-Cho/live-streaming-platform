@@ -1,10 +1,17 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { useAuth } from '../auth/context'
+import { useAuthErrorRedirect } from '../auth/useAuthErrorRedirect'
 import { StatusBadge } from '../components/BroadcastList'
 import { useBroadcast } from '../hooks/useBroadcast'
 import { errorMessage } from '../lib/api'
-import { deleteBroadcast } from '../lib/broadcasts'
+import { type BroadcastStatus, deleteBroadcast } from '../lib/broadcasts'
+
+const PLAYER_MESSAGE: Record<BroadcastStatus, string> = {
+  READY: '방송 시작 전입니다',
+  LIVE: '방송 화면 준비 중',
+  ENDED: '방송이 종료되었습니다',
+}
 
 export function BroadcastPage() {
   const id = Number(useParams().id)
@@ -13,6 +20,7 @@ export function BroadcastPage() {
   const { broadcast, error } = useBroadcast(id)
   const [actionError, setActionError] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const redirectIfUnauthorized = useAuthErrorRedirect()
 
   if (error) {
     return (
@@ -34,8 +42,8 @@ export function BroadcastPage() {
       await deleteBroadcast(id)
       navigate(`/channels/${broadcast!.channel.id}`, { replace: true })
     } catch (e) {
-      setActionError(errorMessage(e))
       setDeleting(false)
+      if (!redirectIfUnauthorized(e)) setActionError(errorMessage(e))
     }
   }
 
@@ -43,11 +51,7 @@ export function BroadcastPage() {
     <article className="broadcast-detail">
       <div className="player-placeholder">
         <StatusBadge status={broadcast.status} />
-        <p className="muted">
-          {broadcast.status === 'LIVE' && '방송 화면 준비 중'}
-          {broadcast.status === 'READY' && '방송 시작 전입니다'}
-          {broadcast.status === 'ENDED' && '방송이 종료되었습니다'}
-        </p>
+        <p className="muted">{PLAYER_MESSAGE[broadcast.status]}</p>
       </div>
       <h1>{broadcast.title}</h1>
       <p>
@@ -60,9 +64,21 @@ export function BroadcastPage() {
           <Link to={`/broadcasts/${id}/edit`} className="button">
             정보 수정
           </Link>
-          <button type="button" className="danger" onClick={onDelete} disabled={deleting}>
+          {/* 방송 중에는 시청자가 있어 삭제할 수 없다 (서버도 409로 막는다) */}
+          <button
+            type="button"
+            className="danger"
+            onClick={onDelete}
+            disabled={deleting || broadcast.status === 'LIVE'}
+            aria-describedby={broadcast.status === 'LIVE' ? 'delete-hint' : undefined}
+          >
             {deleting ? '삭제 중…' : '삭제'}
           </button>
+          {broadcast.status === 'LIVE' && (
+            <small id="delete-hint" className="muted">
+              방송을 종료한 뒤 삭제할 수 있습니다
+            </small>
+          )}
         </div>
       )}
       {actionError && (

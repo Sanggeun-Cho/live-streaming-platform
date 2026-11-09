@@ -8,6 +8,7 @@ import { createBroadcastService } from './broadcasts/service.js'
 import { AppError } from './errors.js'
 import { authRoutes } from './routes/auth.js'
 import { broadcastRoutes } from './routes/broadcasts.js'
+import { channelRoutes } from './routes/channels.js'
 import { healthRoutes } from './routes/health.js'
 import { internalMediaRoutes } from './routes/internal-media.js'
 
@@ -65,6 +66,7 @@ export async function buildApp({ config, db }: AppDeps) {
   await app.register(authRoutes({ config, auth }), { prefix: '/api' })
   const broadcasts = createBroadcastService(db)
   await app.register(broadcastRoutes({ broadcasts }), { prefix: '/api' })
+  await app.register(channelRoutes(db), { prefix: '/api' })
   await app.register(internalMediaRoutes, { prefix: '/internal' })
 
   app.addHook('onClose', async () => {

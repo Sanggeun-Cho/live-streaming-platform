@@ -1,6 +1,7 @@
 import { type FormEvent, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { useAuth } from '../auth/context'
+import { useAuthErrorRedirect } from '../auth/useAuthErrorRedirect'
 import { errorMessage } from '../lib/api'
 import { type Broadcast, createBroadcast, updateBroadcast } from '../lib/broadcasts'
 import { useBroadcast } from '../hooks/useBroadcast'
@@ -17,6 +18,7 @@ function BroadcastForm({ initial, onSubmit, submitLabel }: {
   const [description, setDescription] = useState(initial?.description ?? '')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const redirectIfUnauthorized = useAuthErrorRedirect()
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -29,8 +31,8 @@ function BroadcastForm({ initial, onSubmit, submitLabel }: {
     try {
       await onSubmit({ title, description })
     } catch (err) {
-      setError(errorMessage(err))
       setSubmitting(false)
+      if (!redirectIfUnauthorized(err)) setError(errorMessage(err))
     }
   }
 
@@ -89,7 +91,14 @@ export function EditBroadcastPage() {
   const navigate = useNavigate()
   const { broadcast, error } = useBroadcast(id)
 
-  if (error) return <p className="error">{error.message}</p>
+  if (error) {
+    return (
+      <section>
+        <p className="error">{error.status === 404 ? '방송을 찾을 수 없습니다. 삭제되었을 수 있습니다.' : error.message}</p>
+        <Link to="/">목록으로</Link>
+      </section>
+    )
+  }
   if (!broadcast) return <p className="muted">불러오는 중…</p>
   if (user?.channelId !== broadcast.channel.id) {
     return (

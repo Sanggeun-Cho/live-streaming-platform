@@ -60,7 +60,7 @@ export function createBroadcastService(db: Db) {
   /** 삭제되지 않은 방송을 찾고, 요청자가 소유자인지 확인한다 (없으면 404, 소유자가 아니면 403) */
   function getOwned(id: number, user: AuthUser) {
     const row = orm
-      .select({ id: broadcasts.id, channelId: broadcasts.channelId, status: broadcasts.status })
+      .select({ id: broadcasts.id, channelId: broadcasts.channelId })
       .from(broadcasts)
       .where(and(eq(broadcasts.id, id), isNull(broadcasts.deletedAt)))
       .get()
@@ -104,12 +104,14 @@ export function createBroadcastService(db: Db) {
 
     update(id: number, user: AuthUser, input: { title?: string; description?: string }): BroadcastView {
       getOwned(id, user)
-      orm
+      const result = orm
         .update(broadcasts)
         .set({ ...input, updatedAt: new Date() })
-        .where(eq(broadcasts.id, id))
+        .where(and(eq(broadcasts.id, id), isNull(broadcasts.deletedAt)))
         .run()
-      return findView(id)!
+      const view = result.changes > 0 ? findView(id) : undefined
+      if (!view) throw broadcastNotFound()
+      return view
     },
 
     /** Soft Delete. 방송 중에는 시청자가 있으므로 먼저 종료해야 한다 (409) */
@@ -123,6 +125,8 @@ export function createBroadcastService(db: Db) {
         .where(and(eq(broadcasts.id, id), isNull(broadcasts.deletedAt), ne(broadcasts.status, 'LIVE')))
         .run()
       if (result.changes === 0) {
+        // 조건에 걸린 이유를 구분한다: 그사이 삭제됐으면 404, 방송 중이면 409
+        if (!findView(id)) throw broadcastNotFound()
         throw new AppError(409, 'BROADCAST_LIVE', '방송 중에는 삭제할 수 없습니다. 방송을 먼저 종료하세요')
       }
     },

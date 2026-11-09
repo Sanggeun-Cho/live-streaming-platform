@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { requireAuth } from '../auth/plugin.js'
 import type { BroadcastService } from '../broadcasts/service.js'
 import { BROADCAST_STATUSES } from '../db/schema.js'
-import { idParams, parse } from '../lib/validate.js'
+import { idParams, parse, positiveId } from '../lib/validate.js'
 
 const title = z
   .string({ error: '제목을 입력하세요' })
@@ -20,9 +20,14 @@ const updateBody = z
 
 const listQuery = z.object({
   status: z.enum(BROADCAST_STATUSES, { error: '상태는 READY, LIVE, ENDED 중 하나여야 합니다' }).optional(),
-  channelId: z.coerce.number().int().positive().optional(),
-  cursor: z.coerce.number().int().positive().optional(),
-  limit: z.coerce.number().int().min(1).max(50).default(20),
+  channelId: positiveId('채널 ID').optional(),
+  cursor: positiveId('커서').optional(),
+  limit: z.coerce
+    .number({ error: '개수는 1~50 사이의 숫자여야 합니다' })
+    .int({ error: '개수는 1~50 사이의 숫자여야 합니다' })
+    .min(1, { error: '개수는 1~50 사이의 숫자여야 합니다' })
+    .max(50, { error: '개수는 1~50 사이의 숫자여야 합니다' })
+    .default(20),
 })
 
 export const broadcastRoutes =

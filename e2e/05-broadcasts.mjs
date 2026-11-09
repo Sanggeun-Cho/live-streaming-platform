@@ -84,6 +84,26 @@ await step('소유자: 삭제하면 내 채널로 이동하고, 상세는 "찾�
   await anon.getByText('방송을 찾을 수 없습니다').waitFor()
 })
 
+await step('세션이 만료된 뒤 삭제를 누르면 로그인 화면으로 보내고, 로그인 후 돌아올 주소를 유지한다', async () => {
+  await owner.getByRole('link', { name: '새 방송 만들기' }).click()
+  await owner.getByLabel('제목').fill('만료 테스트')
+  await owner.getByRole('button', { name: '만들기' }).click()
+  await owner.waitForURL(/\/broadcasts\/\d+$/)
+  const path = new URL(owner.url()).pathname
+  await owner.context().clearCookies()
+  owner.once('dialog', (d) => d.accept())
+  await owner.getByRole('button', { name: '삭제' }).click()
+  await owner.waitForURL((u) => u.pathname === '/login')
+  expectEqual(new URL(owner.url()).searchParams.get('next'), path)
+})
+
+await step('잘못된 주소: 숫자가 아닌 방송 ID와 없는 채널은 안내 문구를 보여준다', async () => {
+  await anon.goto(`${BASE}/broadcasts/abc`)
+  await anon.getByText('방송을 찾을 수 없습니다').waitFor()
+  await anon.goto(`${BASE}/channels/999999`)
+  await anon.getByText('채널을 찾을 수 없습니다').waitFor()
+})
+
 await step('모바일 폭(390px)에서 목록이 가로 스크롤 없이 보인다', async () => {
   await anon.setViewportSize({ width: 390, height: 844 })
   await anon.goto(`${BASE}/`)

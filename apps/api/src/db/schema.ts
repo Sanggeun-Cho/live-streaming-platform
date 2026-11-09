@@ -2,10 +2,11 @@ import { sql } from 'drizzle-orm'
 import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 // 시각은 모두 epoch 밀리초(integer)로 저장한다.
-const createdAt = () =>
-  integer('created_at', { mode: 'timestamp_ms' })
+const nowMs = (name: string) =>
+  integer(name, { mode: 'timestamp_ms' })
     .notNull()
     .default(sql`(unixepoch('subsec') * 1000)`)
+const createdAt = () => nowMs('created_at')
 
 export const users = sqliteTable('users', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -60,9 +61,7 @@ export const broadcasts = sqliteTable(
     startedAt: integer('started_at', { mode: 'timestamp_ms' }),
     endedAt: integer('ended_at', { mode: 'timestamp_ms' }),
     createdAt: createdAt(),
-    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
-      .notNull()
-      .default(sql`(unixepoch('subsec') * 1000)`),
+    updatedAt: nowMs('updated_at'),
     deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
   },
   (t) => [

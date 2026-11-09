@@ -9,6 +9,9 @@ export function parse<T extends z.ZodType>(schema: T, input: unknown): z.infer<T
 }
 
 /** URL 경로의 숫자 ID (`/:id`) */
-export const idParams = z.object({
-  id: z.coerce.number({ error: 'ID가 올바르지 않습니다' }).int({ error: 'ID가 올바르지 않습니다' }).positive({ error: 'ID가 올바르지 않습니다' }),
-})
+export const positiveId = (label = 'ID') => {
+  const error = `${label}가 올바르지 않습니다`
+  return z.coerce.number({ error }).int({ error }).positive({ error })
+}
+
+export const idParams = z.object({ id: positiveId() })
