@@ -158,6 +158,19 @@ describe('녹화 등록·다시보기 (#12)', () => {
     expect((await app.inject({ method: 'GET', url: '/api/replays?limit=0' })).statusCode).toBe(400)
   })
 
+  it('다시보기 목록은 종료 시각 최신순이다 (먼저 만들었어도 나중에 끝난 방송이 앞)', async () => {
+    const later = await createBroadcast(app, owner, '나중에 만든 방송')
+    for (const bid of [id, later]) await segmentHook(app, { path: `live/${bid}`, segmentPath: seg(bid, '2026-11-09_12-00-00') })
+    await end(later)
+    await new Promise((r) => setTimeout(r, 5))
+    await end(id)
+    const page1 = (await app.inject({ method: 'GET', url: '/api/replays?limit=1' })).json()
+    expect(page1.items.map((b: { id: number }) => b.id)).toEqual([id])
+    const page2 = (await app.inject({ method: 'GET', url: `/api/replays?limit=1&cursor=${page1.nextCursor}` })).json()
+    expect(page2.items.map((b: { id: number }) => b.id)).toEqual([later])
+    expect(page2.nextCursor).toBeNull()
+  })
+
   it('파일 서빙 인가(forward_auth): 등록된 파일만 허용하고, 삭제된 방송·미등록·경로 조작은 404', async () => {
     const file = seg(id, '2026-11-09_12-00-00')
     await segmentHook(app, { path: `live/${id}`, segmentPath: file })

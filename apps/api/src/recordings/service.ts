@@ -5,13 +5,16 @@
 // 파일은 Caddy가 /recordings/*로 서빙하되, 요청마다 api에 "등록된 파일이고 방송이 삭제되지 않았는지"를 묻는다(forward_auth).
 //
 // 세그먼트 훅은 offline과 같은 시점이나 그 뒤에 도착한다(#2 스파이크). 그래서 방송 상태(LIVE/ENDED)와 상관없이 등록한다.
+// 훅이 유실되면(wget 실패, 변환 중 mediamtx 재시작) api가 기동 시와 5분마다 녹화 디렉터리를 스캔해 메운다(scan).
 
-import { and, asc, desc, eq, isNull, lt, type SQL, sql } from 'drizzle-orm'
-import { posix } from 'node:path'
+import { and, asc, desc, eq, isNull, lt, or, type SQL, sql } from 'drizzle-orm'
+import { readdir, stat } from 'node:fs/promises'
+import { join, posix } from 'node:path'
 import type { Db } from '../db/client.js'
 import { broadcasts, channels, recordings, users } from '../db/schema.js'
 import { broadcastColumns, broadcastNotFound, type BroadcastView } from '../broadcasts/service.js'
 import { parseMediaPath } from '../broadcasts/lifecycle.js'
+import { mp4DurationMs } from './mp4.js'
 
 /** 브라우저가 파일을 받는 주소의 접두사 (Caddy가 recordings 볼륨을 이 경로로 서빙한다) */
 export const RECORDINGS_URL_PREFIX = '/recordings/'
@@ -88,6 +91,17 @@ export function parseSegmentStart(relative: string): Date | null {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
+// 복구 스캔: mtime이 이보다 최근인 파일은 아직 녹화 중이거나 훅(변환·등록)이 처리 중일 수 있어 건너뛴다.
+// MediaMTX는 녹화 중인 fMP4에 1초 간격으로 덧붙이므로 2분이면 충분히 구분된다
+const SCAN_SETTLE_MS = 2 * 60_000
+// 변환 임시 파일이 이 시간 안에 바뀌었으면 변환 중으로 본다 (segment.sh의 ffmpeg timeout 30분 + 여유)
+const CONVERTING_MS = 35 * 60_000
+
+/** segment.sh가 쓰는 변환 임시 파일 이름 */
+export const tempNameOf = (fileName: string) => `.${fileName.replace(/\.mp4$/, '')}.web.tmp.mp4`
+
+export type ScanResult = { registered: Extract<RegisterResult, { status: 'registered' }>[]; skipped: number }
+
 export function createRecordingService(db: Db, { recordingsDir }: { recordingsDir: string }) {
   const { orm } = db
 
@@ -107,6 +121,30 @@ export function createRecordingService(db: Db, { recordingsDir }: { recordingsDi
     sizeBytes: recordings.sizeBytes,
   }
 
+  /** 방송 행이 있는가. activeOnly면 삭제되지 않은 방송만 */
+  const broadcastExists = (id: number, { activeOnly }: { activeOnly: boolean }) =>
+    orm
+      .select({ id: broadcasts.id })
+      .from(broadcasts)
+      .where(activeOnly ? and(eq(broadcasts.id, id), isNull(broadcasts.deletedAt)) : eq(broadcasts.id, id))
+      .get() !== undefined
+
+  /** 훅과 복구 스캔이 함께 쓰는 등록. 같은 파일은 한 번만 들어간다 (file_path 유니크) */
+  function insert(broadcastId: number, relative: string, durationMs: number, sizeBytes: number | null, now: Date): RegisterResult {
+    // 종료 → 삭제 뒤에 늦게 도착한 세그먼트도 등록해 둔다 (조회·서빙은 삭제 기준으로 막힌다)
+    if (!broadcastExists(broadcastId, { activeOnly: false })) return { status: 'unknown-broadcast' }
+    // 파일 이름을 못 읽으면 "지금 - 길이"로 추정한다 (훅은 세그먼트가 닫힌 직후 실행된다)
+    const startedAt = parseSegmentStart(relative) ?? new Date(now.getTime() - durationMs)
+    const row = orm
+      .insert(recordings)
+      .values({ broadcastId, filePath: relative, startedAt, durationMs, sizeBytes })
+      .onConflictDoNothing({ target: recordings.filePath })
+      .returning(recordingColumns)
+      .get()
+    if (!row) return { status: 'duplicate' }
+    return { status: 'registered', broadcastId, recording: toView(row) }
+  }
+
   return {
     /** MediaMTX segment 훅. 같은 파일은 한 번만 등록한다 (멱등) */
     register(event: SegmentEvent, now = new Date()): RegisterResult {
@@ -119,30 +157,70 @@ export function createRecordingService(db: Db, { recordingsDir }: { recordingsDi
       if (durationMs === null) return { status: 'invalid', reason: 'segmentDuration 형식 오류' }
       const size = event.segmentSize ? Number(event.segmentSize) : NaN
       const sizeBytes = Number.isSafeInteger(size) && size >= 0 ? size : null
+      return insert(pathId, parsed.relative, durationMs, sizeBytes, now)
+    },
 
-      const exists = orm.select({ id: broadcasts.id }).from(broadcasts).where(eq(broadcasts.id, pathId)).get()
-      if (!exists) return { status: 'unknown-broadcast' }
-
-      // 파일 이름을 못 읽으면 "지금 - 길이"로 추정한다 (훅은 세그먼트가 닫힌 직후 실행된다)
-      const startedAt = parseSegmentStart(parsed.relative) ?? new Date(now.getTime() - durationMs)
-      const row = orm
-        .insert(recordings)
-        .values({ broadcastId: pathId, filePath: parsed.relative, startedAt, durationMs, sizeBytes })
-        .onConflictDoNothing({ target: recordings.filePath })
-        .returning(recordingColumns)
-        .get()
-      if (!row) return { status: 'duplicate' }
-      return { status: 'registered', broadcastId: pathId, recording: toView(row) }
+    /**
+     * 복구 스캔: 녹화 디렉터리에서 등록되지 않은 세그먼트를 찾아 등록한다.
+     * 훅 유실(wget 실패, api 다운)이나 변환 도중 mediamtx 재시작으로 빠진 세그먼트를 메운다.
+     * 변환되지 않은 원본(Opus)이면 원본 그대로 등록한다 (Chrome·Android에서는 재생된다).
+     * 녹화 디렉터리가 없으면(개발 모드) 아무것도 하지 않는다.
+     */
+    async scan(now = Date.now()): Promise<ScanResult> {
+      const result: ScanResult = { registered: [], skipped: 0 }
+      const liveDir = join(recordingsDir, 'live')
+      let dirs: string[]
+      try {
+        dirs = await readdir(liveDir)
+      } catch {
+        return result
+      }
+      for (const dir of dirs) {
+        const broadcastId = parseMediaPath(`live/${dir}`)
+        if (broadcastId === null) continue
+        let names: string[]
+        try {
+          names = await readdir(join(liveDir, dir))
+        } catch {
+          continue
+        }
+        const known = new Set(
+          orm
+            .select({ filePath: recordings.filePath })
+            .from(recordings)
+            .where(eq(recordings.broadcastId, broadcastId))
+            .all()
+            .map((r) => r.filePath),
+        )
+        const present = new Set(names)
+        for (const name of names) {
+          const relative = `live/${dir}/${name}`
+          // 점으로 시작하는 변환 임시 파일은 RELATIVE_PATH에서 걸러진다
+          if (known.has(relative) || !RELATIVE_PATH.test(relative)) continue
+          try {
+            const file = join(liveDir, dir, name)
+            const info = await stat(file)
+            const temp = tempNameOf(name)
+            const converting =
+              present.has(temp) && now - (await stat(join(liveDir, dir, temp))).mtimeMs < CONVERTING_MS
+            const durationMs = now - info.mtimeMs < SCAN_SETTLE_MS || converting ? null : await mp4DurationMs(file)
+            if (durationMs === null) {
+              result.skipped++
+              continue
+            }
+            const r = insert(broadcastId, relative, durationMs, info.size, new Date(now))
+            if (r.status === 'registered') result.registered.push(r)
+          } catch {
+            result.skipped++
+          }
+        }
+      }
+      return result
     },
 
     /** 방송의 녹화 세그먼트를 재생 순서대로. 없거나 삭제된 방송은 404 */
     listForBroadcast(broadcastId: number): RecordingView[] {
-      const exists = orm
-        .select({ id: broadcasts.id })
-        .from(broadcasts)
-        .where(and(eq(broadcasts.id, broadcastId), isNull(broadcasts.deletedAt)))
-        .get()
-      if (!exists) throw broadcastNotFound()
+      if (!broadcastExists(broadcastId, { activeOnly: true })) throw broadcastNotFound()
       return orm
         .select(recordingColumns)
         .from(recordings)
@@ -152,10 +230,15 @@ export function createRecordingService(db: Db, { recordingsDir }: { recordingsDi
         .map(toView)
     },
 
-    /** 다시보기 목록: 녹화가 하나 이상 있는 종료된 방송, 최신순 */
+    /** 다시보기 목록: 녹화가 하나 이상 있는 종료된 방송, 종료 시각 최신순 */
     listReplays({ cursor, limit }: { cursor?: number; limit: number }): { items: ReplayView[]; nextCursor: number | null } {
       const conditions: SQL[] = [isNull(broadcasts.deletedAt), eq(broadcasts.status, 'ENDED')]
-      if (cursor) conditions.push(lt(broadcasts.id, cursor))
+      if (cursor) {
+        // 종료 시각 최신순. 커서는 이전 페이지 마지막 방송의 ID이고, 그 방송의 종료 시각 기준으로 이어 읽는다
+        const at = orm.select({ endedAt: broadcasts.endedAt }).from(broadcasts).where(eq(broadcasts.id, cursor)).get()?.endedAt
+        if (!at) return { items: [], nextCursor: null }
+        conditions.push(or(lt(broadcasts.endedAt, at), and(eq(broadcasts.endedAt, at), lt(broadcasts.id, cursor)))!)
+      }
       const rows = orm
         .select({
           ...broadcastColumns,
@@ -168,7 +251,7 @@ export function createRecordingService(db: Db, { recordingsDir }: { recordingsDi
         .innerJoin(recordings, eq(recordings.broadcastId, broadcasts.id))
         .where(and(...conditions))
         .groupBy(broadcasts.id)
-        .orderBy(desc(broadcasts.id))
+        .orderBy(desc(broadcasts.endedAt), desc(broadcasts.id))
         .limit(limit + 1)
         .all()
       const items = rows.slice(0, limit)

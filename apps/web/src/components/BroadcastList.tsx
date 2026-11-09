@@ -1,25 +1,34 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
-import { type Broadcast, type ListParams, listBroadcasts, STATUS_LABEL } from '../lib/broadcasts'
+import { type Broadcast, STATUS_LABEL } from '../lib/broadcasts'
 import { errorMessage } from '../lib/api'
-import { formatDuration, listReplays, type Replay } from '../lib/recordings'
+import { formatDuration, type Replay } from '../lib/recordings'
 
 export function StatusBadge({ status }: { status: Broadcast['status'] }) {
   return <span className={`badge badge-${status.toLowerCase()}`}>{STATUS_LABEL[status]}</span>
 }
 
-/** replays: 다시보기 목록(녹화가 있는 종료 방송, #12). 이때 params는 limit만 쓴다 */
-type Props = { params: Omit<ListParams, 'cursor'>; empty: string; replays?: boolean }
-
 type Item = Broadcast & Partial<Pick<Replay, 'recordingCount' | 'totalDurationMs'>>
 
-/** 방송 목록 + 더 보기. 조건(params)이 바뀌면 key로 새로 마운트해 처음부터 다시 읽는다 */
+/** 목록 한 페이지를 읽는 함수. cursor가 없으면 첫 페이지 */
+export type PageFetcher = (
+  cursor: number | undefined,
+  signal?: AbortSignal,
+) => Promise<{ items: Item[]; nextCursor: number | null }>
+
+/**
+ * listKey: 조건을 나타내는 문자열. 바뀌면 새로 마운트해 처음부터 다시 읽는다.
+ * fetchPage는 처음 받은 것을 계속 쓴다 (매 렌더 새 함수를 넘겨도 다시 읽지 않게)
+ */
+type Props = { listKey: string; fetchPage: PageFetcher; empty: string }
+
+/** 방송 목록 + 더 보기. 방송 목록·채널 방송·다시보기(#12)가 조회 함수만 바꿔 같이 쓴다 */
 export function BroadcastList(props: Props) {
-  return <BroadcastListInner key={`${props.replays ? 'replays' : 'broadcasts'}:${JSON.stringify(props.params)}`} {...props} />
+  return <BroadcastListInner key={props.listKey} {...props} />
 }
 
-function BroadcastListInner({ params, empty, replays = false }: Props) {
-  const [query] = useState(params)
+function BroadcastListInner({ fetchPage: initialFetch, empty }: Props) {
+  const [fetchList] = useState(() => initialFetch)
   const [items, setItems] = useState<Item[]>([])
   const [nextCursor, setNextCursor] = useState<number | null>(null)
   const [state, setState] = useState<'loading' | 'idle' | 'error'>('loading')
@@ -27,8 +36,8 @@ function BroadcastListInner({ params, empty, replays = false }: Props) {
 
   const fetchPage = useCallback(
     (cursor: number | undefined, signal?: AbortSignal) =>
-      (replays ? listReplays({ cursor, limit: query.limit }, signal) : listBroadcasts({ ...query, cursor }, signal))
-        .then((page: { items: Item[]; nextCursor: number | null }) => {
+      fetchList(cursor, signal)
+        .then((page) => {
           setItems((prev) => (cursor ? [...prev, ...page.items] : page.items))
           setNextCursor(page.nextCursor)
           setState('idle')
@@ -38,7 +47,7 @@ function BroadcastListInner({ params, empty, replays = false }: Props) {
           setError(errorMessage(e))
           setState('error')
         }),
-    [query, replays],
+    [fetchList],
   )
 
   const load = (cursor?: number) => {

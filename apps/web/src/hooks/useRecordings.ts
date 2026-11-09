@@ -13,7 +13,7 @@ const byStart = (a: Recording, b: Recording) => a.startedAt.localeCompare(b.star
 
 /**
  * 종료된 방송의 녹화 세그먼트 목록. enabled가 false면(방송 중 등) 읽지 않는다.
- * endedAt이 최근이고 아직 녹화가 없으면 preparing=true로 알리고 주기적으로 다시 읽는다.
+ * 종료 후 PREPARE_WINDOW_MS 동안은 주기적으로 다시 읽고, 그동안 녹화가 하나도 없으면 preparing=true.
  */
 export function useRecordings(broadcastId: number, enabled: boolean, endedAt: string | null) {
   const [state, setState] = useState<State | null>(null)
@@ -35,16 +35,18 @@ export function useRecordings(broadcastId: number, enabled: boolean, endedAt: st
   const current = state?.key === broadcastId ? state : null
   const recordings = enabled ? (current?.recordings ?? null) : null
   const endedMs = endedAt ? Date.parse(endedAt) : NaN
-  const preparing = enabled && recordings?.length === 0 && now - endedMs < PREPARE_WINDOW_MS
+  // 종료 직후에는 녹화 개수와 상관없이 다시 읽는다: 앞 구간만 등록되고 마지막 구간이 변환 중일 수 있다
+  const recent = enabled && recordings !== null && now - endedMs < PREPARE_WINDOW_MS
+  const preparing = recent && recordings.length === 0
 
   useEffect(() => {
-    if (!preparing) return
+    if (!recent) return
     const timer = setInterval(() => {
       setNow(Date.now())
       setReloadKey((k) => k + 1)
     }, POLL_MS)
     return () => clearInterval(timer)
-  }, [preparing])
+  }, [recent])
 
   /** SSE로 받은 새 세그먼트를 끼워 넣는다 (같은 id는 무시) */
   const add = useCallback(

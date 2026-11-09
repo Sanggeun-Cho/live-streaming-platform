@@ -49,6 +49,8 @@ services:
       TRUST_PROXY: 10.89.0.10
     volumes:
       - api_data:/data
+      # 녹화 복구 스캔 (#12): 훅이 유실된 세그먼트를 찾아 등록한다. 읽기만 한다 (RECORDINGS_DIR 기본값과 같은 경로)
+      - recordings:/recordings:ro
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s

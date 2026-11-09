@@ -175,8 +175,10 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
   - 세그먼트 훅은 offline·종료 뒤에 오므로 방송 상태와 상관없이 등록한다. 등록되면 SSE `recording` 이벤트를 보낸다.
   - 시작 시각은 파일 이름(`%Y-%m-%d_%H-%M-%S-%f_%z`)에서 읽는다. 훅 도착 순서는 변환 시간에 따라 바뀔 수 있다.
 - 파일은 Caddy가 recordings 볼륨(읽기 전용)에서 `/recordings/*`로 서빙한다(Range 지원). 요청마다 `forward_auth`로 api `/internal/recordings/authorize`에 묻고, **등록된 파일이고 방송이 삭제되지 않았을 때만** 내보낸다. 변환 중인 임시 파일·미등록 파일·삭제된 방송의 영상은 404.
-- API: `GET /api/replays`(녹화가 있는 ENDED 방송, 최신순, 커서), `GET /api/broadcasts/:id/recordings`(재생 순서대로). 공개, 삭제된 방송은 404.
-- 재연결로 세그먼트가 여러 개 생기면 회차 상세에서 시작 시각 순서로 이어서 재생한다(구간 목록 표시). 종료 직후 아직 등록 전이면 "녹화 파일을 준비하고 있습니다"를 보여주고 SSE·10초 주기 조회로 갱신한다.
+- 훅이 유실되면(wget 실패, 변환 중 mediamtx 재시작) api가 기동 시와 5분마다 recordings 볼륨(읽기 전용)을 스캔해 미등록 세그먼트를 등록한다. 최근 2분 안에 바뀐 파일·변환 중인 원본·점 파일은 건너뛰고, 길이는 mp4 박스(mvhd 또는 moof의 tfdt+trun)에서 읽는다. MediaMTX는 세그먼트 훅을 path offline에 묶어 끝내지 않는다(v1.21.3 `internal/core/path.go` `OnSegmentComplete`).
+- 변환은 `flock`으로 한 번에 하나, ffmpeg 스레드 1개·`nice`·30분 `timeout`.
+- API: `GET /api/replays`(녹화가 있는 ENDED 방송, 종료 시각 최신순, 커서), `GET /api/broadcasts/:id/recordings`(재생 순서대로). 공개, 삭제된 방송은 404.
+- 재연결로 세그먼트가 여러 개 생기면 회차 상세에서 시작 시각 순서로 이어서 재생한다(구간 목록 표시). 종료 직후 아직 등록 전이면 "녹화 파일을 준비하고 있습니다"를 보여준다. SSE `recording`과, 종료 후 10분 동안의 10초 주기 조회(개수 무관, 마지막 구간 누락 방지)로 갱신한다.
 
 ## 8. 위험과 대응
 
