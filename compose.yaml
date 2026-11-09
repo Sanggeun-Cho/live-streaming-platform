@@ -2,6 +2,8 @@ name: live
 
 services:
   caddy:
+    # 로컬: up --build로 직접 빌드 / 서버: CI가 올린 이미지를 pull만 한다 (.github/workflows/images.yml)
+    image: ghcr.io/sanggeun-cho/live-streaming-platform/caddy:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: infra/caddy/Dockerfile
@@ -25,6 +27,7 @@ services:
         ipv4_address: 10.89.0.10
 
   api:
+    image: ghcr.io/sanggeun-cho/live-streaming-platform/api:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: apps/api/Dockerfile
