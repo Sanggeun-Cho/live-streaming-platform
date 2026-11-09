@@ -32,11 +32,15 @@ function fakeControl() {
   const kicked: PathSource[] = []
   let gate: Promise<void> | null = null
   let release = () => {}
+  // 멈춘 조회가 실제로 시작됐음을 알린다 (고정 대기 시간 대신 이것을 기다려야 부하가 있어도 순서가 재현된다)
+  let markReached = () => {}
+  let reached: Promise<void> = Promise.resolve()
   const control: MediaControl = {
     async getSource(path) {
       if (gate) {
         const g = gate
         gate = null
+        markReached()
         await g
       }
       return ready.get(path) ?? null
@@ -55,7 +59,10 @@ function fakeControl() {
     control,
     holdNext() {
       gate = new Promise((r) => (release = r))
+      reached = new Promise((r) => (markReached = r))
     },
+    /** holdNext로 멈춘 조회에 도달할 때까지 기다린다 */
+    reached: () => reached,
     release: () => release(),
   }
 }
@@ -137,7 +144,7 @@ describe('상태 전이 경계 (#13)', () => {
       media.ready.set(path, { type: 'webRTCSession', id: 's2' })
       media.holdNext()
       const online = hook('online')
-      await new Promise((r) => setTimeout(r, 10))
+      await media.reached()
       const ended = await end()
       expect(ended.statusCode).toBe(200)
       media.release()
@@ -195,7 +202,7 @@ describe('상태 전이 경계 (#13)', () => {
 
       media.holdNext()
       const expiring = app.lifecycle.expireDisconnected()
-      await new Promise((r) => setTimeout(r, 10))
+      await media.reached()
       // 확정 직전: 재송출(online) → 곧바로 다시 끊김(offline). disconnectedAt이 방금 시각으로 바뀐다
       await goOnline('s2')
       expect(row().disconnectedAt).toBeNull()
