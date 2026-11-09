@@ -57,5 +57,5 @@ TBD
 
 ## 설계
 - [docs/DESIGN.md](docs/DESIGN.md): 아키텍처, 상태 머신, 권한 매트릭스
-- [docs/INFRA_SETUP.md](docs/INFRA_SETUP.md): 운영 서버 세팅 절차
+- [docs/INFRA_SETUP.md](docs/INFRA_SETUP.md): 인프라 구성과 운영 (서버 세팅, 배포, 문제 해결)
 - [docs/ROADMAP.md](docs/ROADMAP.md): 이슈 진행 순서와 의존 관계
