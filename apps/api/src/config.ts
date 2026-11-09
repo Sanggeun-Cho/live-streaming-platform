@@ -40,6 +40,28 @@ const envSchema = z
           .map((s) => s.trim())
           .filter(Boolean),
       ),
+    // 토스페이먼츠 결제창형 키 (개발자센터 > API 키 > 주문서형, 결제창형 연동 키: test_gck_/test_gsk_). 둘 다 비우면 후원 기능이 꺼진다.
+    // 클라이언트 키는 브라우저에 공개되고, 시크릿 키는 서버의 승인·조회 API 호출에만 쓴다
+    // 이 과제는 테스트 결제만 한다. 라이브 키(live_)나 다른 종류의 키(API 개별 연동 키 test_ck_)는 기동 단계에서 거부한다
+    TOSS_CLIENT_KEY: z
+      .string()
+      .trim()
+      .regex(/^(test_gck_[A-Za-z0-9_]+)?$/, {
+        error: '토스 결제창형 테스트 클라이언트 키(test_gck_로 시작)만 쓸 수 있습니다',
+      })
+      .default(''),
+    TOSS_SECRET_KEY: z
+      .string()
+      .trim()
+      .regex(/^(test_gsk_[A-Za-z0-9_]+)?$/, {
+        error: '토스 결제창형 테스트 시크릿 키(test_gsk_로 시작)만 쓸 수 있습니다',
+      })
+      .default(''),
+    // 개발·E2E 전용: 토스를 거치지 않고 결제를 승인된 것으로 처리한다 (운영에서는 켤 수 없다)
+    TOSS_FAKE_PAYMENTS: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((v) => v === 'true'),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && env.INTERNAL_SECRET === DEV_INTERNAL_SECRET) {
@@ -54,6 +76,29 @@ const envSchema = z
         code: 'custom',
         path: ['COOKIE_SECURE'],
         message: '운영 환경에서는 COOKIE_SECURE를 끌 수 없습니다',
+      })
+    }
+    // 한쪽 키만 있으면 결제창은 열리는데 승인이 실패하는(돈은 빠지지 않지만 후원도 안 되는) 상태가 된다
+    if (Boolean(env.TOSS_CLIENT_KEY) !== Boolean(env.TOSS_SECRET_KEY)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['TOSS_SECRET_KEY'],
+        message: 'TOSS_CLIENT_KEY와 TOSS_SECRET_KEY는 함께 설정하거나 함께 비워야 합니다',
+      })
+    }
+    if (env.NODE_ENV === 'production' && env.TOSS_FAKE_PAYMENTS) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['TOSS_FAKE_PAYMENTS'],
+        message: '운영 환경에서는 가짜 결제를 켤 수 없습니다',
+      })
+    }
+    // 둘 다 켜져 있으면 어느 쪽으로 결제되는지 헷갈리고, 실제 키로 띄운 줄 알고 가짜 승인을 받을 수 있다
+    if (env.TOSS_FAKE_PAYMENTS && (env.TOSS_CLIENT_KEY || env.TOSS_SECRET_KEY)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['TOSS_FAKE_PAYMENTS'],
+        message: '가짜 결제(TOSS_FAKE_PAYMENTS)와 토스 키를 함께 설정할 수 없습니다. 둘 중 하나만 설정하세요',
       })
     }
   })

@@ -1,13 +1,16 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { useAuth } from '../auth/context'
 import { useAuthErrorRedirect } from '../auth/useAuthErrorRedirect'
 import { StatusBadge } from '../components/BroadcastList'
+import { DonationAlert, DonationBoard, DonationPanel } from '../components/Donations'
 import { LivePlayer } from '../components/LivePlayer'
 import { useBroadcastEvents } from '../hooks/useBroadcastEvents'
 import { useBroadcast } from '../hooks/useBroadcast'
+import { useDonations } from '../hooks/useDonations'
 import { errorMessage } from '../lib/api'
 import { type BroadcastStatus, deleteBroadcast } from '../lib/broadcasts'
+import type { Donation } from '../lib/donations'
 
 const PLAYER_MESSAGE: Record<BroadcastStatus, string> = {
   READY: '방송 시작 전입니다',
@@ -27,8 +30,11 @@ export function BroadcastPage() {
   // 송출이 다시 붙을 때마다 플레이어를 새로 연결한다
   const [playerKey, setPlayerKey] = useState(0)
   const redirectIfUnauthorized = useAuthErrorRedirect()
+  const donations = useDonations(broadcast ? id : null)
+  // 화면에 띄울 최신 후원 알림
+  const [latestDonation, setLatestDonation] = useState<Donation | null>(null)
 
-  useBroadcastEvents(broadcast ? id : null, {
+  const { connected } = useBroadcastEvents(broadcast ? id : null, {
     status: (data) => {
       if (data.status === 'LIVE' && !data.disconnectedAt) setPlayerKey((k) => k + 1)
       patch(data)
@@ -36,7 +42,20 @@ export function BroadcastPage() {
     updated: (data) => patch(data),
     viewers: (data) => setViewers(data.count),
     deleted: () => setDeleted(true),
+    donation: (data) => {
+      donations.push(data)
+      setLatestDonation(data.donation)
+    },
   })
+
+  // 실시간 연결이 끊겼다 다시 붙으면 그 사이 놓친 후원을 다시 읽는다 (첫 연결은 처음 읽은 목록으로 충분하다)
+  const everConnected = useRef(false)
+  const { reload: reloadDonations } = donations
+  useEffect(() => {
+    if (!connected) return
+    if (everConnected.current) reloadDonations()
+    everConnected.current = true
+  }, [connected, reloadDonations])
 
   if (error) {
     return (
@@ -98,6 +117,10 @@ export function BroadcastPage() {
         <Link to={`/channels/${broadcast.channel.id}`}>{broadcast.streamer.nickname}</Link>
       </p>
       {broadcast.description && <p className="description">{broadcast.description}</p>}
+
+      {latestDonation && <DonationAlert key={latestDonation.id} donation={latestDonation} />}
+      <DonationPanel broadcast={broadcast} isOwner={isOwner} />
+      <DonationBoard donations={donations} />
 
       {isOwner && (
         <div className="row owner-actions">

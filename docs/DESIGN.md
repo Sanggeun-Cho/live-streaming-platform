@@ -112,7 +112,7 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 - **시청 인가(read)**: 방송이 LIVE일 때만 허용한다(로그인 불필요).
 - **내부 훅 엔드포인트** `/internal/*`: Caddy는 `/api/*`·`/live/*`만 프록시하므로 외부에서 닿지 않는다. 같은 네트워크의 다른 컨테이너를 막기 위해 공유 시크릿을 한 번 더 확인한다. MediaMTX 인가 요청은 헤더를 붙일 수 없어 `authHTTPAddress`의 쿼리로, 훅은 `X-Internal-Secret` 헤더로 보낸다. api 로그는 `secret`·`token` 쿼리 값을 가린다.
 - MediaMTX는 인가 실패 응답에 `WWW-Authenticate: Basic`을 붙인다. 그대로 두면 브라우저가 로그인 창을 띄우므로 Caddy에서 지운다.
-- **실시간 이벤트(SSE)** `/api/broadcasts/:id/events`: `status`, `viewers`(방송자 본인 연결 제외), `updated`, `deleted`. 연결 직후 현재 상태를 보내 재연결 시 놓친 변경을 맞춘다.
+- **실시간 이벤트(SSE)** `/api/broadcasts/:id/events`: `status`, `viewers`(방송자 본인 연결 제외), `updated`, `deleted`, `donation`(§7). 연결 직후 현재 상태를 보내 재연결 시 놓친 변경을 맞춘다.
 
 ### 권한 매트릭스
 
@@ -125,7 +125,9 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 | 댓글 조회 | ✅ | ✅ | ✅ |
 | 댓글 작성 | 401 | ✅ | ✅ |
 | 댓글 수정·삭제 | 401 | 403 | ✅ |
-| 후원 | 401 | ✅ (LIVE 중에만) | 403 (본인 방송) |
+| 후원 | 401 | ✅ (LIVE 중에만, 아니면 409) | 403 (본인 방송) |
+| 후원 승인 확인(confirm) | 401 | 403 (남의 주문) | ✅ (주문한 본인) |
+| 후원 내역·합계 조회 | ✅ | ✅ | ✅ |
 
 ## 6. 송출 클라이언트
 
@@ -150,12 +152,20 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 - 삭제는 Soft Delete이며 "삭제된 댓글입니다"로 표시한다.
 
 ### 도네이션
-1. `POST /api/broadcasts/:id/donation-orders`: 로그인, 본인 방송 아님, LIVE 상태를 검증한다. 금액 범위를 검증한 뒤 주문(`orderId`, 금액, 대상 방송, 후원자)을 `PENDING`으로 생성한다.
-2. 클라이언트가 토스 결제창을 호출한다(테스트 키).
-3. `POST /api/donations/confirm`: `orderId`, `paymentKey`, `amount`를 받는다. **저장된 주문 금액과 일치하는지** 확인한 뒤 토스 승인 API를 호출하고, 응답의 상태·금액·orderId를 다시 대조한다.
-4. **멱등성**: `orderId`는 유니크이고, `UPDATE ... SET status='DONE' WHERE status='PENDING'`의 영향받은 행 수가 1일 때만 원장(`donations`)을 생성한다. 같은 승인 통지(재요청, 웹훅)가 반복되어도 한 번만 적립된다.
+1. `POST /api/broadcasts/:id/donation-orders`: 로그인(401), 본인 방송 아님(403), LIVE 상태(409 `BROADCAST_NOT_LIVE`)를 검증한다. 금액(1,000~1,000,000원, 1,000원 단위)과 메시지(선택, 100자)를 검증한 뒤 주문(무작위 `orderId`, 금액, 메시지, 대상 방송, 후원자)을 `PENDING`으로 생성한다.
+2. 클라이언트가 토스 **결제창형 결제**(SDK v2 `widgets().renderPaymentWindow()` → `paymentRequest` 이벤트에서 `requestPayment()`)를 띄운다. 결제창(구버전) `payment()`는 API 개별 연동 키(`test_ck_`)가 필요하고, 공개 문서용 `test_ck_` 키는 더 이상 인증되지 않아(2026-11-09 확인) 결제창형을 택했다. 성공·실패는 `/broadcasts/:id/donation/success|fail`로 돌아온다(취소 시 orderId가 없어 방송 ID를 경로에 둔다).
+3. `POST /api/donations/confirm`(로그인, 주문한 본인만): `orderId`, `paymentKey`, `amount`를 받는다. **저장된 주문 금액과 일치하는지** 확인하고(다르면 승인 요청 없이 FAILED) 토스 승인 API(`Idempotency-Key: confirm-{orderId}`)를 호출한 뒤, 응답의 상태(DONE)·금액·orderId·paymentKey·통화를 다시 대조한다.
+   - 토스 거절(4xx) → 주문 FAILED, 400 `PAYMENT_REJECTED`. 토스 원문 메시지는 보내지 않고, 사용자 원인 코드(카드 거절·한도·결제 시간 만료 등)만 정해 둔 안내 문구로 바꾼다. 키 불일치 같은 설정 오류(`UNAUTHORIZED_KEY` 등)는 503 `PAYMENT_CONFIG_ERROR`("결제 설정 오류") + 오류 로그, 주문은 PENDING.
+   - 네트워크·429·5xx·응답 형식 오류(zod 검증 실패) → 주문은 PENDING 유지, 502 `PAYMENT_UNAVAILABLE`("새로고침해 다시 확인"). 재요청은 멱등키 덕분에 안전하다.
+   - 5xx 안내 문구는 `AppError`에 노출(`expose`)을 명시한 경우에만 그대로 보낸다. 나머지 5xx는 "서버 오류가 발생했습니다".
+   - **한계**: 승인 후 응답 대조가 어긋나면 적립하지 않고 FAILED + 오류 로그만 남긴다. 결제 취소 API는 연동하지 않아 운영자가 토스 상점관리자에서 취소해야 한다.
+   - `ALREADY_PROCESSED_PAYMENT`(다른 요청이 먼저 승인) → 결제 조회 API(`GET /v1/payments/{paymentKey}`)로 실제 상태를 확인해 같은 경로로 적립한다.
+4. **멱등성**: `orderId`는 유니크이고, `UPDATE ... SET status='DONE' WHERE status IN ('PENDING','FAILED')`의 영향받은 행 수가 1일 때만 같은 트랜잭션에서 원장(`donations`, `order_id` 유니크)을 생성한다. 같은 승인 통지(재요청, 동시 요청, 웹훅)가 반복되어도 한 번만 적립된다. 이미 DONE인 주문의 재요청은 토스에 다시 묻지 않고 기존 결과를 돌려준다. FAILED → DONE을 허용하는 이유: 토스 조회로 승인이 확인된 결제는 돈이 빠져나갔으므로 적립이 맞다(confirm 경로는 FAILED 주문을 409로 먼저 거절한다).
 5. 주문 생성 시점에 LIVE였다면, 결제 도중 방송이 종료되어도 확정한다.
-6. 원장은 삭제하지 않는다. 방송별 내역과 합계는 원장에서 집계한다.
+6. 원장은 삭제하지 않는다. 방송별 내역과 합계는 원장에서 집계한다: `GET /api/broadcasts/:id/donations`(공개, 최신순 커서 페이지 + `total {amount, count}`).
+7. 적립되면 SSE `donation` 이벤트(`{donation: {후원자 닉네임, 금액, 메시지}, total}`)를 보낸다. 방송 화면은 알림을 띄우고 합계·내역을 갱신하며, SSE가 다시 연결되면 내역을 다시 읽는다.
+8. 웹훅 `POST /api/donations/webhook`(`PAYMENT_STATUS_CHANGED`): 본문은 믿지 않고 `paymentKey`로 결제 조회 API를 불러 DONE이고 주문과 일치하면 4와 같은 경로로 적립한다(브라우저가 confirm 전에 닫힌 경우 보정). 대조가 어긋나면 주문 상태를 바꾸지 않고 무시한다(남의 orderId에 자기 결제 키를 붙여 남의 주문을 실패로 만들 수 없게). IP당 분당 60회 제한. 조회 실패(일시 오류)만 503으로 재전송을 유도하고 나머지는 200. 개발자센터에 `https://<도메인>/api/donations/webhook`을 등록해야 동작한다.
+9. 키: `TOSS_CLIENT_KEY`(공개, `GET /api/donations/config`로 웹에 전달) / `TOSS_SECRET_KEY`(서버 전용). 둘 다 없으면 후원 버튼에 "결제 설정이 없어 후원을 사용할 수 없습니다". 키는 결제창형 테스트 키(`test_gck_`/`test_gsk_`)만 받는다(라이브 키 거부, 이번 과제는 테스트 결제만). 개발·E2E 전용 `TOSS_FAKE_PAYMENTS=true`는 결제창 없이 승인 처리한다(운영에서는 기동 거부, 토스 키와 함께 설정하면 기동 거부, 켜져 있으면 기동 로그에 경고). 주문 생성은 사용자당 분당 10회로 제한한다.
 
 ### 녹화·다시보기
 - MediaMTX `record: yes`, 포맷은 fMP4, path별 디렉터리에 저장한다. 기본값 `recordDeleteAfter: 1d`는 영구 저장 요구와 충돌하므로 `0s`로 끈다.
@@ -176,4 +186,11 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 
 ## 9. 오픈소스 출처
 - [MediaMTX](https://github.com/bluenviron/mediamtx) (MIT)
+- 토스페이먼츠 연동은 공식 문서·예제를 따랐다 (코드 복사 없음, 2026-11-09 확인)
+  - 결제창형 결제 연동: https://docs.tosspayments.com/guides/v2/payment-widget/integration-window
+  - 결제창형 SDK: https://docs.tosspayments.com/sdk/v2/js/payment-window
+  - 결제창(구버전) 연동(비교용): https://docs.tosspayments.com/guides/v2/payment-window/integration
+  - 멱등키: https://docs.tosspayments.com/reference/using-api/idempotency-key
+  - 웹훅 이벤트: https://docs.tosspayments.com/reference/using-api/webhook-events
+  - 공식 예제(문서용 테스트 키 출처): https://github.com/tosspayments/tosspayments-sample (`express-javascript/server.js`)
 - 그 밖의 의존성은 각 `package.json` 참고

@@ -5,6 +5,7 @@ import { AuthForm } from './pages/AuthForm'
 import { EditBroadcastPage, NewBroadcastPage } from './pages/BroadcastFormPage'
 import { BroadcastPage } from './pages/BroadcastPage'
 import { ChannelPage } from './pages/ChannelPage'
+import { DonationFailPage, DonationSuccessPage } from './pages/DonationResultPage'
 import { HomePage } from './pages/HomePage'
 import { StudioPage } from './pages/StudioPage'
 
@@ -89,6 +90,16 @@ export default function App() {
               </RequireAuth>
             }
           />
+          {/* 토스 결제창이 돌아오는 주소 (#11) */}
+          <Route
+            path="/broadcasts/:id/donation/success"
+            element={
+              <RequireAuth>
+                <DonationSuccessPage />
+              </RequireAuth>
+            }
+          />
+          <Route path="/broadcasts/:id/donation/fail" element={<DonationFailPage />} />
           <Route path="/channels/:channelId" element={<ChannelPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>

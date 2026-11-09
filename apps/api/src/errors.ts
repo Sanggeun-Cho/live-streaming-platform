@@ -6,6 +6,11 @@ export class AppError extends Error {
     readonly statusCode: number,
     readonly code: string,
     message: string,
+    /**
+     * 5xx여도 message를 사용자에게 그대로 보낸다 (외부 결제 API 장애처럼 사용자가 다음에 할 일을 알아야 하는 경우).
+     * 기본값 false: 예상하지 못한 5xx는 내부 정보를 숨긴다. 4xx는 항상 보낸다
+     */
+    readonly expose = false,
   ) {
     super(message)
     this.name = 'AppError'
