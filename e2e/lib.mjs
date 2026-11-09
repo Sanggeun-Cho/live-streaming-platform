@@ -25,7 +25,9 @@ export async function step(name, fn) {
     console.log(`✓ ${name}${note ? ` — ${note}` : ''}`)
   } catch (e) {
     failed++
-    console.log(`✗ ${name}\n    ${String(e?.message ?? e).split('\n')[0]}`)
+    // E2E_VERBOSE=1이면 Playwright 호출 기록(어느 요소를 왜 못 눌렀는지)까지 보여준다
+    const lines = String(e?.message ?? e).split('\n')
+    console.log(`✗ ${name}\n    ${lines.slice(0, process.env.E2E_VERBOSE ? 15 : 1).join('\n    ')}`)
   }
 }
 
@@ -62,3 +64,19 @@ export function expectEqual(actual, expected, label = '') {
 
 /** 정규식 특수문자를 이스케이프한다 (제목으로 링크를 찾을 때) */
 export const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** 방송 스튜디오에서 카메라로 송출을 시작하고 LIVE가 될 때까지 기다린다 */
+export async function startCameraBroadcast(page, broadcastId) {
+  await page.goto(`${BASE}/broadcasts/${broadcastId}/studio`)
+  await page.getByRole('button', { name: /카메라/ }).first().click()
+  await page.getByRole('button', { name: '방송 시작' }).click()
+  await page.getByTestId('studio-phase').getByText('LIVE').waitFor({ timeout: 20_000 })
+  // 종료 후 장치가 꺼졌는지 확인할 수 있게 캡처 트랙을 보관한다
+  await page.evaluate(() => {
+    window.__studioTracks = document.querySelector('[data-testid=studio-preview]').srcObject.getTracks()
+  })
+}
+
+/** startCameraBroadcast 이후 살아 있는 캡처 트랙 수 */
+export const liveCaptureTracks = (page) =>
+  page.evaluate(() => (window.__studioTracks ?? []).filter((t) => t.readyState === 'live').length)

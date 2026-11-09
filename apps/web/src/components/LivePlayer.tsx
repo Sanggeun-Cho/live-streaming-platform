@@ -12,8 +12,13 @@ const MAX_RETRIES = 5
  * - 자동재생 정책 때문에 음소거로 시작하고, 사용자가 소리를 켠다.
  * - 연결에 실패하거나 도중에 끊기면 몇 번 자동으로 다시 연결한다.
  */
-export function LivePlayer({ broadcastId, reconnectKey }: { broadcastId: number; reconnectKey: number }) {
+/** 방송자가 다시 연결되면 부모가 key를 바꿔 플레이어를 새로 만든다 */
+export function LivePlayer({ broadcastId }: { broadcastId: number }) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const boxRef = useRef<HTMLDivElement>(null)
+  const [connecting, setConnecting] = useState(true)
+  // 브라우저가 자동재생을 막으면(저전력 모드 등) 사용자가 눌러서 재생한다
+  const [blocked, setBlocked] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [muted, setMuted] = useState(true)
   // 바뀔 때마다 연결을 처음부터 다시 맺는다 (자동 재시도, "다시 연결" 버튼)
@@ -33,7 +38,10 @@ export function LivePlayer({ broadcastId, reconnectKey }: { broadcastId: number;
         return
       }
       failures.current += 1
-      retryTimer = setTimeout(() => setRetryKey((n) => n + 1), RETRY_DELAY_MS)
+      retryTimer = setTimeout(() => {
+        setConnecting(true)
+        setRetryKey((n) => n + 1)
+      }, RETRY_DELAY_MS)
     }
 
     view(`/live/${broadcastId}/whep`)
@@ -42,7 +50,15 @@ export function LivePlayer({ broadcastId, reconnectKey }: { broadcastId: number;
         session = s
         failures.current = 0
         setError(null)
-        if (videoRef.current) videoRef.current.srcObject = s.stream
+        setConnecting(false)
+        const video = videoRef.current
+        if (video) {
+          video.srcObject = s.stream
+          video.play().then(
+            () => setBlocked(false),
+            () => setBlocked(true),
+          )
+        }
         s.pc.addEventListener('connectionstatechange', () => {
           if (s.pc.connectionState === 'failed') retry('연결이 끊겼습니다')
         })
@@ -54,16 +70,38 @@ export function LivePlayer({ broadcastId, reconnectKey }: { broadcastId: number;
       clearTimeout(retryTimer)
       void session?.close()
     }
-  }, [broadcastId, reconnectKey, retryKey])
+  }, [broadcastId, retryKey])
 
   return (
-    <div className="player">
+    <div className="player" ref={boxRef}>
       <video ref={videoRef} autoPlay playsInline muted={muted} data-testid="live-video" />
-      {muted && (
-        <button type="button" className="unmute" onClick={() => setMuted(false)}>
-          🔇 눌러서 소리 켜기
+      {connecting && !error && (
+        <p className="player-overlay" role="status">
+          {retryKey > 0 ? '연결이 끊겨 다시 연결하는 중…' : '방송에 연결하는 중…'}
+        </p>
+      )}
+      {blocked && (
+        <button
+          type="button"
+          className="player-overlay play"
+          onClick={() =>
+            void videoRef.current?.play().then(
+              () => setBlocked(false),
+              () => setBlocked(true),
+            )
+          }
+        >
+          ▶ 눌러서 재생
         </button>
       )}
+      <div className="player-bar">
+        <button type="button" onClick={() => setMuted((m) => !m)} aria-pressed={!muted}>
+          {muted ? '🔇 소리 켜기' : '🔊 소리 끄기'}
+        </button>
+        <button type="button" onClick={() => void toggleFullscreen(boxRef.current, videoRef.current).catch(() => undefined)}>
+          ⛶ 전체 화면
+        </button>
+      </div>
       {error && (
         <div className="player-error" role="alert">
           <p className="error">영상을 불러오지 못했습니다: {error}</p>
@@ -71,6 +109,7 @@ export function LivePlayer({ broadcastId, reconnectKey }: { broadcastId: number;
             type="button"
             onClick={() => {
               setError(null)
+              setConnecting(true)
               failures.current = 0
               setRetryKey((k) => k + 1)
             }}
@@ -81,4 +120,11 @@ export function LivePlayer({ broadcastId, reconnectKey }: { broadcastId: number;
       )}
     </div>
   )
+}
+
+/** 전체 화면. iOS Safari는 요소 전체 화면을 지원하지 않아 video 전용 API를 쓴다 */
+async function toggleFullscreen(box: HTMLElement | null, video: HTMLVideoElement | null) {
+  if (document.fullscreenElement) return document.exitFullscreen()
+  if (box?.requestFullscreen) return box.requestFullscreen()
+  ;(video as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null)?.webkitEnterFullscreen?.()
 }

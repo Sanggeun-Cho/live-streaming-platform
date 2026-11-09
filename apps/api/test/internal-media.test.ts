@@ -236,6 +236,14 @@ describe('송출 제어 (#6)', () => {
       expect(row().disconnectedAt).toBeInstanceOf(Date)
     })
 
+    it('online 훅이 유실된 채 offline만 오면(송출 직후 끊김) 잠깐 방송한 뒤 끊긴 것으로 보고 유예 후 종료한다', async () => {
+      await hook('offline') // MediaMTX가 runOnOnline을 끝내 버려 online 통지가 없었다
+      expect(row()).toMatchObject({ status: 'LIVE' })
+      expect(row().disconnectedAt).toBeInstanceOf(Date)
+      await app.lifecycle.expireDisconnected(Date.now() + 46_000)
+      expect(row().status).toBe('ENDED')
+    })
+
     it('MediaMTX 조회가 실패하면 offline을 끊김으로 처리한다 (유예 시간이 보호)', async () => {
       await goOnline()
       media.state.fail = true

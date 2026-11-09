@@ -9,6 +9,12 @@ export function publishErrorMessage(e: unknown): string {
   if (e instanceof DOMException && e.name === 'NotFoundError') {
     return '카메라나 마이크를 찾을 수 없습니다. 장치가 연결되어 있는지 확인하세요'
   }
+  if (e instanceof ApiError && e.status === 401) {
+    return '로그인이 만료되었습니다. 다시 로그인한 뒤 송출하세요'
+  }
+  if (e instanceof DOMException && e.name === 'NotReadableError') {
+    return '카메라나 마이크를 다른 앱이 사용 중입니다. 다른 앱을 닫고 다시 시도하세요'
+  }
   if (e instanceof WebRtcHttpError && e.status === 401) {
     return '송출 인증이 만료되었습니다. 다시 시작을 눌러 주세요'
   }

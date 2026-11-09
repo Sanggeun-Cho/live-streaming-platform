@@ -1,6 +1,6 @@
 // #6 송출 제어 시나리오 (docker compose 전체 구성 필요: E2E_BASE_URL=https://localhost)
 // 가짜 카메라로 WHIP 송출 → 시청자 화면 실시간 상태 변경 → 끊김·재연결 → 종료 → 재송출 거절 → 유예 만료
-import { anonPage, BASE, expectEqual, finish, launch, signedUpPage, step } from './lib.mjs'
+import { anonPage, BASE, expectEqual, finish, launch, liveCaptureTracks, signedUpPage, startCameraBroadcast, step } from './lib.mjs'
 
 const browser = await launch()
 const owner = await signedUpPage(browser, '송출자')
@@ -59,8 +59,7 @@ await step('토큰 없이 WHIP로 송출을 시도하면 MediaMTX가 거절한�
 })
 
 await step('소유자가 카메라로 방송을 시작하면 시청자 화면이 새로고침 없이 LIVE로 바뀌고 영상이 재생된다', async () => {
-  await owner.getByRole('button', { name: '카메라로 방송 시작' }).click()
-  await owner.getByRole('button', { name: '방송 종료' }).waitFor({ timeout: 15_000 })
+  await startCameraBroadcast(owner, id)
   await statusLine(viewer).getByText('LIVE').waitFor({ timeout: 15_000 })
   await videoPlaying(viewer)
   const size = await viewer.evaluate(() => {
@@ -75,8 +74,11 @@ await step('시청자 수가 실시간으로 표시된다', async () => {
   return await statusLine(viewer).innerText()
 })
 
-await step('방송 중에는 소유자 화면의 삭제 버튼이 비활성화된다', async () => {
-  expectEqual(await owner.getByRole('button', { name: '삭제' }).isDisabled(), true)
+await step('방송 중에는 소유자의 방송 화면에서 삭제 버튼이 비활성화된다', async () => {
+  const detail = await owner.context().newPage()
+  await detail.goto(`${BASE}/broadcasts/${id}`)
+  expectEqual(await detail.getByRole('button', { name: '삭제' }).isDisabled(), true)
+  await detail.close()
 })
 
 await step('송출 탭이 닫히면 시청자 화면에 "연결이 끊겼습니다(재연결 대기)"가 표시된다', async () => {
@@ -91,8 +93,7 @@ await step('송출 탭이 닫히면 시청자 화면에 "연결이 끊겼습니�
 
 await step('유예 시간 안에 다시 송출하면 같은 방송이 LIVE로 돌아오고 시청자 영상이 다시 재생된다', async () => {
   const page = ownerPage
-  await page.getByRole('button', { name: '카메라로 방송 시작' }).click()
-  await page.getByRole('button', { name: '방송 종료' }).waitFor({ timeout: 15_000 })
+  await startCameraBroadcast(page, id)
   await viewer.getByTestId('live-video').waitFor({ timeout: 15_000 })
   await videoPlaying(viewer)
 })
@@ -117,11 +118,11 @@ await step('종료된 방송은 publish 토큰을 다시 받을 수 없다 (409,
 await step('송출이 끊긴 채 유예 시간(45초)이 지나면 자동으로 방송 종료가 확정된다', async () => {
   const page = ownerPage
   const id2 = await createBroadcast(page, `유예 E2E ${Date.now()}`)
-  await page.getByRole('button', { name: '카메라로 방송 시작' }).click()
-  await page.getByRole('button', { name: '방송 종료' }).waitFor({ timeout: 15_000 })
+  await startCameraBroadcast(page, id2)
   await viewer.goto(`${BASE}/broadcasts/${id2}`)
   await statusLine(viewer).getByText('LIVE').waitFor({ timeout: 10_000 })
   const before = Date.now()
+  page.once('dialog', (d) => d.accept()) // 방송 중 이탈 경고(beforeunload)
   await page.goto(`${BASE}/`) // 송출 화면을 떠난다
   await viewer.getByText('다시 연결되기를 기다리는 중').waitFor({ timeout: 15_000 })
   await statusLine(viewer).getByText('방송 종료').waitFor({ timeout: 70_000 })
@@ -131,17 +132,12 @@ await step('송출이 끊긴 채 유예 시간(45초)이 지나면 자동으로 
 await step('다른 탭에서 방송을 종료하면 송출 중이던 탭도 카메라·마이크를 끄고 종료를 안내한다', async () => {
   const page = ownerPage
   const id3 = await createBroadcast(page, `다른 탭 종료 ${Date.now()}`)
-  await page.getByRole('button', { name: '카메라로 방송 시작' }).click()
-  await page.getByRole('button', { name: '방송 종료' }).waitFor({ timeout: 15_000 })
+  await startCameraBroadcast(page, id3)
   const other = await ownerContext.newPage()
   await other.goto(`${BASE}/broadcasts/${id3}`)
   expectEqual(await other.evaluate((bid) => fetch(`/api/broadcasts/${bid}/end`, { method: 'POST' }).then((r) => r.status), id3), 200)
-  await page.getByText('방송이 종료되어 송출을 멈췄습니다').waitFor({ timeout: 10_000 })
-  const live = await page.evaluate(() => {
-    const v = document.querySelector('.preview')
-    return v?.srcObject ? v.srcObject.getTracks().filter((t) => t.readyState === 'live').length : 0
-  })
-  expectEqual(live, 0, '살아 있는 트랙')
+  await page.getByRole('heading', { name: '방송이 종료되었습니다' }).waitFor({ timeout: 10_000 })
+  expectEqual(await liveCaptureTracks(page), 0, '살아 있는 캡처 트랙')
 })
 
 await browser.close()

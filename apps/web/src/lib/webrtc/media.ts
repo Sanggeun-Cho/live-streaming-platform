@@ -11,8 +11,13 @@ export type Capture = {
   hasMic: boolean
   setDisplayVolume: (v: number) => void
   setMicVolume: (v: number) => void
-  /** 화면 공유 영상이 브라우저 UI 등으로 끝났을 때 */
+  /** 영상 트랙이 끝났을 때 (화면 공유를 브라우저 UI로 중지, 모바일에서 카메라를 빼앗김 등) */
   onEnded: (cb: () => void) => void
+  /**
+   * 카메라만: 전면/후면을 바꾼 새 영상 트랙을 돌려준다(stream 안의 트랙도 교체).
+   * 휴대폰은 카메라 두 개를 동시에 열지 못하는 경우가 많아 이전 트랙을 먼저 끈 뒤 새로 연다.
+   */
+  switchFacing?: (facing: FacingMode) => Promise<MediaStreamTrack>
   stop: () => void
 }
 
@@ -130,18 +135,53 @@ export type FacingMode = 'user' | 'environment'
 
 export async function captureCamera(facingMode: FacingMode = 'user'): Promise<Capture> {
   const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } },
+    video: cameraConstraints(facingMode),
     audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
   })
-  const videoTrack = stream.getVideoTracks()[0]!
+  let videoTrack = stream.getVideoTracks()[0]!
   videoTrack.contentHint = 'motion'
+  let endedCallback: (() => void) | null = null
+  // 의도적으로 끈 트랙(카메라 전환)의 ended는 무시한다
+  const watch = (track: MediaStreamTrack) =>
+    track.addEventListener('ended', () => track === videoTrack && endedCallback?.(), { once: true })
+  watch(videoTrack)
+
   return {
     stream,
     hasDisplayAudio: false,
     hasMic: stream.getAudioTracks().length > 0,
     setDisplayVolume: () => undefined,
+    // 카메라 마이크는 WebAudio를 거치지 않으므로 켜고 끄기만 한다
     setMicVolume: (v) => stream.getAudioTracks().forEach((t) => (t.enabled = v > 0)),
-    onEnded: (cb) => videoTrack.addEventListener('ended', cb, { once: true }),
+    onEnded: (cb) => {
+      endedCallback = cb
+    },
+    switchFacing: async (facing) => {
+      const old = videoTrack
+      stream.removeTrack(old)
+      old.stop()
+      let next: MediaStreamTrack
+      try {
+        next = (await navigator.mediaDevices.getUserMedia({ video: cameraConstraints(facing) })).getVideoTracks()[0]!
+      } catch (e) {
+        // 새 카메라를 못 열면 원래 카메라로 되돌린다
+        const restored = (await navigator.mediaDevices.getUserMedia({ video: { facingMode: old.getSettings().facingMode ?? 'user' } })).getVideoTracks()[0]!
+        restored.contentHint = 'motion'
+        videoTrack = restored
+        stream.addTrack(restored)
+        watch(restored)
+        throw e
+      }
+      next.contentHint = 'motion'
+      videoTrack = next
+      stream.addTrack(next)
+      watch(next)
+      return next
+    },
     stop: () => stream.getTracks().forEach((t) => t.stop()),
   }
+}
+
+function cameraConstraints(facingMode: FacingMode): MediaTrackConstraints {
+  return { facingMode, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } }
 }
