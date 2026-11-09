@@ -10,7 +10,12 @@ const envSchema = z
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
     DATABASE_PATH: z.string().default('./data/app.db'),
     // MediaMTX → api 내부 훅 호출을 검증하는 공유 시크릿
-    INTERNAL_SECRET: z.string().min(16).default(DEV_INTERNAL_SECRET),
+    // MediaMTX 인가 URL의 쿼리에 그대로 들어가므로 URL에 안전한 문자만 허용한다 (예: openssl rand -hex 24)
+    INTERNAL_SECRET: z
+      .string()
+      .min(16)
+      .regex(/^[A-Za-z0-9_-]+$/, { error: '영문·숫자·-·_만 사용할 수 있습니다 (openssl rand -hex 24로 만드세요)' })
+      .default(DEV_INTERNAL_SECRET),
     // 세션 쿠키 Secure 속성. Chrome·Firefox는 http://localhost도 보안 컨텍스트로 보므로 기본값 그대로 개발할 수 있다.
     // http로 LAN IP에 접속하는 등 예외 상황에서만 false로 끈다.
     COOKIE_SECURE: z

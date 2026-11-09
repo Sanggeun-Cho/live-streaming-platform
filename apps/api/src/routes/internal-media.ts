@@ -1,7 +1,7 @@
-import { timingSafeEqual } from 'node:crypto'
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import type { BroadcastLifecycle } from '../broadcasts/lifecycle.js'
+import { safeEqual } from '../lib/crypto.js'
 
 // MediaMTX → api 내부 호출.
 // - Caddy는 /api/*와 /live/*만 프록시하므로 외부에서는 /internal에 도달할 수 없다 (1차 방어).
@@ -25,12 +25,6 @@ const eventBody = z.object({
   segmentPath: z.string().optional(),
   segmentDuration: z.string().optional(),
 })
-
-function safeEqual(a: string, b: string) {
-  const x = Buffer.from(a)
-  const y = Buffer.from(b)
-  return x.length === y.length && timingSafeEqual(x, y)
-}
 
 /** WHIP의 Authorization: Bearer는 token 필드로 온다. 쿼리 ?token=도 허용한다 */
 function tokenOf(body: z.infer<typeof authBody>) {

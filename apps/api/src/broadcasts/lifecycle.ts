@@ -8,7 +8,8 @@
 //
 // MediaMTX 훅은 순서가 뒤바뀌거나(대체 송출 시 새 online이 이전 offline보다 먼저 도착) 유실될 수 있다(#2 스파이크).
 // 그래서 (1) offline을 받으면 Control API로 실제 송출 여부를 확인하고, (2) 주기적으로 Control API와 대조해 보정한다.
-// 모든 전이는 "현재 상태를 조건으로 거는 UPDATE"라서 훅과 API 요청이 겹쳐도 잘못된 전이가 일어나지 않는다.
+// 모든 전이는 "현재 상태를 조건으로 거는 UPDATE"라서 훅과 API 요청이 겹쳐도 잘못된 전이(예: ENDED→LIVE)가 일어나지 않는다.
+// offline 확인 중 재송출 online이 끼어드는 경우는 lastOnlineAt으로 걸러낸다.
 
 import { and, eq, inArray, isNotNull, isNull, lte } from 'drizzle-orm'
 import type { FastifyBaseLogger } from 'fastify'
@@ -99,7 +100,13 @@ export function createBroadcastLifecycle(deps: {
     }
   }
 
-  async function markOnline(id: number) {
+  // 방송별 마지막 online 처리 시각. offline 확인(Control API 조회)을 기다리는 사이에 재송출 online이
+  // 먼저 처리되면, 늦게 끝난 offline이 방금 재개된 방송을 "끊김"으로 덮어쓰지 않게 한다
+  const lastOnlineAt = new Map<number, number>()
+
+  /** verified: 호출한 쪽이 이미 Control API로 송출 중임을 확인했으면 true */
+  async function markOnline(id: number, { verified = false } = {}) {
+    lastOnlineAt.set(id, Date.now())
     const now = new Date()
     const row = load(id)
     if (!row) return
@@ -109,6 +116,11 @@ export function createBroadcastLifecycle(deps: {
       return
     }
     if (row.status === 'LIVE' && !row.disconnectedAt) return
+    if (row.disconnectedAt && !verified) {
+      // 끊김 뒤에 온 online이 늦게 도착한 이전 훅일 수 있다. 실제로 송출 중일 때만 끊김을 해제한다
+      const { known, source } = await sourceOf(mediaPath(id))
+      if (known && !source) return
+    }
     const result = orm
       .update(broadcasts)
       .set({ status: 'LIVE', startedAt: row.startedAt ?? now, disconnectedAt: null, updatedAt: now })
@@ -121,8 +133,10 @@ export function createBroadcastLifecycle(deps: {
   async function markDisconnected(id: number) {
     const row = load(id)
     if (!row || row.status !== 'LIVE' || row.disconnectedAt) return
+    const checkedAt = Date.now()
     const { source } = await sourceOf(mediaPath(id))
     if (source) return
+    if ((lastOnlineAt.get(id) ?? 0) >= checkedAt) return
     const result = orm
       .update(broadcasts)
       .set({ disconnectedAt: new Date() })
@@ -159,11 +173,6 @@ export function createBroadcastLifecycle(deps: {
       emit(id)
       await kickPath(mediaPath(id))
       return toPayload(load(id)!)
-    },
-
-    status(id: number): StatusPayload | null {
-      const row = load(id)
-      return row && !row.deletedAt ? toPayload(row) : null
     },
 
     // ---- MediaMTX 인가 ----
@@ -212,7 +221,7 @@ export function createBroadcastLifecycle(deps: {
         const { source } = await sourceOf(mediaPath(id))
         if (source) {
           // online 훅이 유실된 재송출
-          await markOnline(id)
+          await markOnline(id, { verified: true })
           continue
         }
         const result = orm
@@ -248,17 +257,17 @@ export function createBroadcastLifecycle(deps: {
       // 실제 송출이 있다 → READY/끊김이면 online 훅 유실, ENDED/삭제면 강제 종료가 실패했던 것
       for (const path of ready) {
         const id = parseMediaPath(path)
-        if (id !== null) await markOnline(id)
+        if (id !== null) await markOnline(id, { verified: true })
       }
     },
 
     /** 주기 작업을 시작하고 중지 함수를 돌려준다 */
-    start({ expireEveryMs = 5_000, reconcileEveryMs = 30_000 } = {}) {
+    start() {
       const run = (name: string, fn: () => Promise<void>) => () =>
         fn().catch((err: unknown) => log.error({ err }, `${name} 실패`))
       const timers = [
-        setInterval(run('expireDisconnected', () => this.expireDisconnected()), expireEveryMs),
-        setInterval(run('reconcile', () => this.reconcile()), reconcileEveryMs),
+        setInterval(run('expireDisconnected', () => this.expireDisconnected()), 5_000),
+        setInterval(run('reconcile', () => this.reconcile()), 30_000),
       ]
       for (const t of timers) t.unref()
       return () => timers.forEach(clearInterval)

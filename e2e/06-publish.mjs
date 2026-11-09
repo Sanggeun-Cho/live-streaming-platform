@@ -128,5 +128,21 @@ await step('송출이 끊긴 채 유예 시간(45초)이 지나면 자동으로 
   return `끊김 후 ${Math.round((Date.now() - before) / 1000)}초 만에 종료`
 })
 
+await step('다른 탭에서 방송을 종료하면 송출 중이던 탭도 카메라·마이크를 끄고 종료를 안내한다', async () => {
+  const page = ownerPage
+  const id3 = await createBroadcast(page, `다른 탭 종료 ${Date.now()}`)
+  await page.getByRole('button', { name: '카메라로 방송 시작' }).click()
+  await page.getByRole('button', { name: '방송 종료' }).waitFor({ timeout: 15_000 })
+  const other = await ownerContext.newPage()
+  await other.goto(`${BASE}/broadcasts/${id3}`)
+  expectEqual(await other.evaluate((bid) => fetch(`/api/broadcasts/${bid}/end`, { method: 'POST' }).then((r) => r.status), id3), 200)
+  await page.getByText('방송이 종료되어 송출을 멈췄습니다').waitFor({ timeout: 10_000 })
+  const live = await page.evaluate(() => {
+    const v = document.querySelector('.preview')
+    return v?.srcObject ? v.srcObject.getTracks().filter((t) => t.readyState === 'live').length : 0
+  })
+  expectEqual(live, 0, '살아 있는 트랙')
+})
+
 await browser.close()
 finish()

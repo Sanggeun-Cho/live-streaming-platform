@@ -8,7 +8,7 @@ import { PublishPanel } from '../components/PublishPanel'
 import { useBroadcastEvents } from '../hooks/useBroadcastEvents'
 import { useBroadcast } from '../hooks/useBroadcast'
 import { errorMessage } from '../lib/api'
-import { type Broadcast, type BroadcastStatus, deleteBroadcast, type StatusPayload } from '../lib/broadcasts'
+import { type BroadcastStatus, deleteBroadcast } from '../lib/broadcasts'
 
 const PLAYER_MESSAGE: Record<BroadcastStatus, string> = {
   READY: '방송 시작 전입니다',
@@ -24,20 +24,19 @@ export function BroadcastPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [viewers, setViewers] = useState<number | null>(null)
-  const [deletedLive, setDeletedLive] = useState(false)
+  const [deleted, setDeleted] = useState(false)
   // 송출이 다시 붙을 때마다 플레이어를 새로 연결한다
   const [playerKey, setPlayerKey] = useState(0)
   const redirectIfUnauthorized = useAuthErrorRedirect()
 
   useBroadcastEvents(broadcast ? id : null, {
     status: (data) => {
-      const next = data as StatusPayload
-      if (next.status === 'LIVE' && !next.disconnectedAt) setPlayerKey((k) => k + 1)
-      patch(next)
+      if (data.status === 'LIVE' && !data.disconnectedAt) setPlayerKey((k) => k + 1)
+      patch(data)
     },
-    updated: (data) => patch(data as Partial<Broadcast>),
-    viewers: (data) => setViewers((data as { count: number }).count),
-    deleted: () => setDeletedLive(true),
+    updated: (data) => patch(data),
+    viewers: (data) => setViewers(data.count),
+    deleted: () => setDeleted(true),
   })
 
   if (error) {
@@ -49,7 +48,7 @@ export function BroadcastPage() {
     )
   }
   if (!broadcast) return <p className="muted">불러오는 중…</p>
-  if (deletedLive) {
+  if (deleted) {
     return (
       <section>
         <p className="error">방송자가 이 방송을 삭제했습니다.</p>

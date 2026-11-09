@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { errorMessage } from '../lib/api'
 import { type Broadcast, endBroadcast, issuePublishToken, type StatusPayload } from '../lib/broadcasts'
 import { captureCamera, type Capture } from '../lib/webrtc/media'
+import { publishErrorMessage } from '../lib/webrtc/errors'
 import { publish, type WebRtcSession } from '../lib/webrtc/whip'
+
 
 /**
  * 소유자 송출 패널 (#6 최소 버전: 카메라 송출 + 종료).
@@ -45,7 +47,7 @@ export function PublishPanel({ broadcast, onEnded }: { broadcast: Broadcast; onE
       setState('publishing')
     } catch (e) {
       stopLocal()
-      setError(errorMessage(e))
+      setError(publishErrorMessage(e))
       setState('idle')
     }
   }
@@ -64,7 +66,21 @@ export function PublishPanel({ broadcast, onEnded }: { broadcast: Broadcast; onE
     }
   }
 
-  if (broadcast.status === 'ENDED') return null
+  // 다른 탭에서 종료했거나 유예 시간이 지나 종료되면, 서버가 송출을 끊으므로 이 탭의 카메라·마이크도 끈다
+  const ended = broadcast.status === 'ENDED'
+  useEffect(() => {
+    if (ended) stopLocal()
+  }, [ended])
+
+  if (ended) {
+    return (
+      <section className="publish-panel">
+        <p className="muted" role="status">
+          방송이 종료되어 송출을 멈췄습니다. 다시 방송하려면 새 방송을 만드세요.
+        </p>
+      </section>
+    )
+  }
 
   return (
     <section className="publish-panel">

@@ -4,11 +4,14 @@ import { requireAuth } from '../auth/plugin.js'
 import type { BroadcastLifecycle } from '../broadcasts/lifecycle.js'
 import { broadcastNotFound, type BroadcastService } from '../broadcasts/service.js'
 import { BROADCAST_STATUSES } from '../db/schema.js'
+import { AppError } from '../errors.js'
 import { idParams, parse, positiveId } from '../lib/validate.js'
 import type { EventHub } from '../realtime/hub.js'
 
 // SSE 연결을 유지하기 위한 주석 전송 간격. 프록시·모바일 망의 유휴 연결 종료(보통 30~60초)보다 짧게 둔다
 const SSE_HEARTBEAT_MS = 20_000
+// IP당 동시 SSE 연결 상한. 한 사람이 여러 탭을 열어도 충분하고, 연결을 대량으로 열어 자원을 소모시키는 것은 막는다
+const SSE_MAX_PER_IP = 20
 
 const title = z
   .string({ error: '제목을 입력하세요' })
@@ -46,11 +49,7 @@ export const broadcastRoutes =
     hub: EventHub
   }): FastifyPluginAsync =>
   async (app) => {
-    // 열린 SSE 응답. 서버 종료 시 끊어 줘야 close가 기다리지 않는다
-    const openStreams = new Set<import('node:http').ServerResponse>()
-    app.addHook('preClose', async () => {
-      for (const res of openStreams) res.end()
-    })
+    const sseByIp = new Map<string, number>()
 
     // 목록·상세는 로그인 없이 조회한다
     app.get('/broadcasts', async (request) => broadcasts.list(parse(listQuery, request.query)))
@@ -77,6 +76,8 @@ export const broadcastRoutes =
       const { id } = parse(idParams, request.params)
       broadcasts.remove(id, request.user!)
       hub.publish(id, 'deleted', {})
+      // 삭제된 방송의 연결은 더 받을 이벤트가 없으므로 닫는다
+      hub.closeBroadcast(id)
       return reply.code(204).send()
     })
 
@@ -95,12 +96,16 @@ export const broadcastRoutes =
 
     // 실시간 이벤트 (SSE). 로그인 없이 구독한다.
     //   status: 상태 변경, viewers: 시청자 수, updated: 제목·설명 변경, deleted: 방송 삭제
-    //   (#10 comment.*, #11 donation)
     app.get('/broadcasts/:id/events', async (request, reply) => {
       const { id } = parse(idParams, request.params)
-      const status = lifecycle.status(id)
       const view = broadcasts.findView(id)
-      if (!status || !view) throw broadcastNotFound()
+      if (!view) throw broadcastNotFound()
+      const ip = request.ip
+      const opened = sseByIp.get(ip) ?? 0
+      if (opened >= SSE_MAX_PER_IP) {
+        throw new AppError(429, 'TOO_MANY_REQUESTS', '연결이 너무 많습니다. 열려 있는 방송 탭을 닫고 다시 시도하세요')
+      }
+      sseByIp.set(ip, opened + 1)
       // 방송자 본인의 연결은 시청자 수에 넣지 않는다
       const isOwner = request.user?.channelId === view.channel.id
 
@@ -118,18 +123,23 @@ export const broadcastRoutes =
       }
       // 연결이 끊겼다가 다시 붙으면(EventSource 자동 재연결) 그 사이 놓친 상태를 현재 값으로 맞춘다
       res.write('retry: 3000\n\n')
-      send('status', status)
+      const { status, startedAt, endedAt, disconnectedAt } = view
+      send('status', { status, startedAt, endedAt, disconnectedAt })
 
-      const unsubscribe = hub.subscribe(id, send, { viewer: !isOwner })
+      const unsubscribe = hub.subscribe(id, { send, close: () => res.end(), viewer: !isOwner })
       const heartbeat = setInterval(() => res.write(': ping\n\n'), SSE_HEARTBEAT_MS)
       heartbeat.unref()
+      let cleaned = false
       const cleanup = () => {
+        if (cleaned) return
+        cleaned = true
         clearInterval(heartbeat)
         unsubscribe()
+        const left = (sseByIp.get(ip) ?? 1) - 1
+        if (left > 0) sseByIp.set(ip, left)
+        else sseByIp.delete(ip)
       }
-      request.raw.on('close', cleanup)
+      res.on('close', cleanup)
       res.on('error', cleanup)
-      openStreams.add(res)
-      res.on('close', () => openStreams.delete(res))
     })
   }

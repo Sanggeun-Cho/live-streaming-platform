@@ -12,12 +12,14 @@ type Db = Awaited<ReturnType<typeof makeApp>>['db']
 function fakeControl() {
   const ready = new Map<string, PathSource>()
   const kicked: PathSource[] = []
-  const state = { fail: false }
+  // hold: 설정하면 getSource가 그 Promise가 끝날 때까지 기다린다 (훅 경합 재현용)
+  const state: { fail: boolean; hold: Promise<void> | null } = { fail: false, hold: null }
   const guard = () => {
     if (state.fail) throw new Error('mediamtx down')
   }
   const control: MediaControl = {
     async getSource(path) {
+      if (state.hold) await state.hold
       guard()
       return ready.get(path) ?? null
     },
@@ -212,6 +214,28 @@ describe('송출 제어 (#6)', () => {
       expect(row()).toMatchObject({ status: 'LIVE', disconnectedAt: null })
     })
 
+    it('offline 확인(Control API 조회) 중에 재송출 online이 먼저 처리되면 끊김으로 덮어쓰지 않는다', async () => {
+      await goOnline('old')
+      media.ready.delete(path)
+      let release!: () => void
+      media.state.hold = new Promise((r) => (release = r))
+      const offline = hook('offline') // 조회가 멈춘 상태
+      await new Promise((r) => setTimeout(r, 20))
+      media.state.hold = null
+      media.ready.set(path, { type: 'webRTCSession', id: 'new' })
+      await hook('online')
+      release()
+      await offline
+      expect(row()).toMatchObject({ status: 'LIVE', disconnectedAt: null })
+    })
+
+    it('끊긴 뒤 늦게 도착한 이전 online(실제 송출 없음)은 끊김을 해제하지 않는다', async () => {
+      await goOnline()
+      await goOffline()
+      await hook('online') // ready에 없음 = 실제로는 송출이 없다
+      expect(row().disconnectedAt).toBeInstanceOf(Date)
+    })
+
     it('MediaMTX 조회가 실패하면 offline을 끊김으로 처리한다 (유예 시간이 보호)', async () => {
       await goOnline()
       media.state.fail = true
@@ -322,6 +346,32 @@ describe('송출 제어 (#6)', () => {
       expect((await waitFor((e) => e.event === "viewers")).data).toEqual({ count: 1 }) // 비로그인 구독자
       await end(owner)
       await waitFor((e) => e.event === 'status' && (e.data as { status: string }).status === 'ENDED')
+      controller.abort()
+    })
+
+    it('방송이 삭제되면 서버가 연결을 닫는다', async () => {
+      await app.listen({ port: 0, host: '127.0.0.1' })
+      const { port } = app.server.address() as { port: number }
+      const res = await fetch(`http://127.0.0.1:${port}/api/broadcasts/${id}/events`)
+      const reader = res.body!.getReader()
+      await reader.read() // 첫 이벤트
+      await app.inject({ method: 'DELETE', url: `/api/broadcasts/${id}`, ...as(owner) })
+      for (;;) {
+        const { done } = await reader.read()
+        if (done) break
+      }
+    })
+
+    it('IP당 동시 연결은 20개까지, 넘으면 429', async () => {
+      await app.listen({ port: 0, host: '127.0.0.1' })
+      const { port } = app.server.address() as { port: number }
+      const controller = new AbortController()
+      const open = () => fetch(`http://127.0.0.1:${port}/api/broadcasts/${id}/events`, { signal: controller.signal })
+      const streams = await Promise.all(Array.from({ length: 20 }, open))
+      expect(streams.every((r) => r.status === 200)).toBe(true)
+      const over = await open()
+      expect(over.status).toBe(429)
+      expect(((await over.json()) as { code: string }).code).toBe('TOO_MANY_REQUESTS')
       controller.abort()
     })
 

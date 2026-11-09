@@ -107,7 +107,7 @@ export async function buildApp({ config, db, mediaControl }: AppDeps) {
   await app.register(channelRoutes(db), { prefix: '/api' })
   await app.register(internalMediaRoutes({ secret: config.INTERNAL_SECRET, lifecycle }), { prefix: '/internal' })
 
-  // SSE 연결이 남아 있으면 close가 끝나지 않으므로 먼저 정리한다
+  // 열린 SSE 응답을 닫지 않으면 서버 close가 끝나지 않는다 (hub가 모든 응답을 닫는다)
   app.addHook('preClose', async () => {
     stopLifecycle()
     hub.closeAll()

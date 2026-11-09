@@ -1,4 +1,5 @@
-import { createHmac, timingSafeEqual } from 'node:crypto'
+import { createHmac } from 'node:crypto'
+import { safeEqual } from '../lib/crypto.js'
 
 // publish 토큰: `{broadcastId}.{만료 epoch초}.{HMAC-SHA256}` (base64url)
 // - 발급 시점에 소유자·상태를 확인하고, MediaMTX 인가 시점에 서명·만료·방송 ID를 확인한다.
@@ -27,9 +28,7 @@ export function createPublishTokenSigner(secret: string, ttlSeconds: number): Pu
       const parts = token.split('.')
       if (parts.length !== 3) return false
       const [id, exp, mac] = parts as [string, string, string]
-      const expected = Buffer.from(sign(`${id}.${exp}`))
-      const actual = Buffer.from(mac)
-      if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return false
+      if (!safeEqual(mac, sign(`${id}.${exp}`))) return false
       return Number(id) === broadcastId && Number(exp) * 1000 > now
     },
   }

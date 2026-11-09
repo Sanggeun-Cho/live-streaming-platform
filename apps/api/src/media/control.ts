@@ -17,15 +17,8 @@ export type MediaControl = {
 
 type PathItem = { name: string; ready: boolean; source: PathSource | null }
 
-// source.type → kick 엔드포인트. 이 프로젝트는 WHIP(WebRTC) 송출만 받는다
-const KICK_ENDPOINT: Record<string, string> = {
-  webRTCSession: 'webrtcsessions',
-  rtspSession: 'rtspsessions',
-  rtspsSession: 'rtspssessions',
-  rtmpConn: 'rtmpconns',
-  rtmpsConn: 'rtmpsconns',
-  srtConn: 'srtconns',
-}
+// source.type → kick 엔드포인트. 이 프로젝트는 WHIP(WebRTC) 송출만 받는다 (나머지 프로토콜은 mediamtx.yml에서 꺼 둠)
+const KICK_ENDPOINT: Record<string, string> = { webRTCSession: 'webrtcsessions' }
 
 export function createMediaControl(baseUrl: string, { timeoutMs = 3000 } = {}): MediaControl {
   async function call(path: string, init?: RequestInit): Promise<Response> {

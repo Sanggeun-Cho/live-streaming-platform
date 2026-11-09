@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { errorMessage } from '../lib/api'
 import { view, type ViewSession } from '../lib/webrtc/whip'
 
-// 연결 실패·끊김 시 다시 시도하는 간격과 횟수. 방송자 재연결(유예 45초)보다 짧게 끝나지 않도록 넉넉히 둔다
+// 시청 연결 실패·끊김 시 다시 시도하는 간격과 연속 실패 상한 (약 10초).
+// 방송자 쪽 끊김·재송출은 SSE status 이벤트가 플레이어를 새로 연결하므로(reconnectKey) 여기서는 일시적인 실패만 다룬다
 const RETRY_DELAY_MS = 2000
 const MAX_RETRIES = 5
 
@@ -15,9 +16,10 @@ export function LivePlayer({ broadcastId, reconnectKey }: { broadcastId: number;
   const videoRef = useRef<HTMLVideoElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [muted, setMuted] = useState(true)
-  const [attempt, setAttempt] = useState(0)
-  // "다시 연결" 버튼을 누를 때마다 바뀌어 연결을 처음부터 다시 시도한다
-  const [manualKey, setManualKey] = useState(0)
+  // 바뀔 때마다 연결을 처음부터 다시 맺는다 (자동 재시도, "다시 연결" 버튼)
+  const [retryKey, setRetryKey] = useState(0)
+  // 연속 실패 횟수. 연결에 성공하면 0으로 돌린다
+  const failures = useRef(0)
 
   useEffect(() => {
     let session: ViewSession | null = null
@@ -26,17 +28,19 @@ export function LivePlayer({ broadcastId, reconnectKey }: { broadcastId: number;
 
     const retry = (message: string) => {
       if (controller.signal.aborted) return
-      if (attempt >= MAX_RETRIES) {
+      if (failures.current >= MAX_RETRIES) {
         setError(message)
         return
       }
-      retryTimer = setTimeout(() => setAttempt((n) => n + 1), RETRY_DELAY_MS)
+      failures.current += 1
+      retryTimer = setTimeout(() => setRetryKey((n) => n + 1), RETRY_DELAY_MS)
     }
 
     view(`/live/${broadcastId}/whep`)
       .then((s) => {
         if (controller.signal.aborted) return void s.close()
         session = s
+        failures.current = 0
         setError(null)
         if (videoRef.current) videoRef.current.srcObject = s.stream
         s.pc.addEventListener('connectionstatechange', () => {
@@ -50,7 +54,7 @@ export function LivePlayer({ broadcastId, reconnectKey }: { broadcastId: number;
       clearTimeout(retryTimer)
       void session?.close()
     }
-  }, [broadcastId, reconnectKey, attempt, manualKey])
+  }, [broadcastId, reconnectKey, retryKey])
 
   return (
     <div className="player">
@@ -67,8 +71,8 @@ export function LivePlayer({ broadcastId, reconnectKey }: { broadcastId: number;
             type="button"
             onClick={() => {
               setError(null)
-              setAttempt(0)
-              setManualKey((k) => k + 1)
+              failures.current = 0
+              setRetryKey((k) => k + 1)
             }}
           >
             다시 연결
