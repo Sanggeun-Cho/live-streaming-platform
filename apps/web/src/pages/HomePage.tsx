@@ -6,7 +6,9 @@ export function HomePage() {
   return (
     <>
       <section>
-        <h2>지금 방송 중</h2>
+        <h2 className="section-title">
+          <span className="live-dot" aria-hidden="true" /> 지금 방송 중
+        </h2>
         <BroadcastList
           listKey="live"
           fetchPage={(cursor, signal) => listBroadcasts({ status: 'LIVE', cursor }, signal)}
@@ -14,7 +16,9 @@ export function HomePage() {
         />
       </section>
       <section aria-labelledby="replays-heading">
-        <h2 id="replays-heading">다시보기</h2>
+        <h2 id="replays-heading" className="section-title">
+          다시보기
+        </h2>
         <BroadcastList
           listKey="replays"
           fetchPage={(cursor, signal) => listReplays({ cursor, limit: 8 }, signal)}
@@ -22,7 +26,7 @@ export function HomePage() {
         />
       </section>
       <section>
-        <h2>전체 방송</h2>
+        <h2 className="section-title">전체 방송</h2>
         <BroadcastList
           listKey="all"
           fetchPage={(cursor, signal) => listBroadcasts({ cursor }, signal)}

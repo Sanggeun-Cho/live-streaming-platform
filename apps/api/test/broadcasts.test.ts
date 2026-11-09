@@ -100,7 +100,9 @@ describe('방송 API', () => {
       expect(all.items.map((x: Item) => x.title)).toEqual(['C', 'B', 'A'])
       expect(all.nextCursor).toBeNull()
 
-      expect(ids((await list('?status=LIVE')).json().items)).toEqual([b.id])
+      const liveItems = (await list('?status=LIVE')).json().items
+      expect(ids(liveItems)).toEqual([b.id])
+      expect(liveItems[0].viewers).toBe(0) // 방송 중이면 시청자 수(SSE 연결 수)를 함께 준다
       expect(ids((await list(`?channelId=${owner.user.channelId}`)).json().items)).toEqual([b.id, a.id])
 
       const page1 = (await list('?limit=2')).json()

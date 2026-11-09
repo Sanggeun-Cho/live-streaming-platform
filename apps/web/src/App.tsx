@@ -1,6 +1,8 @@
 import { Link, Route, Routes } from 'react-router'
 import { useAuth } from './auth/context'
 import { RequireAuth } from './auth/RequireAuth'
+import { Avatar } from './components/Avatar'
+import { LiveSidebar } from './components/LiveSidebar'
 import { AuthForm } from './pages/AuthForm'
 import { EditBroadcastPage, NewBroadcastPage } from './pages/BroadcastFormPage'
 import { BroadcastPage } from './pages/BroadcastPage'
@@ -13,15 +15,22 @@ function Header() {
   const { status, user, logout, refresh } = useAuth()
   return (
     <header className="header">
-      <Link to="/" className="brand">
-        Live
+      <Link to="/" className="brand" aria-label="galle LIVE 홈">
+        <span className="brand-mark" aria-hidden="true">
+          ▶
+        </span>
+        galle<span className="brand-live">LIVE</span>
       </Link>
       <nav className="nav">
         {status === 'authenticated' && user && (
           <>
-            <Link to="/broadcasts/new">방송하기</Link>
-            <Link to={`/channels/${user.channelId}`}>내 채널</Link>
-            <span className="muted">{user.nickname}</span>
+            <Link to="/broadcasts/new" className="button primary nav-cta">
+              ● 방송하기
+            </Link>
+            <Link to={`/channels/${user.channelId}`} className="nav-user" title="내 채널" aria-label="내 채널">
+              <Avatar id={user.id} name={user.nickname} size={30} />
+              <span className="nav-nickname">{user.nickname}</span>
+            </Link>
             <button type="button" className="link-button" onClick={() => void logout()}>
               로그아웃
             </button>
@@ -38,8 +47,12 @@ function Header() {
         )}
         {status === 'anonymous' && (
           <>
-            <Link to="/login">로그인</Link>
-            <Link to="/signup">회원가입</Link>
+            <Link to="/login" className="button">
+              로그인
+            </Link>
+            <Link to="/signup" className="button primary">
+              회원가입
+            </Link>
           </>
         )}
       </nav>
@@ -49,10 +62,13 @@ function Header() {
 
 function NotFound() {
   return (
-    <>
+    <section className="center-card">
       <h1>페이지를 찾을 수 없습니다</h1>
-      <Link to="/">홈으로</Link>
-    </>
+      <p className="dim">주소가 바뀌었거나 삭제된 페이지입니다.</p>
+      <Link to="/" className="button primary">
+        홈으로
+      </Link>
+    </section>
   )
 }
 
@@ -60,7 +76,9 @@ export default function App() {
   return (
     <>
       <Header />
-      <main className="container">
+      <div className="shell">
+        <LiveSidebar />
+        <main className="container">
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/login" element={<AuthForm key="login" mode="login" />} />
@@ -103,7 +121,8 @@ export default function App() {
           <Route path="/channels/:channelId" element={<ChannelPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
-      </main>
+        </main>
+      </div>
     </>
   )
 }

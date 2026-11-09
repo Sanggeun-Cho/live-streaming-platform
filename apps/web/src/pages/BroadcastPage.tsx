@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { useAuth } from '../auth/context'
 import { useAuthErrorRedirect } from '../auth/useAuthErrorRedirect'
+import { Avatar } from '../components/Avatar'
 import { StatusBadge } from '../components/BroadcastList'
 import { ChatPanel } from '../components/ChatPanel'
 import { DonationAlert, DonationBoard, DonationPanel } from '../components/Donations'
@@ -145,16 +146,24 @@ export function BroadcastPage() {
             </p>
           </div>
         )}
-        <div className="row">
-          <h1>{broadcast.title}</h1>
-          <span className="muted" data-testid="status-line">
-            <StatusBadge status={broadcast.status} />
-            {viewers !== null && broadcast.status === 'LIVE' && ` 시청자 ${viewers}명`}
-          </span>
+        <div className="broadcast-body">
+        <div className="broadcast-info">
+          <Link to={`/channels/${broadcast.channel.id}`} aria-label={`${broadcast.streamer.nickname} 채널`}>
+            <Avatar id={broadcast.streamer.id} name={broadcast.streamer.nickname} size={48} />
+          </Link>
+          <div className="broadcast-info-text">
+            <h1>{broadcast.title}</h1>
+            <div className="broadcast-meta">
+              <Link to={`/channels/${broadcast.channel.id}`} className="streamer-name">
+                {broadcast.streamer.nickname}
+              </Link>
+              <span data-testid="status-line">
+                <StatusBadge status={broadcast.status} />
+                {viewers !== null && broadcast.status === 'LIVE' && ` 시청자 ${viewers}명`}
+              </span>
+            </div>
+          </div>
         </div>
-        <p>
-          <Link to={`/channels/${broadcast.channel.id}`}>{broadcast.streamer.nickname}</Link>
-        </p>
         {broadcast.description && <p className="description">{broadcast.description}</p>}
 
         {latestDonation && <DonationAlert key={latestDonation.id} donation={latestDonation} />}
@@ -193,6 +202,7 @@ export function BroadcastPage() {
             {actionError}
           </p>
         )}
+        </div>
       </article>
       <ChatPanel broadcastId={id} chat={chat} />
     </div>

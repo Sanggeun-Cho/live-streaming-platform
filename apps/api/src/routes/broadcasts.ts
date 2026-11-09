@@ -47,7 +47,14 @@ export const broadcastRoutes =
     const sseByIp = new Map<string, number>()
 
     // 목록·상세는 로그인 없이 조회한다
-    app.get('/broadcasts', async (request) => broadcasts.list(parse(listQuery, request.query)))
+    // 목록 카드에 시청자 수를 보여준다 (방송 중인 것만, SSE 연결 수 기준)
+    app.get('/broadcasts', async (request) => {
+      const page = broadcasts.list(parse(listQuery, request.query))
+      return {
+        ...page,
+        items: page.items.map((b) => ({ ...b, viewers: b.status === 'LIVE' ? hub.count(b.id) : 0 })),
+      }
+    })
 
     app.get('/broadcasts/:id', async (request) => {
       const { id } = parse(idParams, request.params)
