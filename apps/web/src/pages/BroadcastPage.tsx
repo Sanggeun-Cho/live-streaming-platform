@@ -147,61 +147,61 @@ export function BroadcastPage() {
           </div>
         )}
         <div className="broadcast-body">
-        <div className="broadcast-info">
-          <Link to={`/channels/${broadcast.channel.id}`} aria-label={`${broadcast.streamer.nickname} 채널`}>
-            <Avatar id={broadcast.streamer.id} name={broadcast.streamer.nickname} size={48} />
-          </Link>
-          <div className="broadcast-info-text">
-            <h1>{broadcast.title}</h1>
-            <div className="broadcast-meta">
-              <Link to={`/channels/${broadcast.channel.id}`} className="streamer-name">
-                {broadcast.streamer.nickname}
-              </Link>
-              <span data-testid="status-line">
-                <StatusBadge status={broadcast.status} />
-                {viewers !== null && broadcast.status === 'LIVE' && ` 시청자 ${viewers}명`}
-              </span>
+          <div className="broadcast-info">
+            <Link to={`/channels/${broadcast.channel.id}`} aria-label={`${broadcast.streamer.nickname} 채널`}>
+              <Avatar id={broadcast.streamer.id} name={broadcast.streamer.nickname} size={48} />
+            </Link>
+            <div className="broadcast-info-text">
+              <h1>{broadcast.title}</h1>
+              <div className="broadcast-meta">
+                <Link to={`/channels/${broadcast.channel.id}`} className="streamer-name">
+                  {broadcast.streamer.nickname}
+                </Link>
+                <span data-testid="status-line">
+                  <StatusBadge status={broadcast.status} />
+                  {viewers !== null && broadcast.status === 'LIVE' && ` 시청자 ${viewers}명`}
+                </span>
+              </div>
             </div>
           </div>
-        </div>
-        {broadcast.description && <p className="description">{broadcast.description}</p>}
+          {broadcast.description && <p className="description">{broadcast.description}</p>}
 
-        {latestDonation && <DonationAlert key={latestDonation.id} donation={latestDonation} />}
-        <DonationPanel broadcast={broadcast} isOwner={isOwner} />
-        <DonationBoard donations={donations} />
+          {latestDonation && <DonationAlert key={latestDonation.id} donation={latestDonation} />}
+          <DonationPanel broadcast={broadcast} isOwner={isOwner} />
+          <DonationBoard donations={donations} />
 
-        {isOwner && (
-          <div className="row owner-actions">
-            {broadcast.status !== 'ENDED' && (
-              <Link to={`/broadcasts/${id}/studio`} className="button primary">
-                {broadcast.status === 'LIVE' ? '방송 스튜디오로 돌아가기' : '방송 시작하기'}
+          {isOwner && (
+            <div className="row owner-actions">
+              {broadcast.status !== 'ENDED' && (
+                <Link to={`/broadcasts/${id}/studio`} className="button primary">
+                  {broadcast.status === 'LIVE' ? '방송 스튜디오로 돌아가기' : '방송 시작하기'}
+                </Link>
+              )}
+              <Link to={`/broadcasts/${id}/edit`} className="button">
+                정보 수정
               </Link>
-            )}
-            <Link to={`/broadcasts/${id}/edit`} className="button">
-              정보 수정
-            </Link>
-            {/* 방송 중에는 시청자가 있어 삭제할 수 없다 (서버도 409로 막는다) */}
-            <button
-              type="button"
-              className="danger"
-              onClick={onDelete}
-              disabled={deleting || broadcast.status === 'LIVE'}
-              aria-describedby={broadcast.status === 'LIVE' ? 'delete-hint' : undefined}
-            >
-              {deleting ? '삭제 중…' : '삭제'}
-            </button>
-            {broadcast.status === 'LIVE' && (
-              <small id="delete-hint" className="muted">
-                방송을 종료한 뒤 삭제할 수 있습니다
-              </small>
-            )}
-          </div>
-        )}
-        {actionError && (
-          <p className="error" role="alert">
-            {actionError}
-          </p>
-        )}
+              {/* 방송 중에는 시청자가 있어 삭제할 수 없다 (서버도 409로 막는다) */}
+              <button
+                type="button"
+                className="danger"
+                onClick={onDelete}
+                disabled={deleting || broadcast.status === 'LIVE'}
+                aria-describedby={broadcast.status === 'LIVE' ? 'delete-hint' : undefined}
+              >
+                {deleting ? '삭제 중…' : '삭제'}
+              </button>
+              {broadcast.status === 'LIVE' && (
+                <small id="delete-hint" className="muted">
+                  방송을 종료한 뒤 삭제할 수 있습니다
+                </small>
+              )}
+            </div>
+          )}
+          {actionError && (
+            <p className="error" role="alert">
+              {actionError}
+            </p>
+          )}
         </div>
       </article>
       <ChatPanel broadcastId={id} chat={chat} />

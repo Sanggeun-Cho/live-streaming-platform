@@ -196,6 +196,22 @@ describe('방송 API', () => {
     expect(missing.json().code).toBe('CHANNEL_NOT_FOUND')
   })
 
+  it('목록의 시청자 수는 방송 중일 때 SSE 연결 수(방송자 제외), 아니면 0', async () => {
+    const live = await createOwned('라이브')
+    const ready = await createOwned('준비')
+    setStatus(live.id, 'LIVE')
+    await app.listen({ port: 0, host: '127.0.0.1' })
+    const { port } = app.server.address() as { port: number }
+    const controller = new AbortController()
+    const open = (bid: number) => fetch(`http://127.0.0.1:${port}/api/broadcasts/${bid}/events`, { signal: controller.signal })
+    await open(live.id) // 비로그인 시청자 1
+    await open(ready.id)
+    const items = (await list()).json().items as Array<{ id: number; viewers: number }>
+    expect(items.find((b) => b.id === live.id)?.viewers).toBe(1)
+    expect(items.find((b) => b.id === ready.id)?.viewers).toBe(0)
+    controller.abort()
+  })
+
   it('서버를 재시작해도 방송 정보가 유지된다', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'live-broadcasts-'))
     const path = join(dir, 'app.db')

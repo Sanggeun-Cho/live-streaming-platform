@@ -26,6 +26,10 @@ export function ChatPanel({ broadcastId, chat }: { broadcastId: number; chat: Co
   const [text, setText] = useState('')
   // 응답을 기다리는 전송 수 (연달아 보낼 수 있다)
   const [sending, setSending] = useState(0)
+  // 연달아 보낸 채팅이 입력한 순서대로 서버에 도착하도록 전송을 한 줄로 세운다
+  const sendQueue = useRef<Promise<void>>(Promise.resolve())
+  // 보내지 못한 채팅. 다음 전송이 오류 문구를 지워도 내용이 사라지지 않게 따로 보관한다
+  const [failed, setFailed] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
 
@@ -74,21 +78,26 @@ export function ChatPanel({ broadcastId, chat }: { broadcastId: number; chat: Co
     const content = text.trim()
     if (!content) return
     // 보내는 즉시 입력창을 비운다. 응답을 기다리는 동안 이어서 입력한 다음 채팅이 지워지지 않게 하기 위해서다.
-    // 실패하면 입력창이 비어 있을 때만 보낸 내용을 되돌려 다시 보낼 수 있게 한다
+    // 실패한 채팅은 failed에 보관해 "입력창으로 되돌리기"로 다시 보낼 수 있게 한다
     setText('')
     setSending((n) => n + 1)
     setError(null)
-    try {
-      const comment = await createComment(broadcastId, content)
-      // SSE로도 오지만 내 화면에는 응답으로 바로 보여준다 (같은 id라 한 번만 표시된다)
-      stickToBottom.current = true
-      chat.apply(comment)
-    } catch (err) {
-      setText((current) => current || content)
-      fail(err)
-    } finally {
-      setSending((n) => n - 1)
-    }
+    sendQueue.current = sendQueue.current.then(async () => {
+      try {
+        const comment = await createComment(broadcastId, content)
+        // SSE로도 오지만 내 화면에는 응답으로 바로 보여준다 (같은 id라 한 번만 표시된다)
+        stickToBottom.current = true
+        chat.apply(comment)
+      } catch (err) {
+        if (!redirectIfUnauthorized(err)) {
+          setFailed((list) => [...list, content])
+          setError(errorMessage(err))
+        }
+      } finally {
+        setSending((n) => n - 1)
+      }
+    })
+    await sendQueue.current
   }
 
   async function onDelete(comment: Comment) {
@@ -159,6 +168,25 @@ export function ChatPanel({ broadcastId, chat }: { broadcastId: number; chat: Co
         <p className="error chat-error" role="alert">
           {error}
         </p>
+      )}
+      {failed.length > 0 && (
+        <div className="chat-failed" role="alert">
+          <span>
+            보내지 못한 채팅 {failed.length}개: “{failed[0]}”{failed.length > 1 ? ' 외' : ''}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setText((current) => [current.trim(), ...failed].filter(Boolean).join(' '))
+              setFailed([])
+            }}
+          >
+            입력창으로 되돌리기
+          </button>
+          <button type="button" className="link-button" onClick={() => setFailed([])}>
+            버리기
+          </button>
+        </div>
       )}
       {status === 'authenticated' && (
         <form className="chat-form" onSubmit={onSubmit}>

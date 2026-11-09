@@ -3,7 +3,7 @@ import { Link } from 'react-router'
 import { type Broadcast, STATUS_LABEL } from '../lib/broadcasts'
 import { errorMessage } from '../lib/api'
 import { formatDuration, type Replay } from '../lib/recordings'
-import { colorOf } from '../lib/avatar'
+import { colorOf, initialOf } from '../lib/avatar'
 import { Avatar } from './Avatar'
 
 export function StatusBadge({ status }: { status: Broadcast['status'] }) {
@@ -84,7 +84,7 @@ function BroadcastListInner({ fetchPage: initialFetch, empty }: Props) {
               {/* 썸네일이 없으므로 방송자 색으로 만든 배경에 방송자 이니셜을 그린다 */}
               <div className="thumb" style={{ '--thumb-color': colorOf(b.streamer.id) } as CSSProperties}>
                 <span className="thumb-initial" aria-hidden="true">
-                  {b.streamer.nickname.charAt(0)}
+                  {initialOf(b.streamer.nickname)}
                 </span>
                 <StatusBadge status={b.status} />
                 {b.status === 'LIVE' && b.viewers !== undefined && (

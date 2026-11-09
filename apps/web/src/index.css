@@ -15,10 +15,11 @@
   --accent: #00e59b;
   --accent-strong: #00c986;
   --accent-ink: #04120c;
-  --live: #ff3b5c;
+  /* 흰 글자 배지에 쓰므로 대비 4.5:1 이상으로 맞춘 값 */
+  --live: #d8173c;
   --warn: #ffb020;
   --danger: #ff5a5a;
-  --info: #4f8cff;
+  --info: #2c66d8;
   --radius: 10px;
   --radius-sm: 6px;
   --header-h: 56px;
@@ -564,6 +565,7 @@ input:focus,
 textarea:focus {
   border-color: var(--accent);
   outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 textarea {
@@ -832,9 +834,12 @@ input[type='range'] {
 
   .studio > .studio-controls {
     grid-column: 2;
-    grid-row: 1 / span 6;
-    position: sticky;
-    top: calc(var(--header-h) + 16px);
+    grid-row: 1 / -1;
+  }
+
+  /* 조작 패널이 왼쪽보다 길어도 남는 높이를 마지막 행이 받아, 제목·미리보기 사이에 빈틈이 생기지 않게 한다 */
+  .studio {
+    grid-template-rows: repeat(5, auto) 1fr;
   }
 }
 
@@ -1119,4 +1124,140 @@ input[type='range'] {
 .chat-login a {
   color: var(--accent);
   font-weight: 700;
+}
+
+/* ---- 홈 소개 ---- */
+.hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 20px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background:
+    radial-gradient(90% 140% at 0% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 55%),
+    var(--bg-elev);
+}
+
+.hero h1 {
+  font-size: 1.3rem;
+  margin-bottom: 6px;
+}
+
+.hero p {
+  margin: 0;
+  max-width: 640px;
+}
+
+.hero-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hero-actions .button {
+  min-height: 46px;
+  padding: 10px 20px;
+}
+
+/* ---- 리뷰 반영: 중요한 동작은 눈에 띄게, 비활성은 분명하게, 터치 영역 확보 ---- */
+.studio button.danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.donation-panel > button:disabled {
+  background: var(--bg-elev-2);
+  border-color: var(--border);
+  color: var(--text-dim);
+  opacity: 1;
+}
+
+.nav-logout {
+  min-height: 34px;
+  padding: 4px 10px;
+  background: transparent;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.nav-cta {
+  white-space: nowrap;
+}
+
+@media (max-width: 520px) {
+  /* 좁은 화면: 헤더에 버튼이 많아 회원가입은 로그인 화면의 링크로 대신한다 */
+  .nav-signup {
+    display: none;
+  }
+}
+
+.chat-failed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0;
+  padding: 8px 14px;
+  font-size: 0.85rem;
+  color: var(--warn);
+  border-top: 1px solid var(--border);
+}
+
+.chat-failed span {
+  overflow-wrap: anywhere;
+}
+
+.chat-failed button {
+  min-height: 32px;
+  padding: 4px 10px;
+}
+
+@media (max-width: 400px) {
+  /* 좁은 휴대폰: 헤더가 넘치지 않게 간격과 버튼을 줄인다 */
+  .header {
+    padding: 0 10px;
+    gap: 8px;
+  }
+
+  .brand {
+    font-size: 1.05rem;
+  }
+
+  .nav {
+    gap: 6px;
+  }
+
+  .nav .button,
+  .nav-logout {
+    padding: 4px 8px;
+    font-size: 0.85rem;
+  }
+}
+
+@media (max-width: 599px) {
+  /* 휴대폰: 카드를 2열로 줄여 홈 스크롤을 짧게 한다 */
+  .broadcast-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px 10px;
+  }
+
+  .thumb-initial {
+    font-size: 1.8rem;
+  }
+
+  .card-meta .avatar {
+    display: none;
+  }
+
+  .card-text {
+    font-size: 0.85rem;
+  }
+
+  .thumb-viewers,
+  .thumb .duration {
+    font-size: 0.68rem;
+  }
 }
