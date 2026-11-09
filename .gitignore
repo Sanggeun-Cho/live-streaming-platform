@@ -11,7 +11,8 @@ coverage/
 *.db-wal
 *.db-shm
 data/
-recordings/
+# 로컬 녹화 파일(저장소 루트). 소스 디렉터리 apps/api/src/recordings/는 제외하지 않도록 루트에 고정한다
+/recordings/
 .idea/
 .vscode/
 .DS_Store

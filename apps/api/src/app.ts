@@ -18,6 +18,8 @@ import { channelRoutes } from './routes/channels.js'
 import { donationRoutes } from './routes/donations.js'
 import { healthRoutes } from './routes/health.js'
 import { internalMediaRoutes } from './routes/internal-media.js'
+import { recordingRoutes } from './routes/recordings.js'
+import { createRecordingService } from './recordings/service.js'
 
 export type AppDeps = {
   config: Config
@@ -142,7 +144,11 @@ export async function buildApp({ config, db, mediaControl, toss }: AppDeps) {
     }),
     { prefix: '/api' },
   )
-  await app.register(internalMediaRoutes({ secret: config.INTERNAL_SECRET, lifecycle }), { prefix: '/internal' })
+  const recordings = createRecordingService(db, { recordingsDir: config.RECORDINGS_DIR })
+  await app.register(recordingRoutes(recordings), { prefix: '/api' })
+  await app.register(internalMediaRoutes({ secret: config.INTERNAL_SECRET, lifecycle, recordings, hub }), {
+    prefix: '/internal',
+  })
 
   // 열린 SSE 응답을 닫지 않으면 서버 close가 끝나지 않는다 (hub가 모든 응답을 닫는다)
   app.addHook('preClose', async () => {

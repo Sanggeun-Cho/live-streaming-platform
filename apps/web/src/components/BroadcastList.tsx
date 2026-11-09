@@ -2,29 +2,33 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { type Broadcast, type ListParams, listBroadcasts, STATUS_LABEL } from '../lib/broadcasts'
 import { errorMessage } from '../lib/api'
+import { formatDuration, listReplays, type Replay } from '../lib/recordings'
 
 export function StatusBadge({ status }: { status: Broadcast['status'] }) {
   return <span className={`badge badge-${status.toLowerCase()}`}>{STATUS_LABEL[status]}</span>
 }
 
-type Props = { params: Omit<ListParams, 'cursor'>; empty: string }
+/** replays: 다시보기 목록(녹화가 있는 종료 방송, #12). 이때 params는 limit만 쓴다 */
+type Props = { params: Omit<ListParams, 'cursor'>; empty: string; replays?: boolean }
+
+type Item = Broadcast & Partial<Pick<Replay, 'recordingCount' | 'totalDurationMs'>>
 
 /** 방송 목록 + 더 보기. 조건(params)이 바뀌면 key로 새로 마운트해 처음부터 다시 읽는다 */
 export function BroadcastList(props: Props) {
-  return <BroadcastListInner key={JSON.stringify(props.params)} {...props} />
+  return <BroadcastListInner key={`${props.replays ? 'replays' : 'broadcasts'}:${JSON.stringify(props.params)}`} {...props} />
 }
 
-function BroadcastListInner({ params, empty }: Props) {
+function BroadcastListInner({ params, empty, replays = false }: Props) {
   const [query] = useState(params)
-  const [items, setItems] = useState<Broadcast[]>([])
+  const [items, setItems] = useState<Item[]>([])
   const [nextCursor, setNextCursor] = useState<number | null>(null)
   const [state, setState] = useState<'loading' | 'idle' | 'error'>('loading')
   const [error, setError] = useState<string | null>(null)
 
   const fetchPage = useCallback(
     (cursor: number | undefined, signal?: AbortSignal) =>
-      listBroadcasts({ ...query, cursor }, signal)
-        .then((page) => {
+      (replays ? listReplays({ cursor, limit: query.limit }, signal) : listBroadcasts({ ...query, cursor }, signal))
+        .then((page: { items: Item[]; nextCursor: number | null }) => {
           setItems((prev) => (cursor ? [...prev, ...page.items] : page.items))
           setNextCursor(page.nextCursor)
           setState('idle')
@@ -34,7 +38,7 @@ function BroadcastListInner({ params, empty }: Props) {
           setError(errorMessage(e))
           setState('error')
         }),
-    [query],
+    [query, replays],
   )
 
   const load = (cursor?: number) => {
@@ -68,6 +72,11 @@ function BroadcastListInner({ params, empty }: Props) {
             <Link to={`/broadcasts/${b.id}`} className="broadcast-card">
               <div className="thumb">
                 <StatusBadge status={b.status} />
+                {b.totalDurationMs !== undefined && (
+                  <span className="duration" aria-label="다시보기 길이">
+                    ▶ {formatDuration(b.totalDurationMs)}
+                  </span>
+                )}
               </div>
               <strong className="title">{b.title}</strong>
               <span className="muted">{b.streamer.nickname}</span>

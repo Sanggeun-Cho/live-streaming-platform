@@ -5,9 +5,11 @@ import { useAuthErrorRedirect } from '../auth/useAuthErrorRedirect'
 import { StatusBadge } from '../components/BroadcastList'
 import { DonationAlert, DonationBoard, DonationPanel } from '../components/Donations'
 import { LivePlayer } from '../components/LivePlayer'
+import { ReplayPlayer } from '../components/ReplayPlayer'
 import { useBroadcastEvents } from '../hooks/useBroadcastEvents'
 import { useBroadcast } from '../hooks/useBroadcast'
 import { useDonations } from '../hooks/useDonations'
+import { useRecordings } from '../hooks/useRecordings'
 import { errorMessage } from '../lib/api'
 import { type BroadcastStatus, deleteBroadcast } from '../lib/broadcasts'
 import type { Donation } from '../lib/donations'
@@ -16,6 +18,32 @@ const PLAYER_MESSAGE: Record<BroadcastStatus, string> = {
   READY: '방송 시작 전입니다',
   LIVE: '방송 화면 준비 중',
   ENDED: '방송이 종료되었습니다',
+}
+
+/** 종료된 방송: 녹화가 있으면 다시보기, 막 끝났으면 준비 중 안내 (#12) */
+function EndedPlayer({ replay, everLive }: { replay: ReturnType<typeof useRecordings>; everLive: boolean }) {
+  const { recordings, error, preparing, reload } = replay
+  if (recordings && recordings.length > 0) return <ReplayPlayer recordings={recordings} />
+
+  let message = PLAYER_MESSAGE.ENDED
+  if (!recordings && error) message = `다시보기를 불러오지 못했습니다: ${error}`
+  else if (!recordings) message = '다시보기를 불러오는 중…'
+  else if (preparing) message = '녹화 파일을 준비하고 있습니다. 준비가 끝나면 이 화면에서 바로 재생됩니다'
+  else if (everLive) message = '방송이 종료되었습니다. 저장된 녹화가 없습니다'
+
+  return (
+    <div className="player-placeholder" data-testid="player-placeholder">
+      <StatusBadge status="ENDED" />
+      <p className="muted" role={error ? 'alert' : undefined}>
+        {message}
+      </p>
+      {!recordings && error && (
+        <button type="button" onClick={reload}>
+          다시 시도
+        </button>
+      )}
+    </div>
+  )
 }
 
 export function BroadcastPage() {
@@ -33,6 +61,8 @@ export function BroadcastPage() {
   const donations = useDonations(broadcast ? id : null)
   // 화면에 띄울 최신 후원 알림
   const [latestDonation, setLatestDonation] = useState<Donation | null>(null)
+  // 종료된 방송만 녹화를 읽는다 (방송 중에 생긴 세그먼트는 종료 후 한꺼번에 보여준다)
+  const replay = useRecordings(id, broadcast?.status === 'ENDED', broadcast?.endedAt ?? null)
 
   const { connected } = useBroadcastEvents(broadcast ? id : null, {
     status: (data) => {
@@ -46,6 +76,7 @@ export function BroadcastPage() {
       donations.push(data)
       setLatestDonation(data.donation)
     },
+    recording: (data) => replay.add(data),
   })
 
   // 실시간 연결이 끊겼다 다시 붙으면 그 사이 놓친 후원을 다시 읽는다 (첫 연결은 처음 읽은 목록으로 충분하다)
@@ -92,7 +123,9 @@ export function BroadcastPage() {
 
   return (
     <article className="broadcast-detail">
-      {broadcast.status === 'LIVE' && !broadcast.disconnectedAt && !isOwner ? (
+      {broadcast.status === 'ENDED' ? (
+        <EndedPlayer replay={replay} everLive={broadcast.startedAt !== null} />
+      ) : broadcast.status === 'LIVE' && !broadcast.disconnectedAt && !isOwner ? (
         <LivePlayer key={playerKey} broadcastId={id} />
       ) : (
         <div className="player-placeholder" data-testid="player-placeholder">

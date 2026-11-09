@@ -15,9 +15,13 @@ services:
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
       WWW_ADDRESS: ${WWW_ADDRESS:-www.localhost}
+      # /recordings/* 요청마다 api에 파일 공개 여부를 묻는다(forward_auth). api 내부 경로라 공유 시크릿이 필요하다
+      INTERNAL_SECRET: ${INTERNAL_SECRET:?INTERNAL_SECRET를 .env에 설정하세요}
     volumes:
       - caddy_data:/data
       - caddy_config:/config
+      # 다시보기 파일 서빙 (#12). 쓰기는 MediaMTX만 한다
+      - recordings:/media/recordings:ro
     depends_on:
       - api
       - mediamtx

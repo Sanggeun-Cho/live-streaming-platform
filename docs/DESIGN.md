@@ -21,7 +21,7 @@
  │   ├─ /api/*       → api   (Fastify)                               │
  │   ├─ /whip/*      → mediamtx :8889 (WebRTC 송출 시그널링)          │
  │   ├─ /whep/*      → mediamtx :8889 (WebRTC 시청 시그널링)          │
- │   └─ /recordings/* → 녹화 파일 정적 서빙                           │
+ │   └─ /recordings/* → 녹화 파일 정적 서빙 (forward_auth → api)      │
  │                                                                  │
  │  mediamtx ── authHTTP ──▶ api /internal/media/auth               │
  │           ── runOnOnline / runOnOffline / runOnRecordSegmentComplete │
@@ -169,8 +169,14 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 
 ### 녹화·다시보기
 - MediaMTX `record: yes`, 포맷은 fMP4, path별 디렉터리에 저장한다. 기본값 `recordDeleteAfter: 1d`는 영구 저장 요구와 충돌하므로 `0s`로 끈다.
-- `runOnRecordSegmentComplete` 훅을 받으면 `recordings` 테이블(broadcastId, 파일 경로, 시작 시각, 길이)에 저장한다.
-- 재연결로 세그먼트가 여러 개 생기면 회차 상세에서 순서대로 재생한다.
+- 세그먼트가 닫히면 `hooks/segment.sh`가 mediamtx 컨테이너의 ffmpeg로 **영상은 복사, 오디오만 AAC**로 바꾼 웹용 mp4(`+faststart`)를 같은 경로에 만든다(원본 대체). Safari·iOS의 mp4 Opus 재생이 불확실하고(#2 스파이크), 1GB 서버에서 영상 재인코딩은 감당할 수 없기 때문이다. 변환이 실패하면 원본을 그대로 등록한다.
+- 변환 후 api `/internal/media/events`(type=segment)를 호출하면 `recordings` 테이블(broadcastId, 녹화 디렉터리 기준 상대 경로(유니크), 시작 시각, 길이, 크기)에 등록한다.
+  - 같은 파일은 한 번만 등록한다(멱등). path가 `live/{id}`가 아니거나, 경로가 녹화 디렉터리 밖·다른 방송 디렉터리·정규화되지 않은 경로면 400으로 거절한다.
+  - 세그먼트 훅은 offline·종료 뒤에 오므로 방송 상태와 상관없이 등록한다. 등록되면 SSE `recording` 이벤트를 보낸다.
+  - 시작 시각은 파일 이름(`%Y-%m-%d_%H-%M-%S-%f_%z`)에서 읽는다. 훅 도착 순서는 변환 시간에 따라 바뀔 수 있다.
+- 파일은 Caddy가 recordings 볼륨(읽기 전용)에서 `/recordings/*`로 서빙한다(Range 지원). 요청마다 `forward_auth`로 api `/internal/recordings/authorize`에 묻고, **등록된 파일이고 방송이 삭제되지 않았을 때만** 내보낸다. 변환 중인 임시 파일·미등록 파일·삭제된 방송의 영상은 404.
+- API: `GET /api/replays`(녹화가 있는 ENDED 방송, 최신순, 커서), `GET /api/broadcasts/:id/recordings`(재생 순서대로). 공개, 삭제된 방송은 404.
+- 재연결로 세그먼트가 여러 개 생기면 회차 상세에서 시작 시각 순서로 이어서 재생한다(구간 목록 표시). 종료 직후 아직 등록 전이면 "녹화 파일을 준비하고 있습니다"를 보여주고 SSE·10초 주기 조회로 갱신한다.
 
 ## 8. 위험과 대응
 
@@ -193,4 +199,5 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
   - 멱등키: https://docs.tosspayments.com/reference/using-api/idempotency-key
   - 웹훅 이벤트: https://docs.tosspayments.com/reference/using-api/webhook-events
   - 공식 예제(문서용 테스트 키 출처): https://github.com/tosspayments/tosspayments-sample (`express-javascript/server.js`)
+- [FFmpeg](https://ffmpeg.org/) (LGPL/GPL): `bluenviron/mediamtx:*-ffmpeg` 이미지에 포함된 것을 녹화 세그먼트 오디오 변환(#12)에 실행만 한다
 - 그 밖의 의존성은 각 `package.json` 참고

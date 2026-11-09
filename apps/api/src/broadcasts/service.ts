@@ -5,7 +5,7 @@ import { type BroadcastStatus, broadcasts, channels, users } from '../db/schema.
 import { AppError, forbidden } from '../errors.js'
 
 // 응답에 쓰는 방송 정보. 채널과 방송자 닉네임을 함께 내려 목록에서 추가 조회가 없게 한다
-const broadcastColumns = {
+export const broadcastColumns = {
   id: broadcasts.id,
   title: broadcasts.title,
   description: broadcasts.description,

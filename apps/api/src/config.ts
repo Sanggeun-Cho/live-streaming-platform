@@ -29,6 +29,9 @@ const envSchema = z
     PUBLISH_GRACE_SECONDS: z.coerce.number().int().min(5).max(600).default(45),
     // publish 토큰 수명. 송출을 시작(또는 재연결)할 때마다 새로 발급받는다
     PUBLISH_TOKEN_TTL_SECONDS: z.coerce.number().int().min(10).max(3600).default(300),
+    // MediaMTX 컨테이너 안의 녹화 디렉터리 (mediamtx.yml recordPath의 앞부분과 같아야 한다).
+    // segment 훅의 segmentPath가 이 디렉터리 밖이면 등록을 거절한다
+    RECORDINGS_DIR: z.string().startsWith('/', { error: '절대 경로여야 합니다' }).default('/recordings'),
     // X-Forwarded-For를 믿을 프록시 주소(IP/CIDR, 쉼표 구분). 비우면 아무도 믿지 않고 소켓 주소를 쓴다.
     // compose에서는 Caddy 컨테이너의 고정 IP만 넣는다. 다른 주소가 보낸 X-Forwarded-For는 무시된다.
     TRUST_PROXY: z

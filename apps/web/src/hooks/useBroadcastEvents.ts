@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Broadcast, StatusPayload } from '../lib/broadcasts'
 import type { DonationEvent } from '../lib/donations'
+import type { Recording } from '../lib/recordings'
 
 /** 서버가 보내는 SSE 이벤트 이름과 데이터 (api/src/routes/broadcasts.ts의 events 라우트와 짝) */
 export type BroadcastEventMap = {
@@ -10,11 +11,13 @@ export type BroadcastEventMap = {
   deleted: Record<string, never>
   /** 후원 적립 (#11). 새 합계를 함께 보낸다 */
   donation: DonationEvent
+  /** 녹화 세그먼트가 새로 등록됨 (#12) */
+  recording: Recording
 }
 
 export type BroadcastEventHandlers = { [K in keyof BroadcastEventMap]?: (data: BroadcastEventMap[K]) => void }
 
-const EVENT_NAMES: Array<keyof BroadcastEventMap> = ['status', 'viewers', 'updated', 'deleted', 'donation']
+const EVENT_NAMES: Array<keyof BroadcastEventMap> = ['status', 'viewers', 'updated', 'deleted', 'donation', 'recording']
 
 /**
  * 방송 실시간 이벤트(SSE)를 구독한다. 끊기면 EventSource가 자동으로 다시 연결하고,
