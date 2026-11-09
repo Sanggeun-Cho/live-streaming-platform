@@ -9,7 +9,7 @@ import { createBroadcastService } from './broadcasts/service.js'
 import { createDonationService } from './donations/service.js'
 import { createMediaControl, type MediaControl } from './media/control.js'
 import { createPublishTokenSigner } from './media/token.js'
-import { createFakeTossClient, createTossClient, type TossClient } from './payments/toss.js'
+import { createFakeTossClient, createTossClient, disabledTossClient, type TossClient } from './payments/toss.js'
 import { createEventHub } from './realtime/hub.js'
 import { AppError } from './errors.js'
 import { authRoutes } from './routes/auth.js'
@@ -62,8 +62,9 @@ export async function buildApp({ config, db, mediaControl, toss }: AppDeps) {
     }
     reply.code(statusCode).send({
       code: error.code ?? 'INTERNAL_ERROR',
-      // 예상하지 못한 5xx는 내부 정보를 숨긴다. AppError로 직접 던진 5xx(외부 결제 API 장애 등)는 안내 문구를 그대로 보낸다
-      message: statusCode >= 500 && !(error instanceof AppError) ? '서버 오류가 발생했습니다' : error.message,
+      // 5xx는 내부 정보를 숨긴다. 노출을 명시한 AppError(외부 결제 API 장애 안내 등)만 문구를 그대로 보낸다
+      message:
+        statusCode >= 500 && !(error instanceof AppError && error.expose) ? '서버 오류가 발생했습니다' : error.message,
     })
   })
 
@@ -113,14 +114,22 @@ export async function buildApp({ config, db, mediaControl, toss }: AppDeps) {
   await app.register(channelRoutes(db), { prefix: '/api' })
 
   // 후원: 토스 키가 있으면 실제(테스트) 결제, 가짜 결제 모드면 토스를 거치지 않는다. 둘 다 아니면 꺼진다
+  // (키와 가짜 결제를 함께 켜는 설정은 config에서 거부한다)
   const tossEnabled = Boolean(config.TOSS_SECRET_KEY)
+  if (config.TOSS_FAKE_PAYMENTS) {
+    app.log.warn('TOSS_FAKE_PAYMENTS=true: 결제창 없이 모든 후원을 승인 처리합니다. 개발·E2E 전용입니다')
+  }
   const donations = createDonationService({
     db,
     hub,
     log: app.log,
     toss:
       toss ??
-      (config.TOSS_FAKE_PAYMENTS || !tossEnabled ? createFakeTossClient() : createTossClient(config.TOSS_SECRET_KEY)),
+      (config.TOSS_FAKE_PAYMENTS
+        ? createFakeTossClient()
+        : tossEnabled
+          ? createTossClient(config.TOSS_SECRET_KEY)
+          : disabledTossClient),
   })
   await app.register(
     donationRoutes({

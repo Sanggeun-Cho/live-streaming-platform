@@ -7,7 +7,7 @@ import { idleMediaControl, makeApp, signupAs, type TestApp, type TestUser } from
 
 type Db = Awaited<ReturnType<typeof makeApp>>['db']
 
-const KEYS = { TOSS_CLIENT_KEY: 'test_ck_unit', TOSS_SECRET_KEY: 'test_sk_unit' }
+const KEYS = { TOSS_CLIENT_KEY: 'test_gck_unit', TOSS_SECRET_KEY: 'test_gsk_unit' }
 
 /**
  * 토스 결제 API 가짜. 실제 토스처럼 한 번 승인된 paymentKey를 다시 승인하면 ALREADY_PROCESSED_PAYMENT를 준다.
@@ -16,7 +16,9 @@ const KEYS = { TOSS_CLIENT_KEY: 'test_ck_unit', TOSS_SECRET_KEY: 'test_sk_unit' 
 function fakeToss() {
   const approved = new Map<string, TossPayment>()
   const calls = { confirm: 0, getPayment: 0 }
-  const state: { next: null | 'reject' | 'transient' | 'wrongAmount' | 'approveButTimeout' } = { next: null }
+  const state: {
+    next: null | 'reject' | 'rejectUnknown' | 'configError' | 'rateLimited' | 'transient' | 'wrongAmount' | 'approveButTimeout'
+  } = { next: null }
   const client: TossClient = {
     async confirm({ paymentKey, orderId, amount }) {
       calls.confirm++
@@ -25,6 +27,9 @@ function fakeToss() {
       const next = state.next
       state.next = null
       if (next === 'reject') throw new TossApiError(400, 'REJECT_CARD_COMPANY', '카드사에서 거절했습니다.')
+      if (next === 'rejectUnknown') throw new TossApiError(400, 'SOME_NEW_CODE', '내부 상점 설정 mid=secret-123')
+      if (next === 'configError') throw new TossApiError(401, 'UNAUTHORIZED_KEY', '인증되지 않은 시크릿 키 혹은 클라이언트 키 입니다.')
+      if (next === 'rateLimited') throw new TossApiError(429, 'TOO_MANY_REQUESTS', 'too many')
       if (next === 'transient') throw new TossApiError(0, 'NETWORK_ERROR', 'timeout')
       if (approved.has(paymentKey)) throw new TossApiError(400, 'ALREADY_PROCESSED_PAYMENT', '이미 처리된 결제 입니다.')
       const payment = {
@@ -103,11 +108,11 @@ describe('도네이션 API', () => {
       const res = await app.inject({ method: 'GET', url: '/api/donations/config' })
       expect(res.json()).toEqual({
         enabled: true,
-        clientKey: 'test_ck_unit',
+        clientKey: 'test_gck_unit',
         fake: false,
         limits: { min: 1000, max: 1_000_000, unit: 1000, messageMax: 100 },
       })
-      expect(res.body).not.toContain('test_sk_unit')
+      expect(res.body).not.toContain('test_gsk_unit')
     })
 
     it('키가 없으면 꺼지고, 주문·승인은 503으로 안내한다', async () => {
@@ -135,11 +140,22 @@ describe('도네이션 API', () => {
       }
     })
 
-    it('키를 한쪽만 넣거나 운영에서 가짜 결제를 켜면 기동하지 않는다', () => {
-      expect(() => loadConfig({ NODE_ENV: 'test', TOSS_CLIENT_KEY: 'test_ck_x' })).toThrow(/함께 설정/)
+    it('키를 한쪽만 넣거나, 운영에서 가짜 결제를 켜거나, 키와 가짜 결제를 함께 켜면 기동하지 않는다', () => {
+      expect(() => loadConfig({ NODE_ENV: 'test', TOSS_CLIENT_KEY: 'test_gck_x' })).toThrow(/함께 설정/)
       expect(() =>
         loadConfig({ NODE_ENV: 'production', INTERNAL_SECRET: 'x'.repeat(20), TOSS_FAKE_PAYMENTS: 'true' }),
       ).toThrow(/가짜 결제/)
+      expect(() => loadConfig({ NODE_ENV: 'test', ...KEYS, TOSS_FAKE_PAYMENTS: 'true' })).toThrow(/함께 설정할 수 없습니다/)
+    })
+
+    it('결제창형 테스트 키(test_gck_/test_gsk_)만 받는다: 라이브 키·API 개별 연동 키는 거부', () => {
+      expect(() => loadConfig({ NODE_ENV: 'test', TOSS_CLIENT_KEY: 'live_gck_x', TOSS_SECRET_KEY: 'live_gsk_x' })).toThrow(
+        /test_gck_/,
+      )
+      expect(() => loadConfig({ NODE_ENV: 'test', TOSS_CLIENT_KEY: 'test_ck_x', TOSS_SECRET_KEY: 'test_sk_x' })).toThrow(
+        /test_gsk_/,
+      )
+      expect(loadConfig({ NODE_ENV: 'test', ...KEYS }).TOSS_SECRET_KEY).toBe('test_gsk_unit')
     })
   })
 
@@ -186,6 +202,15 @@ describe('도네이션 API', () => {
       const res = await createOrder(viewer, { amount })
       expect(res.statusCode).toBe(400)
       expect(res.json().message).toBe('후원 금액은 1,000원 이상 1,000,000원 이하, 1,000원 단위로 입력하세요')
+    })
+
+    it('사용자당 분당 10건을 넘으면 429', async () => {
+      for (let i = 0; i < 10; i++) expect((await createOrder(viewer)).statusCode).toBe(201)
+      const res = await createOrder(viewer)
+      expect(res.statusCode).toBe(429)
+      expect(res.json().code).toBe('TOO_MANY_REQUESTS')
+      // 다른 사용자는 영향받지 않는다
+      expect((await createOrder(viewer2)).statusCode).toBe(201)
     })
 
     it('경계값 1,000원과 1,000,000원은 허용, 메시지 100자 초과는 400', async () => {
@@ -262,8 +287,41 @@ describe('도네이션 API', () => {
       toss.state.next = 'reject'
       const res = await confirm(viewer, { orderId: order.orderId, paymentKey: 'pk_1', amount: 5000 })
       expect(res.statusCode).toBe(400)
-      expect(res.json()).toMatchObject({ code: 'PAYMENT_REJECTED', message: expect.stringContaining('카드사에서 거절') })
+      // 토스 원문이 아니라 정해 둔 안내 문구를 보낸다
+      expect(res.json()).toEqual({
+        code: 'PAYMENT_REJECTED',
+        message: '결제가 승인되지 않았습니다 (카드사에서 결제를 거절했습니다). 방송 화면에서 다시 후원하세요',
+      })
       expect(orderRow(order.orderId)).toMatchObject({ status: 'FAILED', failureCode: 'REJECT_CARD_COMPANY' })
+    })
+
+    it('모르는 거절 코드는 원문을 숨기고 일반 안내만 보낸다', async () => {
+      const order = await newOrder()
+      toss.state.next = 'rejectUnknown'
+      const res = await confirm(viewer, { orderId: order.orderId, paymentKey: 'pk_1', amount: 5000 })
+      expect(res.statusCode).toBe(400)
+      expect(res.json().message).toBe('결제가 승인되지 않았습니다. 방송 화면에서 다시 후원하세요')
+      expect(res.body).not.toContain('secret-123')
+    })
+
+    it('키 설정 오류는 "결제 설정 오류"로 안내하고 주문은 PENDING으로 둔다', async () => {
+      const order = await newOrder()
+      toss.state.next = 'configError'
+      const res = await confirm(viewer, { orderId: order.orderId, paymentKey: 'pk_1', amount: 5000 })
+      expect(res.statusCode).toBe(503)
+      expect(res.json()).toMatchObject({ code: 'PAYMENT_CONFIG_ERROR', message: expect.stringContaining('결제 설정 오류') })
+      expect(res.body).not.toContain('시크릿 키')
+      expect(orderRow(order.orderId).status).toBe('PENDING')
+    })
+
+    it('토스 요청 한도(429)는 일시 오류: PENDING 유지, 다시 확인하면 적립', async () => {
+      const order = await newOrder()
+      const body = { orderId: order.orderId, paymentKey: 'pk_1', amount: 5000 }
+      toss.state.next = 'rateLimited'
+      expect((await confirm(viewer, body)).json().code).toBe('PAYMENT_UNAVAILABLE')
+      expect(orderRow(order.orderId).status).toBe('PENDING')
+      expect((await confirm(viewer, body)).statusCode).toBe(200)
+      expect(ledgerCount()).toBe(1)
     })
 
     it('네트워크 오류로 결과를 모르면 PENDING으로 두고, 다시 확인하면 1번만 적립한다', async () => {
@@ -333,6 +391,25 @@ describe('도네이션 API', () => {
       const again = await confirm(viewer, { orderId: order.orderId, paymentKey: 'pk_1', amount: 5000 })
       expect(again.json().alreadyConfirmed).toBe(true)
       expect(ledgerCount()).toBe(1)
+    })
+
+    it('조회한 결제가 주문과 다르면(남의 주문에 자기 결제 키) 무시하고 주문 상태를 바꾸지 않는다', async () => {
+      const victim = await newOrder(viewer, 5000)
+      // 공격자가 자기 주문으로 실제 승인받은 결제
+      const attackerOrder = await newOrder(viewer2, 1000)
+      await confirm(viewer2, { orderId: attackerOrder.orderId, paymentKey: 'pk_attacker', amount: 1000 })
+      const res = await webhook({ orderId: victim.orderId, paymentKey: 'pk_attacker', status: 'DONE' })
+      expect(res.json().result).toBe('ignored')
+      expect(orderRow(victim.orderId)).toMatchObject({ status: 'PENDING', failureCode: null })
+      expect(ledgerCount()).toBe(1)
+    })
+
+    it('조회한 금액이 주문과 달라도 무시하고 주문 상태를 바꾸지 않는다', async () => {
+      const order = await newOrder()
+      toss.approved.set('pk_odd', { paymentKey: 'pk_odd', orderId: order.orderId, status: 'DONE', totalAmount: 1000 })
+      expect((await webhook({ orderId: order.orderId, paymentKey: 'pk_odd' })).json().result).toBe('ignored')
+      expect(orderRow(order.orderId)).toMatchObject({ status: 'PENDING', failureCode: null })
+      expect(ledgerCount()).toBe(0)
     })
 
     it('다른 이벤트·형식이 다른 본문은 무시한다', async () => {

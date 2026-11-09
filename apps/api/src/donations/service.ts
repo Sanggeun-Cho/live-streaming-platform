@@ -48,12 +48,67 @@ const donationColumns = {
 const orderNotFound = () =>
   new AppError(404, 'ORDER_NOT_FOUND', '후원 주문을 찾을 수 없습니다. 방송 화면에서 다시 후원하세요')
 
+/** 승인 여부를 알 수 없는 경우. 주문은 PENDING으로 두고 같은 요청을 다시 보내게 한다 (멱등키로 중복 승인되지 않는다) */
+const paymentUnavailable = () =>
+  new AppError(
+    502,
+    'PAYMENT_UNAVAILABLE',
+    '결제 승인 결과를 확인하지 못했습니다. 잠시 후 이 화면을 새로고침해 다시 확인하세요',
+    true,
+  )
+
+// 사용자가 원인을 알고 다른 방법으로 다시 시도할 수 있는 토스 오류만 안내 문구로 바꾼다.
+// 토스 원문 메시지는 내부 사정(키·상점 설정)을 담을 수 있어 그대로 보내지 않는다.
+// 코드 목록: https://docs.tosspayments.com/reference/error-codes#결제-승인
+const USER_FACING_REJECTIONS: Record<string, string> = {
+  REJECT_CARD_COMPANY: '카드사에서 결제를 거절했습니다',
+  REJECT_CARD_PAYMENT: '카드사에서 결제를 거절했습니다',
+  INVALID_CARD_EXPIRATION: '카드 유효기간이 올바르지 않습니다',
+  INVALID_STOPPED_CARD: '정지된 카드입니다',
+  INVALID_CARD_LOST_OR_STOLEN: '분실 또는 도난 신고된 카드입니다',
+  INVALID_CARD_NUMBER: '카드 번호가 올바르지 않습니다',
+  EXCEED_MAX_DAILY_PAYMENT_COUNT: '하루 결제 가능 횟수를 넘었습니다',
+  EXCEED_MAX_PAYMENT_AMOUNT: '결제 한도를 넘었습니다',
+  EXCEED_MAX_AMOUNT: '결제 한도를 넘었습니다',
+  NOT_AVAILABLE_PAYMENT: '지금은 이 결제수단을 쓸 수 없습니다',
+  REJECT_ACCOUNT_PAYMENT: '잔액이 부족하거나 계좌 결제가 거절되었습니다',
+  NOT_FOUND_PAYMENT_SESSION: '결제 시간(10분)이 지났습니다',
+  PAY_PROCESS_CANCELED: '결제를 취소했습니다',
+  PAY_PROCESS_ABORTED: '결제가 중단되었습니다',
+}
+
+// 우리 쪽 설정 문제(키 불일치 등). 사용자가 할 수 있는 일이 없으므로 운영자 문의로 안내하고 주문은 PENDING으로 둔다
+const CONFIG_ERRORS = new Set(['UNAUTHORIZED_KEY', 'INVALID_API_KEY', 'NOT_SUPPORTED_WIDGET_KEY', 'FORBIDDEN_REQUEST'])
+
+/** 토스 승인 응답을 주문과 대조한다. 어긋난 항목들을 돌려준다 (빈 배열이면 통과) */
+function paymentMismatches(order: DonationOrder, payment: TossPayment, paymentKey: string): string[] {
+  const checks: Array<[ok: boolean, label: string]> = [
+    [payment.status === 'DONE', `status=${payment.status}`],
+    [payment.orderId === order.orderId, `orderId=${payment.orderId}`],
+    [payment.totalAmount === order.amount, `amount=${payment.totalAmount}`],
+    [payment.paymentKey === paymentKey, 'paymentKey'],
+    [(payment.currency ?? 'KRW') === 'KRW', `currency=${payment.currency}`],
+  ]
+  return checks.filter(([ok]) => !ok).map(([, label]) => label)
+}
+
 /** 토스 결제창의 orderId 규칙(6~64자, 영문·숫자·-·_·=)을 따르는 추측 불가능한 값 */
 const newOrderId = () => `don_${randomBytes(18).toString('base64url')}`
 
 export function createDonationService(deps: { db: Db; toss: TossClient; hub: EventHub; log: FastifyBaseLogger }) {
   const { db, toss, hub, log } = deps
   const { orm } = db
+
+  /** 삭제되지 않은 방송 (없으면 404) */
+  function loadBroadcast(broadcastId: number) {
+    const row = orm
+      .select({ channelId: broadcasts.channelId, status: broadcasts.status, title: broadcasts.title, deletedAt: broadcasts.deletedAt })
+      .from(broadcasts)
+      .where(eq(broadcasts.id, broadcastId))
+      .get()
+    if (!row || row.deletedAt) throw broadcastNotFound()
+    return row
+  }
 
   const findOrder = (orderId: string) => orm.select().from(donationOrders).where(eq(donationOrders.orderId, orderId)).get()
 
@@ -84,33 +139,10 @@ export function createDonationService(deps: { db: Db; toss: TossClient; hub: Eve
   }
 
   /**
-   * 토스가 승인했다고 알려준 결제를 주문과 대조한 뒤 원장에 1번만 적립한다.
+   * 대조를 통과한 결제를 원장에 1번만 적립한다.
    * FAILED 주문도 DONE으로 바꿀 수 있다: 토스에서 실제로 승인된 결제(예: 동시 요청 중 한쪽이 실패로 기록)는 돈이 빠져 나갔으므로 적립이 맞다.
    */
-  function settle(order: DonationOrder, payment: TossPayment, paymentKey: string): { donation: DonationView; created: boolean } {
-    const mismatch =
-      payment.status !== 'DONE'
-        ? `status=${payment.status}`
-        : payment.orderId !== order.orderId
-          ? 'orderId'
-          : payment.totalAmount !== order.amount
-            ? `amount=${payment.totalAmount}`
-            : payment.paymentKey !== paymentKey
-              ? 'paymentKey'
-              : (payment.currency ?? 'KRW') !== 'KRW'
-                ? `currency=${payment.currency}`
-                : null
-    if (mismatch) {
-      // 승인 응답이 주문과 다르다. 적립하지 않고 원인을 남긴다 (운영자가 토스 상점관리자에서 확인·취소해야 한다)
-      log.error({ orderId: order.orderId, mismatch }, 'donation payment verification failed')
-      markFailed(order, 'VERIFICATION_FAILED')
-      throw new AppError(
-        502,
-        'PAYMENT_VERIFICATION_FAILED',
-        '결제 정보가 주문과 일치하지 않아 후원을 저장하지 않았습니다. 결제가 완료되었다면 운영자에게 문의하세요',
-      )
-    }
-
+  function record(order: DonationOrder, paymentKey: string): { donation: DonationView; created: boolean } {
     const created = orm.transaction((tx) => {
       const { changes } = tx
         .update(donationOrders)
@@ -138,17 +170,46 @@ export function createDonationService(deps: { db: Db; toss: TossClient; hub: Eve
     return { donation, created }
   }
 
+  async function lookupForConfirm(paymentKey: string): Promise<TossPayment> {
+    try {
+      return await toss.getPayment(paymentKey)
+    } catch (e) {
+      log.warn({ err: e }, 'toss payment lookup failed (already processed)')
+      throw paymentUnavailable()
+    }
+  }
+
+  /** 승인 API 오류를 사용자 안내로 바꾼다. 거절이 확정된 경우만 주문을 FAILED로 둔다 */
+  function rejectionError(order: DonationOrder, e: TossApiError): AppError {
+    if (e.transient) {
+      log.warn({ orderId: order.orderId, code: e.code, status: e.status }, 'toss confirm transient error')
+      return paymentUnavailable()
+    }
+    if (CONFIG_ERRORS.has(e.code)) {
+      log.error({ orderId: order.orderId, code: e.code, message: e.message }, 'toss configuration error')
+      return new AppError(
+        503,
+        'PAYMENT_CONFIG_ERROR',
+        '결제 설정 오류로 승인하지 못했습니다. 결제는 이뤄지지 않았으니 운영자에게 문의하세요',
+        true,
+      )
+    }
+    markFailed(order, e.code)
+    const reason = USER_FACING_REJECTIONS[e.code]
+    if (!reason) log.warn({ orderId: order.orderId, code: e.code, message: e.message }, 'toss confirm rejected')
+    return new AppError(
+      400,
+      'PAYMENT_REJECTED',
+      `결제가 승인되지 않았습니다${reason ? ` (${reason})` : ''}. 방송 화면에서 다시 후원하세요`,
+    )
+  }
+
   return {
     totalOf,
 
     /** 후원 주문 생성: 로그인, 본인 방송 아님, LIVE 상태를 확인한다 */
     createOrder(broadcastId: number, user: AuthUser, input: { amount: number; message: string }) {
-      const broadcast = orm
-        .select({ channelId: broadcasts.channelId, status: broadcasts.status, title: broadcasts.title, deletedAt: broadcasts.deletedAt })
-        .from(broadcasts)
-        .where(eq(broadcasts.id, broadcastId))
-        .get()
-      if (!broadcast || broadcast.deletedAt) throw broadcastNotFound()
+      const broadcast = loadBroadcast(broadcastId)
       if (broadcast.channelId === user.channelId) throw forbidden('본인 방송에는 후원할 수 없습니다')
       if (broadcast.status !== 'LIVE') {
         throw new AppError(
@@ -200,29 +261,31 @@ export function createDonationService(deps: { db: Db; toss: TossClient; hub: Eve
         payment = await toss.confirm({ paymentKey: input.paymentKey, orderId: order.orderId, amount: order.amount })
       } catch (e) {
         if (!(e instanceof TossApiError)) throw e
-        if (e.code === 'ALREADY_PROCESSED_PAYMENT') {
-          // 다른 요청이 먼저 승인했다. 실제 결제 상태를 조회해 같은 경로로 적립한다
-          payment = await lookupForConfirm(input.paymentKey)
-        } else if (e.transient) {
-          // 승인 여부를 알 수 없다. 주문은 PENDING으로 두고 재시도하게 한다 (멱등키로 중복 승인되지 않는다)
-          log.warn({ orderId: order.orderId, code: e.code, status: e.status }, 'toss confirm transient error')
-          throw new AppError(
-            502,
-            'PAYMENT_UNAVAILABLE',
-            '결제 승인 결과를 확인하지 못했습니다. 잠시 후 이 화면을 새로고침해 다시 확인하세요',
-          )
-        } else {
-          markFailed(order, e.code)
-          throw new AppError(400, 'PAYMENT_REJECTED', `결제가 승인되지 않았습니다 (${e.message}). 방송 화면에서 다시 후원하세요`)
-        }
+        // 다른 요청이 먼저 승인했다. 실제 결제 상태를 조회해 같은 경로로 적립한다
+        if (e.code === 'ALREADY_PROCESSED_PAYMENT') payment = await lookupForConfirm(input.paymentKey)
+        else throw rejectionError(order, e)
       }
-      const { donation, created } = settle(order, payment, input.paymentKey)
+
+      const mismatches = paymentMismatches(order, payment, input.paymentKey)
+      if (mismatches.length > 0) {
+        // 승인 응답이 주문과 다르다. 적립하지 않고 원인을 남긴다 (자동 취소는 미연동: 운영자가 토스 상점관리자에서 확인·취소)
+        log.error({ orderId: order.orderId, mismatches }, 'donation payment verification failed')
+        markFailed(order, 'VERIFICATION_FAILED')
+        throw new AppError(
+          502,
+          'PAYMENT_VERIFICATION_FAILED',
+          '결제 정보가 주문과 일치하지 않아 후원을 저장하지 않았습니다. 결제가 완료되었다면 운영자에게 문의하세요',
+          true,
+        )
+      }
+      const { donation, created } = record(order, input.paymentKey)
       return { donation, alreadyConfirmed: !created }
     },
 
     /**
      * 토스 웹훅(PAYMENT_STATUS_CHANGED). 본문은 누구나 보낼 수 있으므로 믿지 않고,
      * 결제 조회 API로 실제 상태를 확인한 뒤 confirm과 같은 경로로 적립한다.
+     * 대조가 어긋나도 주문 상태는 바꾸지 않는다: 남의 orderId에 자기 결제 키를 붙여 보내 남의 주문을 실패로 만들 수 없게 한다.
      * 돌려준 값이 'retry'면 토스가 다시 보내도록 실패 응답을 준다.
      */
     async handlePaymentWebhook(input: { orderId: string; paymentKey: string }): Promise<'settled' | 'ignored' | 'retry'> {
@@ -238,23 +301,18 @@ export function createDonationService(deps: { db: Db; toss: TossClient; hub: Eve
       }
       // 취소·만료 등 승인 완료가 아닌 상태는 적립과 무관하다
       if (payment.status !== 'DONE') return 'ignored'
-      try {
-        settle(order, payment, payment.paymentKey)
-      } catch (e) {
-        if (e instanceof AppError) return 'ignored'
-        throw e
+      const mismatches = paymentMismatches(order, payment, payment.paymentKey)
+      if (mismatches.length > 0) {
+        log.warn({ orderId: order.orderId, mismatches }, 'donation webhook ignored: payment does not match order')
+        return 'ignored'
       }
+      record(order, payment.paymentKey)
       return 'settled'
     },
 
     /** 방송별 후원 내역(최신순, 커서 페이지)과 합계. 원장에서만 집계한다 */
     list(broadcastId: number, { cursor, limit }: { cursor?: number; limit: number }) {
-      const exists = orm
-        .select({ deletedAt: broadcasts.deletedAt })
-        .from(broadcasts)
-        .where(eq(broadcasts.id, broadcastId))
-        .get()
-      if (!exists || exists.deletedAt) throw broadcastNotFound()
+      loadBroadcast(broadcastId)
       const conditions = [eq(donations.broadcastId, broadcastId)]
       if (cursor) conditions.push(lt(donations.id, cursor))
       const rows = orm
@@ -272,19 +330,6 @@ export function createDonationService(deps: { db: Db; toss: TossClient; hub: Eve
         nextCursor: rows.length > limit ? items[items.length - 1]!.id : null,
       }
     },
-  }
-
-  async function lookupForConfirm(paymentKey: string): Promise<TossPayment> {
-    try {
-      return await toss.getPayment(paymentKey)
-    } catch (e) {
-      log.warn({ err: e }, 'toss payment lookup failed (already processed)')
-      throw new AppError(
-        502,
-        'PAYMENT_UNAVAILABLE',
-        '결제 승인 결과를 확인하지 못했습니다. 잠시 후 이 화면을 새로고침해 다시 확인하세요',
-      )
-    }
   }
 }
 

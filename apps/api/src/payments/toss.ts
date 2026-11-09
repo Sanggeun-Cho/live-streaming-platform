@@ -7,21 +7,28 @@
 //
 // 후원 서비스는 이 인터페이스에만 의존한다. 테스트와 개발용 가짜 결제는 다른 구현을 넣는다.
 
+import { z } from 'zod'
+
 const TOSS_API_URL = 'https://api.tosspayments.com'
 
-/** 응답 Payment 객체 중 검증에 쓰는 필드만 */
-export type TossPayment = {
-  paymentKey: string
-  orderId: string
+// 응답 Payment 객체 중 검증에 쓰는 필드만. 형식이 다르면(빈 본문, 필드 누락) 승인 여부를 알 수 없는 것으로 본다
+const paymentSchema = z.object({
+  paymentKey: z.string(),
+  orderId: z.string(),
   /** 승인 완료는 DONE */
-  status: string
-  totalAmount: number
-  currency?: string
-}
+  status: z.string(),
+  totalAmount: z.number(),
+  currency: z.string().optional(),
+})
+
+export type TossPayment = z.infer<typeof paymentSchema>
+
+const errorSchema = z.object({ code: z.string(), message: z.string() })
 
 /**
  * 토스 API 오류. status 0은 네트워크 오류·시간 초과다 (승인이 됐는지 알 수 없다).
- * code는 토스 오류 코드 (예: ALREADY_PROCESSED_PAYMENT, REJECT_CARD_COMPANY)
+ * code는 토스 오류 코드 (예: ALREADY_PROCESSED_PAYMENT, REJECT_CARD_COMPANY).
+ * message는 토스 원문이라 사용자에게 그대로 보내지 않는다 (로그용)
  */
 export class TossApiError extends Error {
   constructor(
@@ -33,9 +40,15 @@ export class TossApiError extends Error {
     this.name = 'TossApiError'
   }
 
-  /** 다시 시도하면 결과가 달라질 수 있는 오류 (네트워크, 토스 서버 오류, 이전 멱등 요청 처리 중) */
+  /** 다시 시도하면 결과가 달라질 수 있는 오류 (네트워크, 응답 형식 오류, 요청 한도, 토스 서버 오류, 이전 멱등 요청 처리 중) */
   get transient(): boolean {
-    return this.status === 0 || this.status >= 500 || this.code === 'IDEMPOTENT_REQUEST_PROCESSING'
+    return (
+      this.status === 0 ||
+      this.status === 429 ||
+      this.status >= 500 ||
+      this.code === 'INVALID_RESPONSE' ||
+      this.code === 'IDEMPOTENT_REQUEST_PROCESSING'
+    )
   }
 }
 
@@ -66,15 +79,20 @@ export function createTossClient(secretKey: string, { timeoutMs = 10_000, baseUr
     } catch (e) {
       throw new TossApiError(0, 'NETWORK_ERROR', `토스 API에 연결하지 못했습니다: ${String(e)}`)
     }
-    const data = (await res.json().catch(() => null)) as Record<string, unknown> | null
+    const data: unknown = await res.json().catch(() => null)
     if (!res.ok) {
+      const err = errorSchema.safeParse(data)
       throw new TossApiError(
         res.status,
-        typeof data?.code === 'string' ? data.code : 'UNKNOWN',
-        typeof data?.message === 'string' ? data.message : `토스 API 오류 (HTTP ${res.status})`,
+        err.success ? err.data.code : 'UNKNOWN',
+        err.success ? err.data.message : `토스 API 오류 (HTTP ${res.status})`,
       )
     }
-    return data as TossPayment
+    const payment = paymentSchema.safeParse(data)
+    if (!payment.success) {
+      throw new TossApiError(res.status, 'INVALID_RESPONSE', '토스 API 응답 형식이 예상과 다릅니다')
+    }
+    return payment.data
   }
 
   return {
@@ -108,4 +126,14 @@ export function createFakeTossClient(): TossClient {
       return payment
     },
   }
+}
+
+/** 후원이 꺼져 있을 때(키 없음). 라우트가 먼저 막지만, 혹시 불려도 승인된 것으로 처리되지 않게 항상 실패한다 */
+export const disabledTossClient: TossClient = {
+  confirm: async () => {
+    throw new TossApiError(0, 'DISABLED', '결제 설정이 없습니다')
+  },
+  getPayment: async () => {
+    throw new TossApiError(0, 'DISABLED', '결제 설정이 없습니다')
+  },
 }
