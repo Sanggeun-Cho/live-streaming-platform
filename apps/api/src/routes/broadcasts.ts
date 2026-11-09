@@ -95,7 +95,8 @@ export const broadcastRoutes =
     })
 
     // 실시간 이벤트 (SSE). 로그인 없이 구독한다.
-    //   status: 상태 변경, viewers: 시청자 수, updated: 제목·설명 변경, deleted: 방송 삭제
+    //   status: 상태 변경, viewers: 시청자 수, updated: 제목·설명 변경, deleted: 방송 삭제,
+    //   donation: 후원 적립 (routes/donations.ts → donations/service.ts)
     app.get('/broadcasts/:id/events', async (request, reply) => {
       const { id } = parse(idParams, request.params)
       const view = broadcasts.findView(id)

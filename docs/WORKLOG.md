@@ -160,3 +160,47 @@
 
 ### 검증
 - API 70건, 브라우저 E2E: 07 12개, 08 6개, 06 11개, 05 12개 (운영 빌드) + 07·08을 개발 서버(StrictMode)로도 통과
+
+---
+
+## 2026-11-09 · #11 도네이션: 토스 테스트 결제 + 멱등 적립 + 방송별 합계 (`feat/11-donations`)
+
+### 근거로 확인한 문서 (2026-11-09)
+- 결제창형 결제 연동: https://docs.tosspayments.com/guides/v2/payment-widget/integration-window
+- 결제창(구버전) 연동: https://docs.tosspayments.com/guides/v2/payment-window/integration
+- SDK v2 초기화(키 접두사 규칙): https://docs.tosspayments.com/sdk/v2/js
+- 멱등키: https://docs.tosspayments.com/reference/using-api/idempotency-key · 웹훅 이벤트: https://docs.tosspayments.com/reference/using-api/webhook-events
+- 공식 예제(문서용 테스트 키): https://github.com/tosspayments/tosspayments-sample
+
+### 설계 판단
+| 결정 | 근거 | 확신 |
+|---|---|---|
+| 결제창형 결제(`widgets().renderPaymentWindow()` + `paymentRequest` → `requestPayment()`) | 결제창(구버전) `payment()`는 API 개별 연동 키(`test_ck_`)만 받는데, 공개 문서용 `test_ck_`/`test_sk_` 키는 실제 호출 시 `UNAUTHORIZED_KEY`(401). 문서용 `test_gck_docs_`/`test_gsk_docs_`는 결제창이 뜨고 승인 API가 응답한다 (직접 확인) | 85% |
+| 주문을 결제 전에 저장하고 confirm에서 금액 대조, 다르면 토스에 승인 요청을 하지 않음 | 토스 문서 권고. 승인 전이라 돈이 빠지지 않으므로 FAILED로 끝내면 된다 | 95% |
+| 토스 응답의 status·totalAmount·orderId·paymentKey·currency 재대조, 불일치는 적립하지 않고 FAILED + 오류 로그 | 명세 "승인 결과, 금액, 후원 대상 검증". 결제 취소 API 연동은 범위 밖이라 운영자 확인으로 남김 | 85% |
+| 멱등: 조건부 UPDATE(PENDING·FAILED→DONE) 1행일 때만 같은 트랜잭션에서 원장 INSERT + 원장 `order_id` 유니크 + 토스 `Idempotency-Key` | 재요청·동시 요청·웹훅이 겹쳐도 1건. 결제사 쪽 중복 승인도 막는다 | 95% |
+| FAILED→DONE 허용(토스 조회로 DONE이 확인된 경우만) | 동시 요청 중 한쪽이 실패로 기록돼도 실제로 승인된 결제는 적립해야 한다. confirm 경로는 FAILED 주문을 409로 먼저 거절해 금액을 바꿔 재시도하는 공격은 막는다 | 80% |
+| 네트워크·5xx는 PENDING 유지 + 502 "새로고침해 다시 확인", 4xx는 FAILED | 결과를 모를 때 실패로 단정하면 돈만 빠지고 적립이 안 될 수 있다. 재요청은 멱등키로 안전하다 | 90% |
+| `ALREADY_PROCESSED_PAYMENT`는 결제 조회 API로 확인 후 같은 경로로 적립 | "토스는 승인했는데 응답을 못 받음" 경우의 복구 | 90% |
+| 웹훅은 본문을 믿지 않고 결제 조회로 재확인, 일시 오류만 503 | 공인 URL에서 누구나 보낼 수 있다. 서명 헤더는 결제 상태 이벤트에 대해 문서가 명확하지 않아 조회로 대신했다 | 85% |
+| confirm은 주문한 본인만(로그인 401, 남의 주문 403) | 남이 orderId를 알아도 확정을 대신할 이유가 없다. 성공 화면은 로그인 상태의 같은 브라우저로 돌아온다 | 85% |
+| 금액 1,000~1,000,000원, 1,000원 단위, 메시지 100자 | 치지직류 프리셋과 맞추고 입력을 단순하게. QUESTIONS Q6 | 75% |
+| 결제창 복귀 주소를 `/broadcasts/:id/donation/success|fail` 경로로 | 취소 시 orderId가 오지 않아도 원래 방송으로 돌아갈 수 있다. 쿼리를 덧붙이는 방식은 토스가 쿼리를 이어 붙일 때 깨질 위험 | 90% |
+| `TOSS_FAKE_PAYMENTS`(개발·E2E 전용, 운영 기동 거부) | 카드사 인증 화면을 자동화할 수 없어 승인 이후 흐름(성공 화면→confirm→적립→알림)을 브라우저로 검증할 방법이 필요 | 85% |
+| SSE `donation`에 새 합계를 같이 보냄, 재연결 시 내역 다시 읽기 | 시청자 화면이 별도 조회 없이 합계를 맞춘다. 끊긴 동안 놓친 후원 보정 | 90% |
+| 공통 에러 핸들러: `AppError`로 직접 던진 5xx는 메시지를 그대로 보냄 | 결제사 장애(502) 안내 문구가 "서버 오류가 발생했습니다"로 가려져 다음 행동을 알 수 없었다. 예상하지 못한 5xx는 계속 숨긴다 | 85% |
+
+### 직접 테스트에서 발견해 고친 것
+| 발견 | 원인 | 조치 |
+|---|---|---|
+| 502 안내 문구가 "서버 오류가 발생했습니다"로 바뀜 | 에러 핸들러가 모든 5xx 메시지를 숨김 | `AppError` 5xx는 메시지 유지 (테스트로 확인) |
+| 문서용 `test_ck_` 키로 결제창 요청 시 401 "알 수 없는 에러" | 공개 API 개별 연동 키가 더 이상 유효하지 않음. `test_gck_` 키는 `payment()`에서 `NOT_SUPPORTED_WIDGET_KEY` | 결제창형 결제로 전환, `.env.example`에 키 종류 명시 |
+| 결제창이 `successUrl`을 거절(`INVALID_PARAMETERS`) | 탐색용 페이지 주소가 유효한 도메인이 아니었음(probe.local) | 실제 앱은 `window.location.origin` 기준 절대 주소라 문제 없음 (localhost에서 결제창 정상 표시 확인) |
+
+### 검증
+- API 통합 테스트 97건 통과 (도네이션 28건: 설정·주문 401/403/404/409·금액/메시지 규칙, 승인 성공·재요청·동시 3건·금액 불일치·응답 불일치·거절·네트워크 오류 후 재확인·방송 종료 후 확정·남의 주문, 웹훅 위조·보정·반복, 내역·합계·커서, SSE 1회)
+- 브라우저 E2E `e2e/11-donations.mjs` (dev 서버, Chrome headless)
+  - 가짜 결제 모드 12개 통과: READY/본인/비로그인 안내, LIVE 전환 시 버튼 활성, 금액 규칙, 후원→성공 화면→방송 복귀→합계·내역, 다른 시청자 실시간 알림, 성공 주소 재방문 1회 적립, 금액 조작 거절, 취소 화면, 390px 넘침 없음, 종료 후 비활성
+  - 토스 문서용 테스트 키 모드 8개 통과: 실제 토스 결제창이 주문 금액(5,000원)으로 열리고 닫으면 취소 안내, 인증 없이 만든 결제 키는 실제 승인 API가 `NOT_FOUND_PAYMENT_SESSION`으로 거절 → 400 안내 + FAILED
+  - 실제 카드 승인까지는 자동화하지 못했다: 테스트 환경에서도 카드 선택 후 카드사 인증 화면(KB 앱/ISP 등)으로 넘어간다. 승인 이후 경로는 가짜 결제와 통합 테스트로 검증
+- `npm run typecheck`, oxlint 경고 0

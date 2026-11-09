@@ -40,6 +40,15 @@ const envSchema = z
           .map((s) => s.trim())
           .filter(Boolean),
       ),
+    // 토스페이먼츠 결제창형 키 (개발자센터 > API 키 > 주문서형, 결제창형 연동 키: test_gck_/test_gsk_). 둘 다 비우면 후원 기능이 꺼진다.
+    // 클라이언트 키는 브라우저에 공개되고, 시크릿 키는 서버의 승인·조회 API 호출에만 쓴다
+    TOSS_CLIENT_KEY: z.string().trim().default(''),
+    TOSS_SECRET_KEY: z.string().trim().default(''),
+    // 개발·E2E 전용: 토스를 거치지 않고 결제를 승인된 것으로 처리한다 (운영에서는 켤 수 없다)
+    TOSS_FAKE_PAYMENTS: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((v) => v === 'true'),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production' && env.INTERNAL_SECRET === DEV_INTERNAL_SECRET) {
@@ -54,6 +63,21 @@ const envSchema = z
         code: 'custom',
         path: ['COOKIE_SECURE'],
         message: '운영 환경에서는 COOKIE_SECURE를 끌 수 없습니다',
+      })
+    }
+    // 한쪽 키만 있으면 결제창은 열리는데 승인이 실패하는(돈은 빠지지 않지만 후원도 안 되는) 상태가 된다
+    if (Boolean(env.TOSS_CLIENT_KEY) !== Boolean(env.TOSS_SECRET_KEY)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['TOSS_SECRET_KEY'],
+        message: 'TOSS_CLIENT_KEY와 TOSS_SECRET_KEY는 함께 설정하거나 함께 비워야 합니다',
+      })
+    }
+    if (env.NODE_ENV === 'production' && env.TOSS_FAKE_PAYMENTS) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['TOSS_FAKE_PAYMENTS'],
+        message: '운영 환경에서는 가짜 결제를 켤 수 없습니다',
       })
     }
   })

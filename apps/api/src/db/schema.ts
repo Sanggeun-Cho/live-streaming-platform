@@ -74,3 +74,61 @@ export const broadcasts = sqliteTable(
 )
 
 export type Broadcast = typeof broadcasts.$inferSelect
+
+// ---- 도네이션 (#11) ----
+
+export const DONATION_ORDER_STATUSES = ['PENDING', 'DONE', 'FAILED'] as const
+export type DonationOrderStatus = (typeof DONATION_ORDER_STATUSES)[number]
+
+// 후원 주문. 결제창을 열기 전에 금액·대상·후원자를 서버에 먼저 저장해 두고, 승인할 때 이 값과 대조한다.
+// PENDING → DONE(승인 확인, 원장 1건 생성) / PENDING → FAILED(승인 거절·금액 불일치)
+export const donationOrders = sqliteTable(
+  'donation_orders',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    // 토스 결제창에 넘기는 주문번호. 추측할 수 없는 무작위 값이다
+    orderId: text('order_id').notNull().unique(),
+    broadcastId: integer('broadcast_id')
+      .notNull()
+      .references(() => broadcasts.id),
+    donorId: integer('donor_id')
+      .notNull()
+      .references(() => users.id),
+    amount: integer('amount').notNull(),
+    message: text('message').notNull().default(''),
+    status: text('status', { enum: DONATION_ORDER_STATUSES }).notNull().default('PENDING'),
+    // 승인된 결제 키. 승인 전에는 비어 있다
+    paymentKey: text('payment_key'),
+    // FAILED가 된 이유 (토스 오류 코드 또는 내부 검증 코드). 운영 중 원인 확인용
+    failureCode: text('failure_code'),
+    createdAt: createdAt(),
+    updatedAt: nowMs('updated_at'),
+  },
+  (t) => [index('donation_orders_broadcast_id_idx').on(t.broadcastId)],
+)
+
+export type DonationOrder = typeof donationOrders.$inferSelect
+
+// 후원 원장. 승인이 확인된 주문 1건당 정확히 1행만 생긴다(order_id 유니크). 삭제하지 않는다.
+// 방송별 내역과 합계는 이 테이블에서만 집계한다.
+export const donations = sqliteTable(
+  'donations',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    orderId: integer('order_id')
+      .notNull()
+      .unique()
+      .references(() => donationOrders.id),
+    broadcastId: integer('broadcast_id')
+      .notNull()
+      .references(() => broadcasts.id),
+    donorId: integer('donor_id')
+      .notNull()
+      .references(() => users.id),
+    amount: integer('amount').notNull(),
+    message: text('message').notNull().default(''),
+    paymentKey: text('payment_key').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('donations_broadcast_id_id_idx').on(t.broadcastId, t.id)],
+)

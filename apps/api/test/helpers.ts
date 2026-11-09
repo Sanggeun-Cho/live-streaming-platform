@@ -2,6 +2,7 @@ import { buildApp } from '../src/app.js'
 import { loadConfig } from '../src/config.js'
 import { createDb } from '../src/db/client.js'
 import type { MediaControl } from '../src/media/control.js'
+import type { TossClient } from '../src/payments/toss.js'
 
 /** 테스트 기본값: MediaMTX에 송출이 하나도 없는 상태 */
 export const idleMediaControl: MediaControl = {
@@ -16,10 +17,11 @@ export async function makeApp(
   path = ':memory:',
   env: Record<string, string> = {},
   mediaControl: MediaControl = idleMediaControl,
+  toss?: TossClient,
 ) {
   const config = loadConfig({ NODE_ENV: 'test', DATABASE_PATH: path, ...env })
   const db = createDb(path)
-  const app = await buildApp({ config, db, mediaControl })
+  const app = await buildApp({ config, db, mediaControl, toss })
   return { app, db, config }
 }
 

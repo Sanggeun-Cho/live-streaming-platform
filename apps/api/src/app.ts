@@ -6,13 +6,16 @@ import { authPlugin } from './auth/plugin.js'
 import { createAuthService } from './auth/service.js'
 import { createBroadcastLifecycle } from './broadcasts/lifecycle.js'
 import { createBroadcastService } from './broadcasts/service.js'
+import { createDonationService } from './donations/service.js'
 import { createMediaControl, type MediaControl } from './media/control.js'
 import { createPublishTokenSigner } from './media/token.js'
+import { createFakeTossClient, createTossClient, type TossClient } from './payments/toss.js'
 import { createEventHub } from './realtime/hub.js'
 import { AppError } from './errors.js'
 import { authRoutes } from './routes/auth.js'
 import { broadcastRoutes } from './routes/broadcasts.js'
 import { channelRoutes } from './routes/channels.js'
+import { donationRoutes } from './routes/donations.js'
 import { healthRoutes } from './routes/health.js'
 import { internalMediaRoutes } from './routes/internal-media.js'
 
@@ -21,6 +24,8 @@ export type AppDeps = {
   db: Db
   /** 테스트에서 MediaMTX 대신 넣는다 */
   mediaControl?: MediaControl
+  /** 테스트에서 토스 결제 API 대신 넣는다 */
+  toss?: TossClient
 }
 
 /** 로그용: secret·token 쿼리 값을 가린다 */
@@ -28,7 +33,7 @@ export function redactQuery(url: string): string {
   return url.replace(/([?&](?:secret|token)=)[^&]*/gi, '$1[redacted]')
 }
 
-export async function buildApp({ config, db, mediaControl }: AppDeps) {
+export async function buildApp({ config, db, mediaControl, toss }: AppDeps) {
   const app = Fastify({
     logger:
       config.NODE_ENV === 'test'
@@ -57,7 +62,8 @@ export async function buildApp({ config, db, mediaControl }: AppDeps) {
     }
     reply.code(statusCode).send({
       code: error.code ?? 'INTERNAL_ERROR',
-      message: statusCode >= 500 ? '서버 오류가 발생했습니다' : error.message,
+      // 예상하지 못한 5xx는 내부 정보를 숨긴다. AppError로 직접 던진 5xx(외부 결제 API 장애 등)는 안내 문구를 그대로 보낸다
+      message: statusCode >= 500 && !(error instanceof AppError) ? '서버 오류가 발생했습니다' : error.message,
     })
   })
 
@@ -105,6 +111,28 @@ export async function buildApp({ config, db, mediaControl }: AppDeps) {
 
   await app.register(broadcastRoutes({ broadcasts, lifecycle, hub }), { prefix: '/api' })
   await app.register(channelRoutes(db), { prefix: '/api' })
+
+  // 후원: 토스 키가 있으면 실제(테스트) 결제, 가짜 결제 모드면 토스를 거치지 않는다. 둘 다 아니면 꺼진다
+  const tossEnabled = Boolean(config.TOSS_SECRET_KEY)
+  const donations = createDonationService({
+    db,
+    hub,
+    log: app.log,
+    toss:
+      toss ??
+      (config.TOSS_FAKE_PAYMENTS || !tossEnabled ? createFakeTossClient() : createTossClient(config.TOSS_SECRET_KEY)),
+  })
+  await app.register(
+    donationRoutes({
+      donations,
+      settings: {
+        enabled: tossEnabled || config.TOSS_FAKE_PAYMENTS,
+        clientKey: config.TOSS_CLIENT_KEY || null,
+        fake: config.TOSS_FAKE_PAYMENTS,
+      },
+    }),
+    { prefix: '/api' },
+  )
   await app.register(internalMediaRoutes({ secret: config.INTERNAL_SECRET, lifecycle }), { prefix: '/internal' })
 
   // 열린 SSE 응답을 닫지 않으면 서버 close가 끝나지 않는다 (hub가 모든 응답을 닫는다)
