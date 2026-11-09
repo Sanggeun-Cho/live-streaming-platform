@@ -231,7 +231,7 @@ function Studio({ broadcastId, title }: { broadcastId: number; title: string }) 
                 <strong>포함됨</strong>
               ) : (
                 <span className="warn">
-                  없음 — 탭 소리는 "Chrome 탭" 선택 후 "탭 오디오도 공유", Windows 전체 화면은 "시스템 오디오 공유"를 켜고 다시
+                  없음 — 탭 소리는 "탭"(Chrome 탭·Edge 탭) 선택 후 "탭 오디오도 공유", Windows 전체 화면은 "시스템 오디오도 공유"를 켜고 다시
                   선택하세요
                 </span>
               )}
