@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { clearSessionCookie, requireAuth, SESSION_COOKIE, setSessionCookie } from '../auth/plugin.js'
 import type { AuthService } from '../auth/service.js'
 import type { Config } from '../config.js'
+import { TEST_ACCOUNTS } from '../db/test-accounts.js'
 import { parse } from '../lib/validate.js'
 
 const email = z
@@ -72,4 +73,11 @@ export const authRoutes =
     app.get('/auth/me', { preHandler: requireAuth }, async (request) => {
       return { user: request.user }
     })
+
+    // 심사·시연용 테스트 계정(README에 공개된 값). 켜져 있을 때만 로그인 화면에 "바로 로그인" 버튼이 생긴다
+    app.get('/auth/test-accounts', async () => ({
+      accounts: config.SEED_TEST_ACCOUNTS
+        ? TEST_ACCOUNTS.map(({ role, email, password }) => ({ role, email, password }))
+        : [],
+    }))
   }

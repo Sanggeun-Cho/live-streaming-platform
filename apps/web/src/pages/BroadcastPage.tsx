@@ -132,7 +132,8 @@ export function BroadcastPage() {
       <article className="broadcast-detail">
         {broadcast.status === 'ENDED' ? (
           <EndedPlayer replay={replay} everLive={broadcast.startedAt !== null} />
-        ) : broadcast.status === 'LIVE' && !broadcast.disconnectedAt && !isOwner ? (
+        ) : broadcast.status === 'LIVE' && !broadcast.disconnectedAt ? (
+          // 방송자 본인도 시청할 수 있다 (예: 휴대폰으로 송출하고 PC에서 확인). 음소거로 시작하므로 하울링이 없다
           <LivePlayer key={playerKey} broadcastId={id} />
         ) : (
           <div className="player-placeholder" data-testid="player-placeholder">
@@ -140,9 +141,7 @@ export function BroadcastPage() {
             <p className="muted">
               {broadcast.disconnectedAt
                 ? '방송자의 연결이 끊겼습니다. 다시 연결되기를 기다리는 중…'
-                : isOwner && broadcast.status === 'LIVE'
-                  ? '방송 중입니다. 송출 화면은 방송 스튜디오에서 확인하세요'
-                  : PLAYER_MESSAGE[broadcast.status]}
+                : PLAYER_MESSAGE[broadcast.status]}
             </p>
           </div>
         )}

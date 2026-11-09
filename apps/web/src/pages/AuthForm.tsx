@@ -1,6 +1,7 @@
 import { type FormEvent, useState } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router'
 import { useAuth } from '../auth/context'
+import { TestAccountLogin } from '../components/TestAccountLogin'
 import { errorMessage } from '../lib/api'
 
 // 로그인 후 돌아갈 수 없는 경로. 로그인 상태로 이 화면들에 오면 다시 next로 보내므로 자기 자신을 가리키면 멈추거나 반복된다
@@ -54,6 +55,7 @@ export function AuthForm({ mode }: { mode: 'login' | 'signup' }) {
   return (
     <section className="auth-card">
       <h1>{isSignup ? '회원가입' : '로그인'}</h1>
+      {!isSignup && <TestAccountLogin />}
       <form onSubmit={onSubmit} className="form" noValidate>
         <label>
           이메일
