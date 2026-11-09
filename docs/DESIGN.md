@@ -156,8 +156,8 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 
 | 위험 | 대응 |
 |---|---|
-| Oracle 가입·VM 생성 실패 | 춘천 → 서울 → 도쿄·오사카 리전 순으로 시도. 모두 실패하면 GCP 무료 크레딧 |
-| Always Free 유휴 인스턴스 회수 | 제출 직전 Pay As You Go 전환 여부를 결정하고 $1 예산 알림을 설정 ([INFRA_SETUP.md](INFRA_SETUP.md) §9) |
+| A1 인스턴스 용량 부족 | E2.1.Micro(1GB)로 운영하고 A1은 재시도. 이미지는 amd64·arm64를 함께 빌드해 어느 쪽으로든 옮길 수 있다 |
+| Always Free 유휴 인스턴스 회수 | Pay As You Go 전환 여부를 결정하고 $1 예산 알림을 설정 ([INFRA_SETUP.md](INFRA_SETUP.md) §8) |
 | 1GB 메모리 부족 | 2GB 스왑, 이미지 빌드는 CI에서만 |
 | 실기기 WebRTC 연결 실패 | 1~2일차 스파이크. 실패 시 시청 경로를 LL-HLS로 전환 |
 | 로컬 모바일 테스트에 HTTPS 필요 | Caddy `tls internal` 또는 mkcert + LAN IP |

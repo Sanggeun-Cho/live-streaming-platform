@@ -57,5 +57,7 @@ TBD
 
 ## 설계
 - [docs/DESIGN.md](docs/DESIGN.md): 아키텍처, 상태 머신, 권한 매트릭스
-- [docs/INFRA_SETUP.md](docs/INFRA_SETUP.md): 운영 서버 세팅 절차
+- [docs/INFRA_SETUP.md](docs/INFRA_SETUP.md): 인프라 구성과 운영 (서버 세팅, 배포, 문제 해결)
 - [docs/ROADMAP.md](docs/ROADMAP.md): 이슈 진행 순서와 의존 관계
+- [docs/SPEC_CHECKLIST.md](docs/SPEC_CHECKLIST.md): 명세 항목별 구현·검증 현황
+- [docs/WORKFLOW.md](docs/WORKFLOW.md) · [docs/WORKLOG.md](docs/WORKLOG.md): 작업 흐름과 판단 기록

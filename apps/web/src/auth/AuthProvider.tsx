@@ -29,7 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return
         }
         // 서버 다운·네트워크 오류: 세션은 유효할 수 있으므로 비로그인으로 단정하지 않는다.
-        // 다시 로그인하면 불필요한 세션만 늘어나므로, 화면에서 '다시 시도'를 안내한다
+        // 화면에서는 '다시 시도'를 주로 안내하고, 다른 계정으로 바꾸려는 경우를 위해 로그인 링크도 남긴다
         console.warn('세션 확인 실패', e)
         setStatus('error')
       })
@@ -41,16 +41,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => controller.abort()
   }, [checkSession])
 
-  // 오류 상태에서 네트워크가 돌아오면 자동으로 다시 확인한다
-  useEffect(() => {
-    if (status !== 'error') return
-    const onOnline = () => {
-      setStatus('loading')
-      checkSession()
-    }
-    window.addEventListener('online', onOnline)
-    return () => window.removeEventListener('online', onOnline)
-  }, [status, checkSession])
 
   const applyUser = useCallback((next: User) => {
     meController.current?.abort()
@@ -84,6 +74,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus('loading')
     checkSession()
   }, [checkSession])
+
+  // 오류 상태에서 네트워크가 돌아오면 자동으로 다시 확인한다
+  useEffect(() => {
+    if (status !== 'error') return
+    window.addEventListener('online', refresh)
+    return () => window.removeEventListener('online', refresh)
+  }, [status, refresh])
 
   const value = useMemo<AuthState>(
     () => ({ status, user, login, signup, logout, refresh }),

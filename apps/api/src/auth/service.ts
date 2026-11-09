@@ -21,6 +21,9 @@ export type SessionInfo = {
   renewed: boolean
 }
 
+// AuthUser를 만드는 조회 컬럼. users와 channels 조인이 전제다 (loadUser, findSession 공용)
+const authUserColumns = { id: users.id, email: users.email, nickname: users.nickname, channelId: channels.id }
+
 export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex')
 
 function isUniqueViolation(err: unknown): boolean {
@@ -36,7 +39,7 @@ export function createAuthService(db: Db, opts: { sessionTtlDays: number }) {
 
   function loadUser(userId: number): AuthUser | undefined {
     return orm
-      .select({ id: users.id, email: users.email, nickname: users.nickname, channelId: channels.id })
+      .select(authUserColumns)
       .from(users)
       .innerJoin(channels, eq(channels.userId, users.id))
       .where(eq(users.id, userId))
@@ -106,7 +109,7 @@ export function createAuthService(db: Db, opts: { sessionTtlDays: number }) {
       const row = orm
         .select({
           expiresAt: sessions.expiresAt,
-          user: { id: users.id, email: users.email, nickname: users.nickname, channelId: channels.id },
+          user: authUserColumns,
         })
         .from(sessions)
         .innerJoin(users, eq(users.id, sessions.userId))
