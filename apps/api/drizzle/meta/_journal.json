@@ -15,6 +15,13 @@
       "when": 1794195780069,
       "tag": "0001_broadcasts",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794196674221,
+      "tag": "0002_broadcast_disconnected",
+      "breakpoints": true
     }
   ]
 }

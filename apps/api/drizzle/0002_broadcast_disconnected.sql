@@ -1,0 +1,1 @@
+ALTER TABLE `broadcasts` ADD `disconnected_at` integer;

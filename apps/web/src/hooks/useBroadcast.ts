@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ApiError, errorMessage } from '../lib/api'
 import { type Broadcast, getBroadcast } from '../lib/broadcasts'
 
@@ -27,7 +27,16 @@ export function useBroadcast(id: number) {
     return () => controller.abort()
   }, [id])
 
-  if (!isValidId(id)) return { broadcast: null, error: NOT_FOUND }
+  /** 실시간 이벤트(SSE)로 받은 변경을 반영한다 */
+  const patch = useCallback(
+    (changes: Partial<Broadcast>) =>
+      setResult((prev) =>
+        prev?.id === id && prev.broadcast ? { ...prev, broadcast: { ...prev.broadcast, ...changes } } : prev,
+      ),
+    [id],
+  )
+
+  if (!isValidId(id)) return { broadcast: null, error: NOT_FOUND, patch }
   const current = result?.id === id ? result : null
-  return { broadcast: current?.broadcast ?? null, error: current?.error ?? null }
+  return { broadcast: current?.broadcast ?? null, error: current?.error ?? null, patch }
 }

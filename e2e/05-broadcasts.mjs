@@ -1,10 +1,10 @@
 // #5 방송 CRUD 화면 시나리오: 소유자 / 다른 사용자 / 비로그인
-import { BASE, escapeRe, expectEqual, finish, launch, signedUpPage, step } from './lib.mjs'
+import { anonPage, BASE, escapeRe, expectEqual, finish, launch, signedUpPage, step } from './lib.mjs'
 
 const browser = await launch()
 const owner = await signedUpPage(browser, '방송자')
 const other = await signedUpPage(browser, '다른이')
-const anon = await (await browser.newContext()).newPage()
+const anon = await anonPage(browser)
 const title = `E2E 방송 ${Date.now()}`
 let id
 

@@ -36,6 +36,11 @@ export function finish() {
 
 export const unique = (prefix) => `${prefix}${Date.now()}${Math.floor(Math.random() * 1000)}`
 
+/** 비로그인 사용자용 새 페이지 (로컬 인증서 허용) */
+export async function anonPage(browser) {
+  return (await browser.newContext({ ignoreHTTPSErrors: true })).newPage()
+}
+
 /** 새 컨텍스트에서 회원가입하고 로그인된 페이지를 돌려준다 */
 export async function signedUpPage(browser, name) {
   const ctx = await browser.newContext({ ignoreHTTPSErrors: true })

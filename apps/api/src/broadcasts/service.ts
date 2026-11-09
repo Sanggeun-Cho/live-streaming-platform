@@ -12,6 +12,7 @@ const broadcastColumns = {
   status: broadcasts.status,
   startedAt: broadcasts.startedAt,
   endedAt: broadcasts.endedAt,
+  disconnectedAt: broadcasts.disconnectedAt,
   createdAt: broadcasts.createdAt,
   updatedAt: broadcasts.updatedAt,
   channel: { id: channels.id, name: channels.name },
@@ -25,6 +26,8 @@ export type BroadcastView = {
   status: BroadcastStatus
   startedAt: Date | null
   endedAt: Date | null
+  /** LIVE 중 송출이 끊겨 재연결을 기다리는 중이면 그 시각 */
+  disconnectedAt: Date | null
   createdAt: Date
   updatedAt: Date
   channel: { id: number; name: string }
@@ -41,6 +44,18 @@ export type ListQuery = {
 
 export const broadcastNotFound = () => new AppError(404, 'BROADCAST_NOT_FOUND', '방송을 찾을 수 없습니다')
 
+/** 삭제되지 않은 방송을 찾고, 요청자가 소유자인지 확인한다 (없으면 404, 소유자가 아니면 403) */
+export function getOwned(db: Db, id: number, user: AuthUser) {
+  const row = db.orm
+    .select({ id: broadcasts.id, channelId: broadcasts.channelId })
+    .from(broadcasts)
+    .where(and(eq(broadcasts.id, id), isNull(broadcasts.deletedAt)))
+    .get()
+  if (!row) throw broadcastNotFound()
+  if (row.channelId !== user.channelId) throw forbidden('본인 방송만 변경할 수 있습니다')
+  return row
+}
+
 export function createBroadcastService(db: Db) {
   const { orm } = db
 
@@ -55,18 +70,6 @@ export function createBroadcastService(db: Db) {
     return selectViews()
       .where(and(eq(broadcasts.id, id), isNull(broadcasts.deletedAt)))
       .get()
-  }
-
-  /** 삭제되지 않은 방송을 찾고, 요청자가 소유자인지 확인한다 (없으면 404, 소유자가 아니면 403) */
-  function getOwned(id: number, user: AuthUser) {
-    const row = orm
-      .select({ id: broadcasts.id, channelId: broadcasts.channelId })
-      .from(broadcasts)
-      .where(and(eq(broadcasts.id, id), isNull(broadcasts.deletedAt)))
-      .get()
-    if (!row) throw broadcastNotFound()
-    if (row.channelId !== user.channelId) throw forbidden('본인 방송만 변경할 수 있습니다')
-    return row
   }
 
   return {
@@ -103,7 +106,7 @@ export function createBroadcastService(db: Db) {
     },
 
     update(id: number, user: AuthUser, input: { title?: string; description?: string }): BroadcastView {
-      getOwned(id, user)
+      getOwned(db, id, user)
       const result = orm
         .update(broadcasts)
         .set({ ...input, updatedAt: new Date() })
@@ -116,7 +119,7 @@ export function createBroadcastService(db: Db) {
 
     /** Soft Delete. 방송 중에는 시청자가 있으므로 먼저 종료해야 한다 (409) */
     remove(id: number, user: AuthUser): void {
-      getOwned(id, user)
+      getOwned(db, id, user)
       // 상태 확인과 삭제를 한 문장으로 처리해, 확인 직후 LIVE로 바뀌는 경합에서도 LIVE 방송이 지워지지 않게 한다
       const now = new Date()
       const result = orm

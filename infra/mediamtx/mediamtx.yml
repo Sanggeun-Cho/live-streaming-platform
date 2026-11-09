@@ -29,7 +29,9 @@ webrtcIPsFromInterfaces: no
 webrtcAdditionalHosts: []
 
 # 인가는 api에 위임한다. publish/read 요청마다 api의 /internal/media/auth를 호출하고, 2xx면 허용한다.
-# #2 스파이크 단계의 api는 모두 허용하므로 아직 배포하지 않는다. TODO(#6): 토큰·방송 상태 검증
+#   publish: 소유자에게 발급한 publish 토큰(WHIP Authorization: Bearer) + 방송 상태(READY/LIVE)
+#   read:    방송 중(LIVE)이면 누구나
+# 실제 주소는 compose의 MTX_AUTHHTTPADDRESS가 덮어쓴다 (공유 시크릿을 쿼리로 붙인다)
 authMethod: http
 authHTTPAddress: http://api:3000/internal/media/auth
 # Control API는 api 컨테이너만 쓴다. 9997 포트는 외부에 공개하지 않으므로 HTTP 인가에서 제외한다.

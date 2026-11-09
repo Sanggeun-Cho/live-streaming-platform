@@ -10,7 +10,12 @@ const envSchema = z
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
     DATABASE_PATH: z.string().default('./data/app.db'),
     // MediaMTX → api 내부 훅 호출을 검증하는 공유 시크릿
-    INTERNAL_SECRET: z.string().min(16).default(DEV_INTERNAL_SECRET),
+    // MediaMTX 인가 URL의 쿼리에 그대로 들어가므로 URL에 안전한 문자만 허용한다 (예: openssl rand -hex 24)
+    INTERNAL_SECRET: z
+      .string()
+      .min(16)
+      .regex(/^[A-Za-z0-9_-]+$/, { error: '영문·숫자·-·_만 사용할 수 있습니다 (openssl rand -hex 24로 만드세요)' })
+      .default(DEV_INTERNAL_SECRET),
     // 세션 쿠키 Secure 속성. Chrome·Firefox는 http://localhost도 보안 컨텍스트로 보므로 기본값 그대로 개발할 수 있다.
     // http로 LAN IP에 접속하는 등 예외 상황에서만 false로 끈다.
     COOKIE_SECURE: z
@@ -18,6 +23,12 @@ const envSchema = z
       .default('true')
       .transform((v) => v === 'true'),
     SESSION_TTL_DAYS: z.coerce.number().int().positive().default(30),
+    // MediaMTX Control API (path 상태 조회, 송출 강제 종료). compose 내부 주소
+    MEDIAMTX_API_URL: z.url().default('http://mediamtx:9997'),
+    // 송출이 끊긴 뒤 ENDED로 확정하기까지 기다리는 시간 (네트워크 전환·새로고침 후 재송출 허용)
+    PUBLISH_GRACE_SECONDS: z.coerce.number().int().min(5).max(600).default(45),
+    // publish 토큰 수명. 송출을 시작(또는 재연결)할 때마다 새로 발급받는다
+    PUBLISH_TOKEN_TTL_SECONDS: z.coerce.number().int().min(10).max(3600).default(300),
     // X-Forwarded-For를 믿을 프록시 주소(IP/CIDR, 쉼표 구분). 비우면 아무도 믿지 않고 소켓 주소를 쓴다.
     // compose에서는 Caddy 컨테이너의 고정 IP만 넣는다. 다른 주소가 보낸 X-Forwarded-For는 무시된다.
     TRUST_PROXY: z

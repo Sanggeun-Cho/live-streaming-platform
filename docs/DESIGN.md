@@ -75,12 +75,17 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 | 현재 | 이벤트 | 다음 | 비고 |
 |---|---|---|---|
 | READY | 소유자 송출 시작(publish 인증 통과 + runOnOnline) | LIVE | `started_at` 기록 |
-| LIVE | 소유자 종료 요청 | ENDED | MediaMTX에서 publisher를 강제로 끊는다 (Control API kick) |
+| READY·LIVE | 소유자 종료 요청 | ENDED | MediaMTX에서 publisher를 강제로 끊는다 (Control API kick). READY 종료는 "시작 직후 종료" 경합에서 늦게 붙은 송출을 막기 위해 허용 |
 | LIVE | runOnOffline (비정상 이탈) | LIVE + `disconnected_at` 기록 | 유예 시간 시작 |
 | LIVE(disconnected) | 유예 시간 내 재송출 | LIVE | `disconnected_at` 해제 |
 | LIVE(disconnected) | 유예 시간(45초) 경과 | ENDED | 스케줄러가 확정 |
 | LIVE | 훅 유실 | ENDED | 스케줄러가 MediaMTX Control API로 path 상태를 주기적으로 대조해 보정 |
-| ENDED | 송출 시도 | 거절 | publish 인증 단계에서 403 |
+| ENDED | 송출 시도 | 거절 | publish 인증 단계에서 403. 종료 직전 인가된 송출이 늦게 online되면 kick |
+
+- offline 훅을 받으면 Control API(`/v3/paths/get`)로 실제 송출 여부를 확인한다. 대체 송출(`overridePublisher`)로 새 online이 먼저 도착하는 경우를 걸러낸다.
+- 모든 전이는 현재 상태를 조건으로 거는 UPDATE 한 문장이다. 훅과 API 요청이 겹쳐도 잘못된 전이가 일어나지 않는다.
+- 스케줄러: 5초마다 유예 만료 확정(확정 직전 Control API 재확인), 30초마다 Control API 목록과 대조(훅 유실 보정, 남은 송출 kick).
+- 송출 화면은 `pagehide`에서 WHIP 세션을 DELETE한다. 보내지 못하면 MediaMTX는 ICE 타임아웃(약 30초) 뒤 offline을 낸다.
 
 상태가 바뀌면 SSE로 시청자에게 알리고, 시청 화면은 "방송 종료" 상태로 전환한다.
 
@@ -98,11 +103,16 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
   - 만료 세션은 기동 시와 1시간마다 정리한다.
   - 회원가입 시 사용자와 채널을 한 트랜잭션으로 만든다. 가입 직후 바로 로그인 상태가 된다.
 - **송출 인가 (두 단계)**
-  1. `POST /api/broadcasts/:id/publish-token`에서 로그인 여부, 소유자 여부, 상태(READY 또는 LIVE)를 검증한 뒤 짧은 수명의 publish 토큰을 발급한다.
+  1. `POST /api/broadcasts/:id/publish-token`에서 로그인 여부, 소유자 여부, 상태(READY 또는 LIVE)를 검증한 뒤 짧은 수명(5분)의 publish 토큰을 발급한다.
+     - 토큰은 `{방송ID}.{만료}.{HMAC}`로 서버에 저장하지 않는다. api가 재시작돼도 유효하고, 탈취돼도 그 방송에 5분 동안만 쓸 수 있으며 인가 시점에 상태를 다시 본다.
+     - 송출을 시작하거나 재연결할 때마다 새로 받는다.
   2. 브라우저가 이 토큰으로 WHIP 송출을 시도하면 MediaMTX가 `authHTTPAddress`로 api에 다시 묻는다. api는 토큰, path, 방송 상태를 검증한다.
   - 결과적으로 **API 경로와 미디어 경로 모두** 서버가 소유권을 확인한다.
 - **시청(WHEP read)·목록·상세**: 인증 없이 허용한다.
-- **내부 훅 엔드포인트** `/internal/*`: Caddy에서 외부 접근을 차단하고, 공유 시크릿 헤더로 한 번 더 검증한다.
+- **시청 인가(read)**: 방송이 LIVE일 때만 허용한다(로그인 불필요).
+- **내부 훅 엔드포인트** `/internal/*`: Caddy는 `/api/*`·`/live/*`만 프록시하므로 외부에서 닿지 않는다. 같은 네트워크의 다른 컨테이너를 막기 위해 공유 시크릿을 한 번 더 확인한다. MediaMTX 인가 요청은 헤더를 붙일 수 없어 `authHTTPAddress`의 쿼리로, 훅은 `X-Internal-Secret` 헤더로 보낸다. api 로그는 `secret`·`token` 쿼리 값을 가린다.
+- MediaMTX는 인가 실패 응답에 `WWW-Authenticate: Basic`을 붙인다. 그대로 두면 브라우저가 로그인 창을 띄우므로 Caddy에서 지운다.
+- **실시간 이벤트(SSE)** `/api/broadcasts/:id/events`: `status`, `viewers`(방송자 본인 연결 제외), `updated`, `deleted`. 연결 직후 현재 상태를 보내 재연결 시 놓친 변경을 맞춘다.
 
 ### 권한 매트릭스
 

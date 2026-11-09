@@ -1,13 +1,25 @@
 import { buildApp } from '../src/app.js'
 import { loadConfig } from '../src/config.js'
 import { createDb } from '../src/db/client.js'
+import type { MediaControl } from '../src/media/control.js'
+
+/** 테스트 기본값: MediaMTX에 송출이 하나도 없는 상태 */
+export const idleMediaControl: MediaControl = {
+  getSource: async () => null,
+  listReadyPaths: async () => new Set(),
+  kick: async () => {},
+}
 
 export type TestApp = Awaited<ReturnType<typeof buildApp>>
 
-export async function makeApp(path = ':memory:', env: Record<string, string> = {}) {
+export async function makeApp(
+  path = ':memory:',
+  env: Record<string, string> = {},
+  mediaControl: MediaControl = idleMediaControl,
+) {
   const config = loadConfig({ NODE_ENV: 'test', DATABASE_PATH: path, ...env })
   const db = createDb(path)
-  const app = await buildApp({ config, db })
+  const app = await buildApp({ config, db, mediaControl })
   return { app, db, config }
 }
 
