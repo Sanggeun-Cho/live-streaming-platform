@@ -257,7 +257,7 @@ export function createDonationService(deps: { db: Db; toss: TossClient; hub: Eve
         throw new AppError(
           404,
           'BROADCAST_NOT_FOUND',
-          '방송이 삭제되어 후원할 수 없습니다. 결제는 승인되지 않았습니다',
+          '방송이 삭제되어 후원할 수 없습니다. 이 요청으로는 결제를 승인하지 않았습니다 (이미 승인된 결제가 있으면 확인 후 적립됩니다)',
         )
       }
       // 결제창에서 돌아온 금액이 주문 금액과 다르면 승인 요청 자체를 하지 않는다 (승인 전이라 돈이 빠지지 않는다)

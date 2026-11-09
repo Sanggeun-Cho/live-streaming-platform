@@ -245,7 +245,7 @@ describe('상태 전이 경계 (#13)', () => {
         ...as(viewer),
       })
       expect(res.statusCode).toBe(404)
-      expect(res.json()).toEqual({ code: 'BROADCAST_NOT_FOUND', message: expect.stringContaining('결제는 승인되지 않았습니다') })
+      expect(res.json()).toEqual({ code: 'BROADCAST_NOT_FOUND', message: expect.stringContaining('이 요청으로는 결제를 승인하지 않았습니다') })
       expect(toss.calls.confirm).toBe(0)
       expect(orderStatus(orderId)).toBe('FAILED')
       expect(db.orm.select().from(donations).all()).toHaveLength(0)

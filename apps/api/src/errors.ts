@@ -69,7 +69,10 @@ export function toErrorReply(error: { statusCode?: number; code?: string; messag
     return { statusCode, body: { code: error.code, message: hidden ? '서버 오류가 발생했습니다' : error.message } }
   }
   if (statusCode >= 500) return { statusCode, body: { code: 'INTERNAL_ERROR', message: '서버 오류가 발생했습니다' } }
-  const known = (error.code && FRAMEWORK_ERRORS[error.code]) || GENERIC_4XX[statusCode]
+  // 일반 객체라 'constructor' 같은 프로토타입 키가 걸리지 않게 자기 속성만 본다
+  const known =
+    (error.code && Object.hasOwn(FRAMEWORK_ERRORS, error.code) ? FRAMEWORK_ERRORS[error.code] : undefined) ||
+    GENERIC_4XX[statusCode]
   return { statusCode, body: known ?? { code: 'BAD_REQUEST', message: '요청이 올바르지 않습니다' } }
 }
 

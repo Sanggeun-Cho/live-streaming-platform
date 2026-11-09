@@ -291,6 +291,8 @@ export function createBroadcastLifecycle(deps: {
         setInterval(run('reconcile', () => this.reconcile()), 30_000),
       ]
       for (const t of timers) t.unref()
+      // api가 재시작되는 동안 생긴 변화(그 사이 끊긴 송출, 놓친 훅)를 첫 주기(30초)까지 기다리지 않고 바로 맞춘다
+      void run('reconcile', () => this.reconcile())()
       return () => timers.forEach(clearInterval)
     },
   }

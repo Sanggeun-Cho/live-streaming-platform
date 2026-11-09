@@ -233,6 +233,14 @@ const writeRows: Row[] = [
     expect: { anon: 200, other: 200, owner: 200 },
   },
   {
+    // 로그인은 누구나 시도할 수 있다 (이미 로그인한 브라우저는 이전 세션을 폐기하고 새로 발급)
+    action: '로그인 (POST /auth/login) — 공개',
+    owner: 'viewer',
+    other: 'stranger',
+    send: (w, c) => json('POST', '/api/auth/login', { email: 'viewer@test.com', password: 'password123' })(w, c, undefined),
+    expect: { anon: 200, other: 200, owner: 200 },
+  },
+  {
     action: '로그아웃 (POST /auth/logout) — 공개',
     owner: 'viewer',
     other: 'stranger',
@@ -416,6 +424,7 @@ describe('권한 매트릭스 (DESIGN §5)', () => {
       orderId: order.json().order.orderId,
     }
     // 세계가 의도한 상태인지 먼저 확인한다 (준비가 틀리면 아래 칸이 엉뚱한 이유로 통과할 수 있다)
+    expect([comment.statusCode, order.statusCode]).toEqual([201, 201])
     const status = async (id: number) => (await app.inject({ method: 'GET', url: `/api/broadcasts/${id}` })).json().broadcast.status
     expect([await status(ready), await status(live), await status(ended)]).toEqual(['READY', 'LIVE', 'ENDED'])
     // 닫으면 WAL이 본 파일에 합쳐져 파일 하나만 복사하면 된다
