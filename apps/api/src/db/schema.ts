@@ -60,6 +60,8 @@ export const broadcasts = sqliteTable(
     status: text('status', { enum: BROADCAST_STATUSES }).notNull().default('READY'),
     startedAt: integer('started_at', { mode: 'timestamp_ms' }),
     endedAt: integer('ended_at', { mode: 'timestamp_ms' }),
+    // LIVE 중 송출이 끊긴 시각. 유예 시간(기본 45초) 안에 재송출하면 지우고, 지나면 ENDED로 확정한다
+    disconnectedAt: integer('disconnected_at', { mode: 'timestamp_ms' }),
     createdAt: createdAt(),
     updatedAt: nowMs('updated_at'),
     deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),

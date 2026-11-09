@@ -4,7 +4,11 @@ import type { Config } from './config.js'
 import type { Db } from './db/client.js'
 import { authPlugin } from './auth/plugin.js'
 import { createAuthService } from './auth/service.js'
+import { createBroadcastLifecycle } from './broadcasts/lifecycle.js'
 import { createBroadcastService } from './broadcasts/service.js'
+import { createMediaControl, type MediaControl } from './media/control.js'
+import { createPublishTokenSigner } from './media/token.js'
+import { createEventHub } from './realtime/hub.js'
 import { AppError } from './errors.js'
 import { authRoutes } from './routes/auth.js'
 import { broadcastRoutes } from './routes/broadcasts.js'
@@ -15,11 +19,32 @@ import { internalMediaRoutes } from './routes/internal-media.js'
 export type AppDeps = {
   config: Config
   db: Db
+  /** 테스트에서 MediaMTX 대신 넣는다 */
+  mediaControl?: MediaControl
 }
 
-export async function buildApp({ config, db }: AppDeps) {
+/** 로그용: secret·token 쿼리 값을 가린다 */
+export function redactQuery(url: string): string {
+  return url.replace(/([?&](?:secret|token)=)[^&]*/gi, '$1[redacted]')
+}
+
+export async function buildApp({ config, db, mediaControl }: AppDeps) {
   const app = Fastify({
-    logger: config.NODE_ENV === 'test' ? false : { level: config.LOG_LEVEL },
+    logger:
+      config.NODE_ENV === 'test'
+        ? false
+        : {
+            level: config.LOG_LEVEL,
+            serializers: {
+              // MediaMTX 인가 요청은 공유 시크릿을 쿼리로 보낸다. 로그에 남지 않도록 쿼리 값을 가린다
+              req: (req: { method: string; url: string; hostname?: string; ip?: string }) => ({
+                method: req.method,
+                url: redactQuery(req.url),
+                host: req.hostname,
+                remoteAddress: req.ip,
+              }),
+            },
+          },
     // 지정한 프록시(Caddy)가 보낸 X-Forwarded-*만 믿는다. request.ip는 시도 횟수 제한의 기준이라
     // 아무나 보낸 헤더를 믿으면 요청마다 IP를 바꿔 제한을 우회할 수 있다.
     trustProxy: config.TRUST_PROXY.length > 0 ? config.TRUST_PROXY : false,
@@ -65,14 +90,39 @@ export async function buildApp({ config, db }: AppDeps) {
   await app.register(healthRoutes(db), { prefix: '/api' })
   await app.register(authRoutes({ config, auth }), { prefix: '/api' })
   const broadcasts = createBroadcastService(db)
-  await app.register(broadcastRoutes({ broadcasts }), { prefix: '/api' })
-  await app.register(channelRoutes(db), { prefix: '/api' })
-  await app.register(internalMediaRoutes, { prefix: '/internal' })
+  const hub = createEventHub()
+  const lifecycle = createBroadcastLifecycle({
+    db,
+    hub,
+    control: mediaControl ?? createMediaControl(config.MEDIAMTX_API_URL),
+    signer: createPublishTokenSigner(config.INTERNAL_SECRET, config.PUBLISH_TOKEN_TTL_SECONDS),
+    graceMs: config.PUBLISH_GRACE_SECONDS * 1000,
+    log: app.log,
+  })
+  // 테스트는 주기 작업 대신 메서드를 직접 호출한다
+  const stopLifecycle = config.NODE_ENV === 'test' ? () => {} : lifecycle.start()
+  app.decorate('lifecycle', lifecycle)
 
+  await app.register(broadcastRoutes({ broadcasts, lifecycle, hub }), { prefix: '/api' })
+  await app.register(channelRoutes(db), { prefix: '/api' })
+  await app.register(internalMediaRoutes({ secret: config.INTERNAL_SECRET, lifecycle }), { prefix: '/internal' })
+
+  // SSE 연결이 남아 있으면 close가 끝나지 않으므로 먼저 정리한다
+  app.addHook('preClose', async () => {
+    stopLifecycle()
+    hub.closeAll()
+  })
   app.addHook('onClose', async () => {
     clearInterval(cleanup)
     db.sqlite.close()
   })
 
   return app
+}
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    /** 방송 상태 머신 (테스트에서 주기 작업을 직접 실행할 때 쓴다) */
+    lifecycle: import('./broadcasts/lifecycle.js').BroadcastLifecycle
+  }
 }

@@ -18,6 +18,12 @@ const envSchema = z
       .default('true')
       .transform((v) => v === 'true'),
     SESSION_TTL_DAYS: z.coerce.number().int().positive().default(30),
+    // MediaMTX Control API (path 상태 조회, 송출 강제 종료). compose 내부 주소
+    MEDIAMTX_API_URL: z.url().default('http://mediamtx:9997'),
+    // 송출이 끊긴 뒤 ENDED로 확정하기까지 기다리는 시간 (네트워크 전환·새로고침 후 재송출 허용)
+    PUBLISH_GRACE_SECONDS: z.coerce.number().int().min(5).max(600).default(45),
+    // publish 토큰 수명. 송출을 시작(또는 재연결)할 때마다 새로 발급받는다
+    PUBLISH_TOKEN_TTL_SECONDS: z.coerce.number().int().min(10).max(3600).default(300),
     // X-Forwarded-For를 믿을 프록시 주소(IP/CIDR, 쉼표 구분). 비우면 아무도 믿지 않고 소켓 주소를 쓴다.
     // compose에서는 Caddy 컨테이너의 고정 IP만 넣는다. 다른 주소가 보낸 X-Forwarded-For는 무시된다.
     TRUST_PROXY: z

@@ -13,7 +13,11 @@
 	# WebRTC 시그널링 (WHIP 송출 / WHEP 시청): /live/{broadcastId}/whip|whep
 	# 영상 자체는 Caddy를 거치지 않고 8189(UDP/TCP)로 MediaMTX에 직접 연결된다.
 	handle /live/* {
-		reverse_proxy mediamtx:8889
+		reverse_proxy mediamtx:8889 {
+			# MediaMTX는 인가 실패 시 WWW-Authenticate: Basic을 붙인다. 그대로 두면 브라우저가
+			# 아이디·비밀번호 입력 창을 띄우므로 지운다 (화면에서 401을 받아 안내한다)
+			header_down -WWW-Authenticate
+		}
 	}
 
 	# React SPA

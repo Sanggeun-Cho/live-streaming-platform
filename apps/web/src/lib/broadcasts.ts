@@ -9,6 +9,8 @@ export type Broadcast = {
   status: BroadcastStatus
   startedAt: string | null
   endedAt: string | null
+  /** 방송 중 송출이 끊겨 재연결을 기다리는 중이면 그 시각 */
+  disconnectedAt: string | null
   createdAt: string
   updatedAt: string
   channel: { id: number; name: string }
@@ -42,3 +44,14 @@ export const updateBroadcast = (id: number, body: { title?: string; description?
   api<{ broadcast: Broadcast }>(`/broadcasts/${id}`, { method: 'PATCH', body }).then((r) => r.broadcast)
 
 export const deleteBroadcast = (id: number) => api<void>(`/broadcasts/${id}`, { method: 'DELETE' })
+
+/** SSE status 이벤트와 종료 API 응답 */
+export type StatusPayload = Pick<Broadcast, 'status' | 'startedAt' | 'endedAt' | 'disconnectedAt'>
+
+export type PublishToken = { token: string; expiresAt: string; whipPath: string }
+
+export const issuePublishToken = (id: number) =>
+  api<PublishToken>(`/broadcasts/${id}/publish-token`, { method: 'POST' })
+
+export const endBroadcast = (id: number) =>
+  api<{ status: StatusPayload }>(`/broadcasts/${id}/end`, { method: 'POST' }).then((r) => r.status)

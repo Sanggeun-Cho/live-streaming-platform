@@ -1,9 +1,14 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../auth/plugin.js'
-import type { BroadcastService } from '../broadcasts/service.js'
+import type { BroadcastLifecycle } from '../broadcasts/lifecycle.js'
+import { broadcastNotFound, type BroadcastService } from '../broadcasts/service.js'
 import { BROADCAST_STATUSES } from '../db/schema.js'
 import { idParams, parse, positiveId } from '../lib/validate.js'
+import type { EventHub } from '../realtime/hub.js'
+
+// SSE 연결을 유지하기 위한 주석 전송 간격. 프록시·모바일 망의 유휴 연결 종료(보통 30~60초)보다 짧게 둔다
+const SSE_HEARTBEAT_MS = 20_000
 
 const title = z
   .string({ error: '제목을 입력하세요' })
@@ -31,8 +36,22 @@ const listQuery = z.object({
 })
 
 export const broadcastRoutes =
-  ({ broadcasts }: { broadcasts: BroadcastService }): FastifyPluginAsync =>
+  ({
+    broadcasts,
+    lifecycle,
+    hub,
+  }: {
+    broadcasts: BroadcastService
+    lifecycle: BroadcastLifecycle
+    hub: EventHub
+  }): FastifyPluginAsync =>
   async (app) => {
+    // 열린 SSE 응답. 서버 종료 시 끊어 줘야 close가 기다리지 않는다
+    const openStreams = new Set<import('node:http').ServerResponse>()
+    app.addHook('preClose', async () => {
+      for (const res of openStreams) res.end()
+    })
+
     // 목록·상세는 로그인 없이 조회한다
     app.get('/broadcasts', async (request) => broadcasts.list(parse(listQuery, request.query)))
 
@@ -49,12 +68,68 @@ export const broadcastRoutes =
     app.patch('/broadcasts/:id', { preHandler: requireAuth }, async (request) => {
       const { id } = parse(idParams, request.params)
       const input = parse(updateBody, request.body)
-      return { broadcast: broadcasts.update(id, request.user!, input) }
+      const broadcast = broadcasts.update(id, request.user!, input)
+      hub.publish(id, 'updated', { title: broadcast.title, description: broadcast.description })
+      return { broadcast }
     })
 
     app.delete('/broadcasts/:id', { preHandler: requireAuth }, async (request, reply) => {
       const { id } = parse(idParams, request.params)
       broadcasts.remove(id, request.user!)
+      hub.publish(id, 'deleted', {})
       return reply.code(204).send()
+    })
+
+    // ---- 송출 제어 (#6) ----
+
+    // 송출을 시작(또는 재연결)할 때마다 호출한다. 토큰은 WHIP 요청의 Authorization: Bearer로 MediaMTX에 전달된다
+    app.post('/broadcasts/:id/publish-token', { preHandler: requireAuth }, async (request) => {
+      const { id } = parse(idParams, request.params)
+      return lifecycle.issuePublishToken(id, request.user!)
+    })
+
+    app.post('/broadcasts/:id/end', { preHandler: requireAuth }, async (request) => {
+      const { id } = parse(idParams, request.params)
+      return { status: await lifecycle.end(id, request.user!) }
+    })
+
+    // 실시간 이벤트 (SSE). 로그인 없이 구독한다.
+    //   status: 상태 변경, viewers: 시청자 수, updated: 제목·설명 변경, deleted: 방송 삭제
+    //   (#10 comment.*, #11 donation)
+    app.get('/broadcasts/:id/events', async (request, reply) => {
+      const { id } = parse(idParams, request.params)
+      const status = lifecycle.status(id)
+      const view = broadcasts.findView(id)
+      if (!status || !view) throw broadcastNotFound()
+      // 방송자 본인의 연결은 시청자 수에 넣지 않는다
+      const isOwner = request.user?.channelId === view.channel.id
+
+      reply.hijack()
+      const res = reply.raw
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        // 프록시 버퍼링을 끈다 (Caddy는 SSE를 자동으로 흘려보내지만 다른 프록시 대비)
+        'X-Accel-Buffering': 'no',
+      })
+      const send = (event: string, data: unknown) => {
+        res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+      }
+      // 연결이 끊겼다가 다시 붙으면(EventSource 자동 재연결) 그 사이 놓친 상태를 현재 값으로 맞춘다
+      res.write('retry: 3000\n\n')
+      send('status', status)
+
+      const unsubscribe = hub.subscribe(id, send, { viewer: !isOwner })
+      const heartbeat = setInterval(() => res.write(': ping\n\n'), SSE_HEARTBEAT_MS)
+      heartbeat.unref()
+      const cleanup = () => {
+        clearInterval(heartbeat)
+        unsubscribe()
+      }
+      request.raw.on('close', cleanup)
+      res.on('error', cleanup)
+      openStreams.add(res)
+      res.on('close', () => openStreams.delete(res))
     })
   }

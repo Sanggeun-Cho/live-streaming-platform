@@ -61,6 +61,10 @@ services:
     environment:
       # 브라우저가 미디어를 보낼 주소. 운영: galle.cloud / 로컬 휴대폰 테스트: PC의 LAN IP
       MTX_WEBRTCADDITIONALHOSTS: ${MEDIA_PUBLIC_HOST:-127.0.0.1}
+      # 인가 요청에 공유 시크릿을 붙인다 (MediaMTX는 인가 요청에 헤더를 넣을 수 없어 쿼리로 전달)
+      MTX_AUTHHTTPADDRESS: http://api:3000/internal/media/auth?secret=${INTERNAL_SECRET:?INTERNAL_SECRET를 .env에 설정하세요}
+      # 훅(notify.sh)이 X-Internal-Secret 헤더로 보낸다
+      INTERNAL_SECRET: ${INTERNAL_SECRET:?INTERNAL_SECRET를 .env에 설정하세요}
     volumes:
       - ./infra/mediamtx/mediamtx.yml:/mediamtx.yml:ro
       - ./infra/mediamtx/hooks:/hooks:ro

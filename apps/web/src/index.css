@@ -199,3 +199,43 @@ button.danger {
 .owner-actions {
   justify-content: flex-start;
 }
+
+/* ---- 송출·시청 (#6 최소 화면) ---- */
+.player {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.player video,
+.preview {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.preview {
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+}
+
+.unmute {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+  border: none;
+}
+
+.player-error {
+  position: absolute;
+  inset: auto 12px 12px auto;
+}
+
+.publish-panel {
+  margin-top: 24px;
+}

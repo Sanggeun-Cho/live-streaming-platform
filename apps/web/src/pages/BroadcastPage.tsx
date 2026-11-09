@@ -3,9 +3,12 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { useAuth } from '../auth/context'
 import { useAuthErrorRedirect } from '../auth/useAuthErrorRedirect'
 import { StatusBadge } from '../components/BroadcastList'
+import { LivePlayer } from '../components/LivePlayer'
+import { PublishPanel } from '../components/PublishPanel'
+import { useBroadcastEvents } from '../hooks/useBroadcastEvents'
 import { useBroadcast } from '../hooks/useBroadcast'
 import { errorMessage } from '../lib/api'
-import { type BroadcastStatus, deleteBroadcast } from '../lib/broadcasts'
+import { type Broadcast, type BroadcastStatus, deleteBroadcast, type StatusPayload } from '../lib/broadcasts'
 
 const PLAYER_MESSAGE: Record<BroadcastStatus, string> = {
   READY: '방송 시작 전입니다',
@@ -17,10 +20,25 @@ export function BroadcastPage() {
   const id = Number(useParams().id)
   const { user } = useAuth()
   const navigate = useNavigate()
-  const { broadcast, error } = useBroadcast(id)
+  const { broadcast, error, patch } = useBroadcast(id)
   const [actionError, setActionError] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [viewers, setViewers] = useState<number | null>(null)
+  const [deletedLive, setDeletedLive] = useState(false)
+  // 송출이 다시 붙을 때마다 플레이어를 새로 연결한다
+  const [playerKey, setPlayerKey] = useState(0)
   const redirectIfUnauthorized = useAuthErrorRedirect()
+
+  useBroadcastEvents(broadcast ? id : null, {
+    status: (data) => {
+      const next = data as StatusPayload
+      if (next.status === 'LIVE' && !next.disconnectedAt) setPlayerKey((k) => k + 1)
+      patch(next)
+    },
+    updated: (data) => patch(data as Partial<Broadcast>),
+    viewers: (data) => setViewers((data as { count: number }).count),
+    deleted: () => setDeletedLive(true),
+  })
 
   if (error) {
     return (
@@ -31,6 +49,14 @@ export function BroadcastPage() {
     )
   }
   if (!broadcast) return <p className="muted">불러오는 중…</p>
+  if (deletedLive) {
+    return (
+      <section>
+        <p className="error">방송자가 이 방송을 삭제했습니다.</p>
+        <Link to="/">목록으로</Link>
+      </section>
+    )
+  }
 
   const isOwner = user?.channelId === broadcast.channel.id
 
@@ -49,11 +75,27 @@ export function BroadcastPage() {
 
   return (
     <article className="broadcast-detail">
-      <div className="player-placeholder">
-        <StatusBadge status={broadcast.status} />
-        <p className="muted">{PLAYER_MESSAGE[broadcast.status]}</p>
+      {broadcast.status === 'LIVE' && !broadcast.disconnectedAt && !isOwner ? (
+        <LivePlayer broadcastId={id} reconnectKey={playerKey} />
+      ) : (
+        <div className="player-placeholder" data-testid="player-placeholder">
+          <StatusBadge status={broadcast.status} />
+          <p className="muted">
+            {broadcast.disconnectedAt
+              ? '방송자의 연결이 끊겼습니다. 다시 연결되기를 기다리는 중…'
+              : isOwner && broadcast.status === 'LIVE'
+                ? '방송 중입니다. 아래 미리보기로 송출 화면을 확인하세요'
+                : PLAYER_MESSAGE[broadcast.status]}
+          </p>
+        </div>
+      )}
+      <div className="row">
+        <h1>{broadcast.title}</h1>
+        <span className="muted" data-testid="status-line">
+          <StatusBadge status={broadcast.status} />
+          {viewers !== null && broadcast.status === 'LIVE' && ` 시청자 ${viewers}명`}
+        </span>
       </div>
-      <h1>{broadcast.title}</h1>
       <p>
         <Link to={`/channels/${broadcast.channel.id}`}>{broadcast.streamer.nickname}</Link>
       </p>
@@ -86,6 +128,7 @@ export function BroadcastPage() {
           {actionError}
         </p>
       )}
+      {isOwner && <PublishPanel broadcast={broadcast} onEnded={(s) => patch(s)} />}
     </article>
   )
 }
