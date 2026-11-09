@@ -11,7 +11,7 @@
 // 모든 전이는 "현재 상태를 조건으로 거는 UPDATE"라서 훅과 API 요청이 겹쳐도 잘못된 전이(예: ENDED→LIVE)가 일어나지 않는다.
 // offline 확인 중 재송출 online이 끼어드는 경우는 onlineSeq로 걸러낸다.
 
-import { and, eq, inArray, isNotNull, isNull, lte } from 'drizzle-orm'
+import { and, eq, inArray, isNull, lte } from 'drizzle-orm'
 import type { FastifyBaseLogger } from 'fastify'
 import type { AuthUser } from '../auth/service.js'
 import type { Db } from '../db/client.js'
@@ -130,7 +130,6 @@ export function createBroadcastLifecycle(deps: {
     if (result.changes > 0) emit(id)
   }
 
-  /** 송출이 실제로 끊겼을 때만 유예를 시작한다 (대체 송출이면 무시) */
   /**
    * 송출이 실제로 끊겼을 때만 유예를 시작한다 (대체 송출이면 무시).
    * offline 훅은 online 뒤에만 오므로, READY에서 offline을 받으면 online 훅이 유실된 것이다:
@@ -248,7 +247,9 @@ export function createBroadcastLifecycle(deps: {
           .update(broadcasts)
           // 종료 시각은 마지막으로 송출이 끊긴 시각이다
           .set({ status: 'ENDED', endedAt: disconnectedAt, disconnectedAt: null, updatedAt: new Date(now) })
-          .where(and(eq(broadcasts.id, id), eq(broadcasts.status, 'LIVE'), isNotNull(broadcasts.disconnectedAt)))
+          // 조회한 끊김 시각과 같을 때만 확정한다. Control API 조회를 기다리는 사이에 재송출(online)과 새 끊김(offline)이
+          // 연달아 처리되면 disconnectedAt이 방금 시각으로 바뀌는데, 이전 값으로 판단해 유예 없이 종료하면 안 된다
+          .where(and(eq(broadcasts.id, id), eq(broadcasts.status, 'LIVE'), eq(broadcasts.disconnectedAt, disconnectedAt!)))
           .run()
         if (result.changes > 0) {
           log.info({ broadcastId: id }, '유예 시간 경과로 방송 종료')
@@ -290,6 +291,8 @@ export function createBroadcastLifecycle(deps: {
         setInterval(run('reconcile', () => this.reconcile()), 30_000),
       ]
       for (const t of timers) t.unref()
+      // api가 재시작되는 동안 생긴 변화(그 사이 끊긴 송출, 놓친 훅)를 첫 주기(30초)까지 기다리지 않고 바로 맞춘다
+      void run('reconcile', () => this.reconcile())()
       return () => timers.forEach(clearInterval)
     },
   }

@@ -1,5 +1,5 @@
 import rateLimit from '@fastify/rate-limit'
-import Fastify, { type FastifyError } from 'fastify'
+import Fastify, { type FastifyError, type FastifyReply } from 'fastify'
 import type { Config } from './config.js'
 import type { Db } from './db/client.js'
 import { authPlugin } from './auth/plugin.js'
@@ -12,7 +12,7 @@ import { createMediaControl, type MediaControl } from './media/control.js'
 import { createPublishTokenSigner } from './media/token.js'
 import { createFakeTossClient, createTossClient, disabledTossClient, type TossClient } from './payments/toss.js'
 import { createEventHub } from './realtime/hub.js'
-import { AppError } from './errors.js'
+import { AppError, toErrorReply } from './errors.js'
 import { authRoutes } from './routes/auth.js'
 import { broadcastRoutes } from './routes/broadcasts.js'
 import { channelRoutes } from './routes/channels.js'
@@ -57,19 +57,23 @@ export async function buildApp({ config, db, mediaControl, toss }: AppDeps) {
     // 지정한 프록시(Caddy)가 보낸 X-Forwarded-*만 믿는다. request.ip는 시도 횟수 제한의 기준이라
     // 아무나 보낸 헤더를 믿으면 요청마다 IP를 바꿔 제한을 우회할 수 있다.
     trustProxy: config.TRUST_PROXY.length > 0 ? config.TRUST_PROXY : false,
+    // 라우팅 전에 나는 오류(잘못된 퍼센트 인코딩 주소, 너무 긴 경로 파라미터)는 setErrorHandler를 거치지 않고
+    // Fastify 기본 형식({error, code, message, statusCode}, 영어)으로 나간다. 공통 형식으로 맞춘다
+    frameworkErrors: (error, _request, reply) => {
+      const { statusCode, body } = toErrorReply(error)
+      // 이 시점의 reply는 라우트 스키마 제네릭이 비어 있어 상태 코드 타입이 좁다. 일반 FastifyReply로 다룬다
+      void (reply as FastifyReply).code(statusCode).send(body)
+    },
   })
 
   app.setErrorHandler<FastifyError | AppError>((error, request, reply) => {
-    const statusCode = error.statusCode ?? 500
+    // 5xx는 내부 정보를 숨긴다. 노출을 명시한 AppError(외부 결제 API 장애 안내 등)만 문구를 그대로 보낸다.
+    // Fastify 본문 파싱 오류(잘못된 JSON, 415, 413)도 같은 형식의 한국어 안내로 바꾼다 (errors.ts toErrorReply)
+    const { statusCode, body } = toErrorReply(error)
     if (statusCode >= 500) {
       request.log.error({ err: error }, 'unhandled error')
     }
-    reply.code(statusCode).send({
-      code: error.code ?? 'INTERNAL_ERROR',
-      // 5xx는 내부 정보를 숨긴다. 노출을 명시한 AppError(외부 결제 API 장애 안내 등)만 문구를 그대로 보낸다
-      message:
-        statusCode >= 500 && !(error instanceof AppError && error.expose) ? '서버 오류가 발생했습니다' : error.message,
-    })
+    reply.code(statusCode).send(body)
   })
 
   app.setNotFoundHandler((_request, reply) => {

@@ -110,6 +110,9 @@ export function createDonationService(deps: { db: Db; toss: TossClient; hub: Eve
     return row
   }
 
+  const isDeleted = (broadcastId: number) =>
+    orm.select({ deletedAt: broadcasts.deletedAt }).from(broadcasts).where(eq(broadcasts.id, broadcastId)).get()?.deletedAt != null
+
   const findOrder = (orderId: string) => orm.select().from(donationOrders).where(eq(donationOrders.orderId, orderId)).get()
 
   const findDonationByOrder = (orderRowId: number): DonationView | undefined =>
@@ -245,6 +248,17 @@ export function createDonationService(deps: { db: Db; toss: TossClient; hub: Eve
       }
       if (order.status === 'FAILED') {
         throw new AppError(409, 'ORDER_FAILED', '결제가 실패한 주문입니다. 방송 화면에서 다시 후원하세요')
+      }
+      // 결제창을 연 사이에 방송이 삭제됐으면 승인하지 않는다 (승인 전이라 돈이 빠지지 않는다).
+      // 종료는 확정하지만(DESIGN §7-5) 삭제된 방송의 후원은 내역 조회가 404라 방송자도 후원자도 볼 수 없다.
+      // 이미 승인된 결제가 웹훅으로 오면 돈이 빠져나갔으므로 적립한다 (handlePaymentWebhook은 이 확인을 하지 않는다)
+      if (isDeleted(order.broadcastId)) {
+        markFailed(order, 'BROADCAST_DELETED')
+        throw new AppError(
+          404,
+          'BROADCAST_NOT_FOUND',
+          '방송이 삭제되어 후원할 수 없습니다. 이 요청으로는 결제를 승인하지 않았습니다 (이미 승인된 결제가 있으면 확인 후 적립됩니다)',
+        )
       }
       // 결제창에서 돌아온 금액이 주문 금액과 다르면 승인 요청 자체를 하지 않는다 (승인 전이라 돈이 빠지지 않는다)
       if (input.amount !== order.amount) {

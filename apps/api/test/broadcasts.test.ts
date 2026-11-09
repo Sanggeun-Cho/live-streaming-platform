@@ -152,6 +152,17 @@ describe('방송 API', () => {
     })
   })
 
+  it('검증 순서: 인증(401) → 형식(400) → 존재(404) → 소유권(403)', async () => {
+    const { id } = await createOwned()
+    // 형식이 틀리면 남의 방송이어도 400 (소유권을 확인하기 전에 거른다)
+    expect((await patch(id, other, { title: '' })).statusCode).toBe(400)
+    // 형식이 맞으면 없는 방송은 404, 남의 방송은 403
+    expect((await patch(999, other, { title: 'x' })).statusCode).toBe(404)
+    expect((await patch(id, other, { title: 'x' })).statusCode).toBe(403)
+    // 로그인하지 않았으면 형식과 무관하게 401
+    expect((await patch(id, undefined, { title: '' })).statusCode).toBe(401)
+  })
+
   describe('삭제', () => {
     it('소유자가 삭제하면 204, 이후 상세·목록·수정에서 보이지 않는다', async () => {
       const { id } = await createOwned()
