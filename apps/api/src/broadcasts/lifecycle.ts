@@ -9,7 +9,7 @@
 // MediaMTX 훅은 순서가 뒤바뀌거나(대체 송출 시 새 online이 이전 offline보다 먼저 도착) 유실될 수 있다(#2 스파이크).
 // 그래서 (1) offline을 받으면 Control API로 실제 송출 여부를 확인하고, (2) 주기적으로 Control API와 대조해 보정한다.
 // 모든 전이는 "현재 상태를 조건으로 거는 UPDATE"라서 훅과 API 요청이 겹쳐도 잘못된 전이(예: ENDED→LIVE)가 일어나지 않는다.
-// offline 확인 중 재송출 online이 끼어드는 경우는 lastOnlineAt으로 걸러낸다.
+// offline 확인 중 재송출 online이 끼어드는 경우는 onlineSeq로 걸러낸다.
 
 import { and, eq, inArray, isNotNull, isNull, lte } from 'drizzle-orm'
 import type { FastifyBaseLogger } from 'fastify'
@@ -100,13 +100,14 @@ export function createBroadcastLifecycle(deps: {
     }
   }
 
-  // 방송별 마지막 online 처리 시각. offline 확인(Control API 조회)을 기다리는 사이에 재송출 online이
-  // 먼저 처리되면, 늦게 끝난 offline이 방금 재개된 방송을 "끊김"으로 덮어쓰지 않게 한다
-  const lastOnlineAt = new Map<number, number>()
+  // 방송별 online 처리 횟수. offline 확인(Control API 조회)을 기다리는 사이에 재송출 online이
+  // 먼저 처리되면, 늦게 끝난 offline이 방금 재개된 방송을 "끊김"으로 덮어쓰지 않게 한다.
+  // 시각으로 비교하면 같은 밀리초에 온 online·offline을 구분하지 못해 횟수를 쓴다
+  const onlineSeq = new Map<number, number>()
 
   /** verified: 호출한 쪽이 이미 Control API로 송출 중임을 확인했으면 true */
   async function markOnline(id: number, { verified = false } = {}) {
-    lastOnlineAt.set(id, Date.now())
+    onlineSeq.set(id, (onlineSeq.get(id) ?? 0) + 1)
     const now = new Date()
     const row = load(id)
     if (!row) return
@@ -152,10 +153,10 @@ export function createBroadcastLifecycle(deps: {
       return
     }
     if (row.status !== 'LIVE') return
-    const checkedAt = Date.now()
+    const seqBefore = onlineSeq.get(id) ?? 0
     const { source } = await sourceOf(mediaPath(id))
     if (source) return
-    if ((lastOnlineAt.get(id) ?? 0) >= checkedAt) return
+    if ((onlineSeq.get(id) ?? 0) !== seqBefore) return
     const result = orm
       .update(broadcasts)
       .set({ disconnectedAt: new Date() })
