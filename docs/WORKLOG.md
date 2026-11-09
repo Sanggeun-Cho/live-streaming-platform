@@ -221,3 +221,64 @@
   - 토스 문서용 테스트 키 모드 8개 통과: 실제 토스 결제창이 주문 금액(5,000원)으로 열리고 닫으면 취소 안내, 인증 없이 만든 결제 키는 실제 승인 API가 `NOT_FOUND_PAYMENT_SESSION`으로 거절 → 400 안내 + FAILED
   - 실제 카드 승인까지는 자동화하지 못했다: 테스트 환경에서도 카드 선택 후 카드사 인증 화면(KB 앱/ISP 등)으로 넘어간다. 승인 이후 경로는 가짜 결제와 통합 테스트로 검증
 - `npm run typecheck`, oxlint 경고 0
+
+---
+
+## 2026-11-09 · #12 녹화 저장 + 다시보기 목록·상세·재생 (`feat/12-recordings`)
+
+### 설계 판단
+| 결정 | 근거 | 확신 |
+|---|---|---|
+| 세그먼트가 닫히면 mediamtx 컨테이너의 ffmpeg로 웹용 mp4 생성: 영상 `-c:v copy`, 오디오 AAC 128k, `+faststart` (`hooks/segment.sh`) | Safari·iOS의 mp4 Opus 재생이 불확실(#2 스파이크). 영상 재인코딩은 1GB 서버에서 불가, 오디오만 바꾸면 CPU가 작다(`nice -n 10`). faststart로 첫 Range 요청에서 바로 재생·탐색. ffmpeg가 이미 이미지(`-ffmpeg`)에 있어 새 컨테이너가 필요 없다 | 85% |
+| 원본은 변환 성공 시 같은 경로에서 대체, 실패 시 원본 등록 | 영상이 같아 원본 보관은 디스크만 두 배. 실패해도 Chrome·Android는 원본을 재생한다 → Q9 | 70% |
+| 서빙: Caddy `file_server`(recordings 볼륨 읽기 전용) + `forward_auth` → api `/internal/recordings/authorize` | Range·캐시 검증은 Caddy가 잘한다(api 메모리 192MB 보호). 요청마다 api가 "등록된 파일 + 방송 미삭제"를 확인해 삭제된 방송·변환 중 임시 파일·미등록 파일을 막는다 | 85% |
+| forward_auth는 `/internal`(공유 시크릿) 경로, Caddy에 `INTERNAL_SECRET` 전달 | 외부에서 `/internal`에 닿지 않는 기존 규칙 유지. `X-Forwarded-Uri`는 Caddy만 신뢰해야 하므로 시크릿으로 확인 | 80% |
+| 세그먼트는 방송 상태와 무관하게 등록(ENDED 포함), 없는 방송은 204 + 경고 로그 | 세그먼트 훅은 offline·종료 뒤에 온다(#2). 없는 방송에 4xx를 주면 훅 재시도만 늘어난다 | 85% |
+| 경로 검증: `RECORDINGS_DIR` 아래 `live/{id}/{이름}.mp4`, 정규화 전후 동일, 이름이 점으로 시작하면 거절, path의 id와 일치 | 경로 조작(`..`, `//`, 다른 방송 디렉터리) 차단. 변환 임시 파일(`.xxx.web.tmp.mp4`)은 등록·서빙 모두 불가 | 90% |
+| 멱등: `file_path` 유니크 + `ON CONFLICT DO NOTHING` | 훅 재시도(wget `-t 2`)·중복 호출에도 한 번만 등록, 새로 등록됐을 때만 SSE `recording` | 90% |
+| 재생 순서 = 파일 이름의 시작 시각(`%Y-%m-%d_%H-%M-%S-%f_%z`, 실제 값은 `..._Z`), 실패 시 "지금 − 길이" | 변환 시간이 세그먼트마다 달라 훅 도착 순서를 믿을 수 없다 | 85% |
+| API: `GET /api/replays`(녹화 있는 ENDED, 종료 시각 최신순, 커서, 구간 수·총 길이), `GET /api/broadcasts/:id/recordings`. 공개, 삭제 방송 404 | 방송 상세 응답을 바꾸지 않아 #6·#10·#11과 충돌이 없다 | 80% |
+| 웹: 홈 "다시보기" 섹션(기존 `BroadcastList` 재사용), ENDED 분기에서만 `ReplayPlayer`(구간 이어 재생 + 구간 목록). PublishPanel·LivePlayer는 그대로 | 브리프 지시. 녹화 SSE는 기존 `useBroadcastEvents` 연결 하나로 받는다(두 번째 EventSource는 시청자 수·IP 제한에 잡힌다) | 85% |
+| 종료 후 10분 동안 10초 주기로 녹화 목록을 다시 읽고(개수 무관), 그동안 0개면 "녹화 파일을 준비하고 있습니다" | SSE를 놓쳐도 갱신. 10분이면 1시간 세그먼트의 오디오 변환도 끝난다(추정) → Q10 | 75% |
+| 훅 유실 복구: api가 recordings 볼륨을 읽기 전용으로 붙여 기동 시·5분마다 스캔, 길이는 mp4 박스를 직접 파싱 | api 이미지에 ffprobe가 없고 파일 전체를 읽지 않아도 된다(moov·moof만 읽음). 쓰기 권한은 mediamtx에만 두고, 임시 파일 정리는 segment.sh가 한다 | 80% |
+| `recordSegmentDuration: 1h` 유지 | 짧게 나누면 구간 전환이 잦아진다. 송출이 끝나면 그 시점까지가 한 세그먼트라 대부분의 방송은 구간 1개 | 80% |
+
+### 직접 테스트에서 발견해 고친 것
+| 발견 | 원인 | 조치 |
+|---|---|---|
+| `apps/api/src/recordings/`가 git에 잡히지 않음 | `.gitignore`의 `recordings/`가 모든 깊이의 디렉터리에 걸림 | 루트 고정 `/recordings/` |
+| 일부 녹화가 AAC로 변환되지 않음(06 E2E 첫 실행) | 부하로 영상 트랙이 늦어 MediaMTX가 오디오만 녹화(`recording 1 track (Opus)`) → 없는 트랙을 `-map 0:v:0`으로 지정해 ffmpeg 실패 → 원본(Opus)이 그대로 등록됨 | `-map '0:v:0?'`. 오디오만 있는 파일로 컨테이너에서 재현·확인(aac) |
+| 리뷰 반영 후 로컬 compose가 api 기동 실패(`table recordings already exists`) | 로컬 `live_api_data` 볼륨에 리베이스 전 번호(0003_recordings)로 적용된 마이그레이션이 남아 있음. 코드 문제 아님 | 볼륨 삭제는 하지 않고 `COMPOSE_PROJECT_NAME=live12`로 새 볼륨에서 검증. **머지 후 로컬 `live` 프로젝트는 `docker volume rm live_api_data live_recordings`가 필요하다**(개발 데이터) |
+| E2E 한 번에서 첫 세그먼트가 오디오만 녹화됨 | 송출 직후 영상 첫 패킷이 MediaMTX 트랙 수집 시간(2초)을 넘김(`recording 1 track (Opus)`). 송출 측(#7) 현상, 재실행에서는 재현 안 됨 | 변환·재생은 정상(aac). E2E는 "모든 세그먼트 Opus 없음 + h264+aac 세그먼트 1개 이상"으로 검사. `webrtcTrackGatherTimeout` 상향은 #7 범위라 제안만 |
+
+### MediaMTX가 세그먼트 훅을 offline에 묶어 끝내는가 (리뷰 8)
+- 끝내지 않는다. v1.21.3 `internal/core/path.go`의 `OnSegmentComplete`(https://github.com/bluenviron/mediamtx/blob/v1.21.3/internal/core/path.go#L1054-L1068)는 `externalcmd.Cmd{Restart: false}`를 만들어 `Start()`만 하고 path에 보관하지 않는다. path offline에서 정리하는 것은 `setOffline()`의 `onOfflineHook`(= `runOnOnline` 프로세스 종료, #7에서 확인한 현상)뿐이다. 따라서 훅은 송출 종료 후에도 끝까지 실행되고, 끊기는 경우는 mediamtx 프로세스 자체가 끝날 때(외부 명령 풀 종료)뿐이다 → 복구 스캔이 메운다.
+- 실제 동작도 일치: E2E에서 훅은 항상 송출 종료(kick·탭 닫기) 뒤에 실행되어 변환·등록까지 끝났다.
+
+### 코드 리뷰 (`/code-review`, 기준 dev)
+| 지적 | 축 | 판단 | 근거·조치 |
+|---|---|---|---|
+| ReplayPlayer "다시 시도"가 같은 src라 다시 받지 않음 | 표준(버그) | 고침 | 재시도 횟수를 `<video key>`에 넣어 새로 만든다 |
+| 재생 구간을 배열 위치로 기억 → SSE로 앞쪽 구간이 끼면 보던 구간이 바뀜 | 표준(버그) | 고침 | 녹화 id로 기억(처음 연 순간의 첫 구간 id로 고정) |
+| 훅 유실·변환 중 mediamtx 재시작 시 복구 경로 없음 | 명세(중요) | 고침 | api에 recordings 볼륨 읽기 전용 + 기동 시·5분 주기 복구 스캔. 2분 안에 바뀐 파일(녹화·변환 중), 최근 임시 파일이 있는 원본(변환 중), 점 파일은 건너뛰고, 변환 안 된 원본은 그대로 등록. 길이는 mp4 박스를 직접 읽는다(`recordings/mp4.ts`: 일반 mp4는 mvhd, fragmented는 tfdt+trun). 테스트 9건 + E2E(일반·fragmented 파일 복구, 길이 오차 0.1초 이내) |
+| 녹화 0개일 때만 폴링 → 마지막 구간 누락 가능 | 명세 | 고침 | 종료 후 10분은 개수와 무관하게 10초마다 다시 읽는다 |
+| segment.sh 동시 실행·자원 상한 없음 | 표준(1GB) | 고침 | `flock`으로 한 번에 하나, `-threads 1`, `nice`, `timeout 1800`, 실패 시 임시 파일 삭제, 60분 넘은 임시 파일 정리 |
+| 거절(404) 응답에도 Cache-Control이 붙음 | 표준 | 고침 | Caddy `route`로 순서 고정(forward_auth 통과 후에만 header). E2E로 206에는 있고 404에는 없음을 확인 |
+| limit 검증 메시지 중복 | 표준 | 고침 | `pageLimit()`을 `lib/validate.ts`로, 방송 목록과 함께 사용 |
+| 서비스의 방송 존재 확인 중복 | 표준 | 고침 | `broadcastExists(id, { activeOnly })` 하나로 |
+| BroadcastList의 `replays` 플래그 | 표준 | 고침 | 조회 함수(`fetchPage`)와 `listKey`를 받는 형태로. 홈·채널·다시보기가 같은 컴포넌트 사용 |
+| 다시보기 목록이 ID순 | 명세 | 고침 | 종료 시각 최신순. 커서는 그대로 방송 ID이고, 그 방송의 종료 시각 기준으로 이어 읽는다(테스트 추가) |
+| 내부 segment 거절 응답에 `{code,message}` 없음 | 표준 | 두기 | 내부 경로, MediaMTX 훅은 상태 코드만 본다 |
+| 훅이 offline에 묶여 끝나는지 근거 없음 | 명세 | 확인 | 위 "MediaMTX가 세그먼트 훅을…" 절 |
+
+### 검증
+- API 통합 테스트 전체 147건 통과 (녹화 37건: 등록·순서·ENDED 등록·멱등·경로 조작 8종 거절·시크릿·없는 방송, 공개 조회·삭제 404, 다시보기 목록·커서·종료 시각 순서, forward_auth 인가, **재시작 후 조회**, 경로·길이·시작 시각 해석, mp4 길이 계산 3건, 복구 스캔 6건)
+- 브라우저 E2E `e2e/12-recordings.mjs` 15개 시나리오 통과 (docker compose, `E2E_BASE_URL=https://localhost`, 송출은 스튜디오): 가짜 카메라 송출 → 스튜디오 탭 닫고 재송출(세그먼트 2개) → 종료 시 새로고침 없이 플레이어 → 홈 다시보기 목록 → 재생(currentTime 증가, `webkitAudioDecodedByteCount` > 0) → 1구간 끝에서 2구간 자동 재생 → Range 206 + moov가 mdat 앞 → ffprobe → 미등록·경로 조작 404 → **api 컨테이너 재시작 후** 목록·파일 조회 → 복구 스캔(일반·fragmented) → Cache-Control 2xx 한정 → 단일 구간 "준비 중" → SSE로 플레이어 전환 → 삭제 후 목록·파일 404
+- ffprobe 결과: `h264 320x180` + `aac 48000Hz mono`, `mov,mp4`, 약 6초. 송출 원본은 `Opus, H264` 2트랙
+- 회귀: `e2e/06-publish.mjs` 11개, `e2e/07-studio.mjs` 통과. typecheck, oxlint 경고 0
+
+### 확인하지 못한 것 (위험)
+- 실기기 Safari·iOS 재생: AAC + H.264 mp4라 재생될 것으로 보지만 실기기로 보지 못했다 → #9
+- 1시간 세그먼트의 변환 시간·메모리(1GB 서버): 오디오만 1스레드로 인코딩하므로 작을 것으로 추정
+- 복구 스캔은 변환 대기열(flock)에 오래 걸린 원본(2분 이상, 임시 파일 아직 없음)을 원본으로 먼저 등록할 수 있다. 이후 변환이 같은 경로를 웹용으로 바꾸므로 재생에는 문제없고, 크기 값만 원본 기준으로 남는다
+- 삭제된 방송의 파일은 디스크에 남는다 → Q11

@@ -132,3 +132,26 @@ export const donations = sqliteTable(
   },
   (t) => [index('donations_broadcast_id_id_idx').on(t.broadcastId, t.id)],
 )
+
+// 녹화 세그먼트 (#12). 방송 1 : N. 송출 세션(재연결·대체)마다, 그리고 recordSegmentDuration마다 하나씩 생긴다.
+// 파일은 MediaMTX가 recordings 볼륨에 쓰고, DB에는 위치와 메타데이터만 둔다 (서버 재시작 후에도 조회).
+export const recordings = sqliteTable(
+  'recordings',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    broadcastId: integer('broadcast_id')
+      .notNull()
+      .references(() => broadcasts.id, { onDelete: 'cascade' }),
+    // 녹화 디렉터리 기준 상대 경로 (예: live/12/2026-11-09_12-00-00-000000.mp4).
+    // 유니크라서 같은 파일의 훅이 두 번 와도 한 번만 등록된다
+    filePath: text('file_path').notNull().unique(),
+    // 세그먼트 녹화 시작 시각. 이어 재생 순서의 기준이다
+    startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
+    durationMs: integer('duration_ms').notNull(),
+    sizeBytes: integer('size_bytes'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('recordings_broadcast_started_idx').on(t.broadcastId, t.startedAt)],
+)
+
+export type Recording = typeof recordings.$inferSelect

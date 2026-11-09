@@ -2,6 +2,8 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import type { BroadcastLifecycle } from '../broadcasts/lifecycle.js'
 import { safeEqual } from '../lib/crypto.js'
+import type { EventHub } from '../realtime/hub.js'
+import type { RecordingService } from '../recordings/service.js'
 
 // MediaMTX → api 내부 호출.
 // - Caddy는 /api/*와 /live/*만 프록시하므로 외부에서는 /internal에 도달할 수 없다 (1차 방어).
@@ -24,6 +26,8 @@ const eventBody = z.object({
   sourceType: z.string().optional(),
   segmentPath: z.string().optional(),
   segmentDuration: z.string().optional(),
+  // hooks/segment.sh가 웹용 변환 후 파일 크기(바이트)를 붙인다
+  segmentSize: z.string().optional(),
 })
 
 /** WHIP의 Authorization: Bearer는 token 필드로 온다. 쿼리 ?token=도 허용한다 */
@@ -33,7 +37,17 @@ function tokenOf(body: z.infer<typeof authBody>) {
 }
 
 export const internalMediaRoutes =
-  ({ secret, lifecycle }: { secret: string; lifecycle: BroadcastLifecycle }): FastifyPluginAsync =>
+  ({
+    secret,
+    lifecycle,
+    recordings,
+    hub,
+  }: {
+    secret: string
+    lifecycle: BroadcastLifecycle
+    recordings: RecordingService
+    hub: EventHub
+  }): FastifyPluginAsync =>
   async (app) => {
     app.addHook('onRequest', async (request: FastifyRequest<{ Querystring: { secret?: string } }>, reply) => {
       const given = request.headers['x-internal-secret'] ?? request.query.secret
@@ -62,7 +76,25 @@ export const internalMediaRoutes =
       request.log.info({ mediaEvent: event }, 'media event')
       if (event.type === 'online') await lifecycle.onOnline(event.path)
       if (event.type === 'offline') await lifecycle.onOffline(event.path)
-      // segment: 녹화 등록은 #12
+      if (event.type === 'segment') {
+        const result = recordings.register(event)
+        if (result.status === 'invalid') {
+          // 경로 조작 시도이거나 설정(recordPath·RECORDINGS_DIR) 불일치. 등록하지 않는다
+          request.log.warn({ mediaEvent: event, reason: result.reason }, '녹화 세그먼트 등록 거절')
+          return reply.code(400).send()
+        }
+        if (result.status === 'unknown-broadcast') request.log.warn({ mediaEvent: event }, '없는 방송의 녹화 세그먼트')
+        // 다시보기 화면을 보고 있는 시청자에게 새 세그먼트를 바로 알린다 ("준비 중" → 재생)
+        if (result.status === 'registered') hub.publish(result.broadcastId, 'recording', result.recording)
+      }
       return reply.code(204).send()
+    })
+
+    // Caddy forward_auth: /recordings/* 파일 요청마다 내보내도 되는지 묻는다 (204 허용, 404 거절).
+    // 원래 요청 주소는 Caddy가 X-Forwarded-Uri로 넣는다. 시크릿은 Caddy가 header_up으로 붙인다.
+    app.get('/recordings/authorize', async (request, reply) => {
+      const uri = request.headers['x-forwarded-uri']
+      const ok = typeof uri === 'string' && recordings.canServe(uri)
+      return reply.code(ok ? 204 : 404).send()
     })
   }

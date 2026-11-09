@@ -18,6 +18,8 @@ import { channelRoutes } from './routes/channels.js'
 import { donationRoutes } from './routes/donations.js'
 import { healthRoutes } from './routes/health.js'
 import { internalMediaRoutes } from './routes/internal-media.js'
+import { recordingRoutes } from './routes/recordings.js'
+import { createRecordingService } from './recordings/service.js'
 
 export type AppDeps = {
   config: Config
@@ -142,11 +144,40 @@ export async function buildApp({ config, db, mediaControl, toss }: AppDeps) {
     }),
     { prefix: '/api' },
   )
-  await app.register(internalMediaRoutes({ secret: config.INTERNAL_SECRET, lifecycle }), { prefix: '/internal' })
+  const recordings = createRecordingService(db, { recordingsDir: config.RECORDINGS_DIR })
+  app.decorate('recordings', recordings)
+  await app.register(recordingRoutes(recordings), { prefix: '/api' })
+  await app.register(internalMediaRoutes({ secret: config.INTERNAL_SECRET, lifecycle, recordings, hub }), {
+    prefix: '/internal',
+  })
+
+  // 녹화 복구 스캔 (#12): 훅이 유실된 세그먼트를 기동 시와 5분마다 등록한다. 테스트는 scan()을 직접 부른다
+  let scanning: Promise<void> | null = null
+  const runScan = () => {
+    if (scanning) return
+    scanning = recordings
+      .scan()
+      .then(({ registered }) => {
+        for (const r of registered) {
+          app.log.info({ broadcastId: r.broadcastId, url: r.recording.url }, '복구 스캔으로 녹화 등록')
+          hub.publish(r.broadcastId, 'recording', r.recording)
+        }
+      })
+      .catch((err: unknown) => app.log.error({ err }, '녹화 복구 스캔 실패'))
+      .finally(() => {
+        scanning = null
+      })
+  }
+  const scanTimer = config.NODE_ENV === 'test' ? undefined : setInterval(runScan, 5 * 60_000)
+  scanTimer?.unref()
+  if (scanTimer) runScan()
 
   // 열린 SSE 응답을 닫지 않으면 서버 close가 끝나지 않는다 (hub가 모든 응답을 닫는다)
   app.addHook('preClose', async () => {
     stopLifecycle()
+    clearInterval(scanTimer)
+    // DB를 닫기 전에 진행 중인 스캔을 기다린다
+    await scanning
     hub.closeAll()
   })
   app.addHook('onClose', async () => {
@@ -161,5 +192,7 @@ declare module 'fastify' {
   interface FastifyInstance {
     /** 방송 상태 머신 (테스트에서 주기 작업을 직접 실행할 때 쓴다) */
     lifecycle: import('./broadcasts/lifecycle.js').BroadcastLifecycle
+    /** 녹화 서비스 (테스트에서 복구 스캔을 직접 실행할 때 쓴다) */
+    recordings: import('./recordings/service.js').RecordingService
   }
 }

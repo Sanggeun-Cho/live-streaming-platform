@@ -64,9 +64,9 @@
 
 | # | 항목 | 이슈 | 상태 | 근거 |
 |---|---|---|---|---|
-| R1 | 라이브 방송을 녹화 영상으로 저장한다 | #12 | ⬜ | |
-| R2 | 녹화 영상 목록·상세 조회와 재생 | #12 | ⬜ | |
-| R3 | 영상 정보와 저장 위치를 영구 저장한다 | #12 | ⬜ | |
+| R1 | 라이브 방송을 녹화 영상으로 저장한다 | #12 | ✅ | MediaMTX fMP4 녹화 → `hooks/segment.sh`(오디오 AAC 변환) → `recordings` 등록. E2E `12-recordings` ffprobe h264+aac |
+| R2 | 녹화 영상 목록·상세 조회와 재생 | #12 | ✅ | `GET /api/replays`, `GET /api/broadcasts/:id/recordings`, 홈 "다시보기", 상세 플레이어(구간 이어 재생). E2E `12-recordings` (Chrome). Safari 실기기 미검증(#9) |
+| R3 | 영상 정보와 저장 위치를 영구 저장한다 | #12 | ✅ | SQLite `recordings` + recordings 볼륨. `recordings.test.ts` 재시작 테스트, E2E api 컨테이너 재시작 |
 
 ## README (명세 6절)
 

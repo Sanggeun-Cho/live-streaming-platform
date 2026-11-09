@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router'
 import { useAuth } from '../auth/context'
 import { BroadcastList } from '../components/BroadcastList'
 import { ApiError, api, errorMessage } from '../lib/api'
+import { listBroadcasts } from '../lib/broadcasts'
 
 type Channel = { id: number; name: string; owner: { id: number; nickname: string } }
 type Result = { id: number; channel: Channel | null; error: { status: number; message: string } | null }
@@ -49,7 +50,8 @@ export function ChannelPage() {
         )}
       </div>
       <BroadcastList
-        params={{ channelId }}
+        listKey={`channel:${channelId}`}
+        fetchPage={(cursor, signal) => listBroadcasts({ channelId, cursor }, signal)}
         empty={isMine ? '아직 만든 방송이 없습니다. "새 방송 만들기"로 시작하세요.' : '이 채널에는 아직 방송이 없습니다.'}
       />
     </section>

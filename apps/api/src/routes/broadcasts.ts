@@ -5,7 +5,7 @@ import type { BroadcastLifecycle } from '../broadcasts/lifecycle.js'
 import { broadcastNotFound, type BroadcastService } from '../broadcasts/service.js'
 import { BROADCAST_STATUSES } from '../db/schema.js'
 import { AppError } from '../errors.js'
-import { idParams, parse, positiveId } from '../lib/validate.js'
+import { idParams, pageLimit, parse, positiveId } from '../lib/validate.js'
 import type { EventHub } from '../realtime/hub.js'
 
 // SSE 연결을 유지하기 위한 주석 전송 간격. 프록시·모바일 망의 유휴 연결 종료(보통 30~60초)보다 짧게 둔다
@@ -30,12 +30,7 @@ const listQuery = z.object({
   status: z.enum(BROADCAST_STATUSES, { error: '상태는 READY, LIVE, ENDED 중 하나여야 합니다' }).optional(),
   channelId: positiveId('채널 ID').optional(),
   cursor: positiveId('커서').optional(),
-  limit: z.coerce
-    .number({ error: '개수는 1~50 사이의 숫자여야 합니다' })
-    .int({ error: '개수는 1~50 사이의 숫자여야 합니다' })
-    .min(1, { error: '개수는 1~50 사이의 숫자여야 합니다' })
-    .max(50, { error: '개수는 1~50 사이의 숫자여야 합니다' })
-    .default(20),
+  limit: pageLimit(),
 })
 
 export const broadcastRoutes =

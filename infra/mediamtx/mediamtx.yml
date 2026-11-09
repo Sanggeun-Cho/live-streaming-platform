@@ -15,7 +15,7 @@ moq: no
 api: yes
 apiAddress: :9997
 
-# 녹화 재생 서버 (#12에서 사용)
+# 녹화 재생 서버. 다시보기는 Caddy가 웹용 mp4 파일을 직접 서빙하므로 쓰지 않는다 (#12)
 playback: no
 
 webrtc: yes
@@ -54,7 +54,8 @@ pathDefaults:
   # 상태 머신 입력. 훅이 유실돼도 #6의 Control API 주기 대조로 보정한다.
   runOnOnline: sh /hooks/notify.sh online
   runOnOffline: sh /hooks/notify.sh offline
-  runOnRecordSegmentComplete: sh /hooks/notify.sh segment
+  # 세그먼트가 닫히면 웹용 mp4(영상 복사 + 오디오 AAC, faststart)로 바꾼 뒤 api에 등록한다 (#12)
+  runOnRecordSegmentComplete: sh /hooks/segment.sh
 
 paths:
   # 방송 회차 하나 = path 하나 (live/{broadcastId})

@@ -1,29 +1,42 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
-import { type Broadcast, type ListParams, listBroadcasts, STATUS_LABEL } from '../lib/broadcasts'
+import { type Broadcast, STATUS_LABEL } from '../lib/broadcasts'
 import { errorMessage } from '../lib/api'
+import { formatDuration, type Replay } from '../lib/recordings'
 
 export function StatusBadge({ status }: { status: Broadcast['status'] }) {
   return <span className={`badge badge-${status.toLowerCase()}`}>{STATUS_LABEL[status]}</span>
 }
 
-type Props = { params: Omit<ListParams, 'cursor'>; empty: string }
+type Item = Broadcast & Partial<Pick<Replay, 'recordingCount' | 'totalDurationMs'>>
 
-/** 방송 목록 + 더 보기. 조건(params)이 바뀌면 key로 새로 마운트해 처음부터 다시 읽는다 */
+/** 목록 한 페이지를 읽는 함수. cursor가 없으면 첫 페이지 */
+export type PageFetcher = (
+  cursor: number | undefined,
+  signal?: AbortSignal,
+) => Promise<{ items: Item[]; nextCursor: number | null }>
+
+/**
+ * listKey: 조건을 나타내는 문자열. 바뀌면 새로 마운트해 처음부터 다시 읽는다.
+ * fetchPage는 처음 받은 것을 계속 쓴다 (매 렌더 새 함수를 넘겨도 다시 읽지 않게)
+ */
+type Props = { listKey: string; fetchPage: PageFetcher; empty: string }
+
+/** 방송 목록 + 더 보기. 방송 목록·채널 방송·다시보기(#12)가 조회 함수만 바꿔 같이 쓴다 */
 export function BroadcastList(props: Props) {
-  return <BroadcastListInner key={JSON.stringify(props.params)} {...props} />
+  return <BroadcastListInner key={props.listKey} {...props} />
 }
 
-function BroadcastListInner({ params, empty }: Props) {
-  const [query] = useState(params)
-  const [items, setItems] = useState<Broadcast[]>([])
+function BroadcastListInner({ fetchPage: initialFetch, empty }: Props) {
+  const [fetchList] = useState(() => initialFetch)
+  const [items, setItems] = useState<Item[]>([])
   const [nextCursor, setNextCursor] = useState<number | null>(null)
   const [state, setState] = useState<'loading' | 'idle' | 'error'>('loading')
   const [error, setError] = useState<string | null>(null)
 
   const fetchPage = useCallback(
     (cursor: number | undefined, signal?: AbortSignal) =>
-      listBroadcasts({ ...query, cursor }, signal)
+      fetchList(cursor, signal)
         .then((page) => {
           setItems((prev) => (cursor ? [...prev, ...page.items] : page.items))
           setNextCursor(page.nextCursor)
@@ -34,7 +47,7 @@ function BroadcastListInner({ params, empty }: Props) {
           setError(errorMessage(e))
           setState('error')
         }),
-    [query],
+    [fetchList],
   )
 
   const load = (cursor?: number) => {
@@ -68,6 +81,11 @@ function BroadcastListInner({ params, empty }: Props) {
             <Link to={`/broadcasts/${b.id}`} className="broadcast-card">
               <div className="thumb">
                 <StatusBadge status={b.status} />
+                {b.totalDurationMs !== undefined && (
+                  <span className="duration" aria-label="다시보기 길이">
+                    ▶ {formatDuration(b.totalDurationMs)}
+                  </span>
+                )}
               </div>
               <strong className="title">{b.title}</strong>
               <span className="muted">{b.streamer.nickname}</span>

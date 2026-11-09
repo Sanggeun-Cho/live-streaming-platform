@@ -15,3 +15,9 @@ export const positiveId = (label = 'ID') => {
 }
 
 export const idParams = z.object({ id: positiveId() })
+
+/** 목록 페이지 크기 (`?limit=`). 1~50, 기본 20 */
+export const pageLimit = () => {
+  const error = '개수는 1~50 사이의 숫자여야 합니다'
+  return z.coerce.number({ error }).int({ error }).min(1, { error }).max(50, { error }).default(20)
+}
