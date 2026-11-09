@@ -84,6 +84,8 @@ await step('방송 중 카메라로 소스를 바꾸면 연결을 유지한 채 
 
 await step('화면 공유를 브라우저에서 중지하면 안내가 뜨고, 다시 선택하면 송출이 이어진다', async () => {
   await owner.getByRole('button', { name: /화면 공유/ }).click()
+  // 이미 LIVE였으므로 LIVE 표시만으로는 전환이 끝났는지 알 수 없다. 버튼 문구로 화면 공유가 실제 소스가 된 것을 기다린다
+  await owner.getByRole('button', { name: /화면 공유 다시 선택/ }).waitFor({ timeout: 15_000 })
   await phase(owner).getByText('LIVE').waitFor({ timeout: 15_000 })
   // 브라우저의 "공유 중지" 버튼은 트랙에 ended 이벤트를 보낸다
   await owner.evaluate(() => {

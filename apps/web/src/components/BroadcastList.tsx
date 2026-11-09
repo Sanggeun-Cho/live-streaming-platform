@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
+import { type CSSProperties, useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { type Broadcast, STATUS_LABEL } from '../lib/broadcasts'
 import { errorMessage } from '../lib/api'
 import { formatDuration, type Replay } from '../lib/recordings'
+import { colorOf, initialOf } from '../lib/avatar'
+import { Avatar } from './Avatar'
 
 export function StatusBadge({ status }: { status: Broadcast['status'] }) {
   return <span className={`badge badge-${status.toLowerCase()}`}>{STATUS_LABEL[status]}</span>
@@ -74,21 +76,33 @@ function BroadcastListInner({ fetchPage: initialFetch, empty }: Props) {
 
   return (
     <>
-      {state !== 'loading' && items.length === 0 && <p className="muted">{empty}</p>}
+      {state !== 'loading' && items.length === 0 && <p className="empty">{empty}</p>}
       <ul className="broadcast-grid">
         {items.map((b) => (
           <li key={b.id}>
             <Link to={`/broadcasts/${b.id}`} className="broadcast-card">
-              <div className="thumb">
+              {/* 썸네일이 없으므로 방송자 색으로 만든 배경에 방송자 이니셜을 그린다 */}
+              <div className="thumb" style={{ '--thumb-color': colorOf(b.streamer.id) } as CSSProperties}>
+                <span className="thumb-initial" aria-hidden="true">
+                  {initialOf(b.streamer.nickname)}
+                </span>
                 <StatusBadge status={b.status} />
+                {b.status === 'LIVE' && b.viewers !== undefined && (
+                  <span className="thumb-viewers">시청자 {b.viewers.toLocaleString()}명</span>
+                )}
                 {b.totalDurationMs !== undefined && (
                   <span className="duration" aria-label="다시보기 길이">
                     ▶ {formatDuration(b.totalDurationMs)}
                   </span>
                 )}
               </div>
-              <strong className="title">{b.title}</strong>
-              <span className="muted">{b.streamer.nickname}</span>
+              <div className="card-meta">
+                <Avatar id={b.streamer.id} name={b.streamer.nickname} size={36} />
+                <div className="card-text">
+                  <strong className="title">{b.title}</strong>
+                  <span className="dim">{b.streamer.nickname}</span>
+                </div>
+              </div>
             </Link>
           </li>
         ))}
@@ -96,7 +110,7 @@ function BroadcastListInner({ fetchPage: initialFetch, empty }: Props) {
       {state === 'loading' && <p className="muted">불러오는 중…</p>}
       {state === 'error' && items.length > 0 && <p className="error">더 불러오지 못했습니다: {error}</p>}
       {nextCursor && state !== 'loading' && (
-        <button type="button" onClick={() => load(nextCursor)}>
+        <button type="button" className="more" onClick={() => load(nextCursor)}>
           더 보기
         </button>
       )}

@@ -231,6 +231,15 @@ await step('세션이 만료된 뒤 전송하면 로그인 화면으로 보내�
   expectEqual(new URL(otherC.url()).searchParams.get('next'), `/broadcasts/${id}`)
 })
 
+await step('응답을 기다리지 않고 연달아 보내도 이어서 입력한 채팅이 지워지지 않는다', async () => {
+  const burst = ['연달아 하나', '연달아 둘', '연달아 셋'].map((m) => `${m} ${Date.now()}`)
+  for (const m of burst) {
+    await viewerA.getByLabel('채팅 입력').fill(m)
+    await viewerA.getByLabel('채팅 입력').press('Enter')
+  }
+  for (const m of burst) await chat(anonB).getByText(m).waitFor({ timeout: 5000 })
+})
+
 await step('어느 화면에서도 처리되지 않은 오류가 없다', async () => {
   expectEqual(pageErrors, [], '페이지 오류')
 })

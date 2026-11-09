@@ -107,7 +107,7 @@ await step('잘못된 주소: 숫자가 아닌 방송 ID와 없는 채널은 안
 await step('모바일 폭(390px)에서 목록이 가로 스크롤 없이 보인다', async () => {
   await anon.setViewportSize({ width: 390, height: 844 })
   await anon.goto(`${BASE}/`)
-  await anon.getByRole('heading', { name: '전체 방송' }).waitFor()
+  await anon.getByRole('heading', { name: '방송 예정' }).waitFor()
   const overflow = await anon.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)
   expectEqual(overflow, false, '가로 넘침')
 })

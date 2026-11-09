@@ -15,6 +15,8 @@ export type Broadcast = {
   updatedAt: string
   channel: { id: number; name: string }
   streamer: { id: number; nickname: string }
+  /** 목록에서만: 방송 중이면 지금 시청자 수 */
+  viewers?: number
 }
 
 export type BroadcastPage = { items: Broadcast[]; nextCursor: number | null }
