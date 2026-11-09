@@ -76,7 +76,7 @@ await step('금액 규칙: 1,000원 단위가 아니면 안내하고 제출 버�
   await viewer.getByRole('button', { name: '후원하기' }).click()
   await viewer.getByLabel('직접 입력 (원)').fill('1500')
   await viewer.getByText('1,000원 단위로 입력하세요').waitFor()
-  expectEqual(await viewer.locator('form button[type=submit]').isDisabled(), true, '제출 비활성')
+  expectEqual(await viewer.locator('.donation-form button[type=submit]').isDisabled(), true, '제출 비활성')
   await viewer.getByRole('button', { name: '5,000원', exact: true }).click()
   await viewer.getByRole('button', { name: '5,000원 후원하기' }).waitFor()
 })

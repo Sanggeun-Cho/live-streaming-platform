@@ -338,6 +338,8 @@ button.primary,
 .studio button,
 .studio .button {
   min-height: 44px;
+}
+
 /* ---- 도네이션 (#11). 디자인은 나중에 일괄 적용 ---- */
 .donation-panel,
 .donation-board {
@@ -422,6 +424,7 @@ button.primary,
   max-width: 480px;
   margin: 40px auto;
   text-align: center;
+}
 
 /* ---- 다시보기 (#12 최소 화면) ---- */
 .thumb .duration {
@@ -445,4 +448,129 @@ button.primary,
 
 .segment-list .active {
   font-weight: 700;
+}
+
+/* ---- 채팅 (#10 최소 화면). 데스크톱은 영상 옆, 좁은 화면은 아래 ---- */
+.broadcast-layout {
+  display: grid;
+  gap: 16px;
+}
+
+.chat-panel {
+  display: flex;
+  flex-direction: column;
+  height: 420px;
+  border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  border-radius: 8px;
+  min-width: 0;
+}
+
+/* 기본 규칙보다 뒤에 둬야 높이가 덮어써진다 */
+@media (min-width: 900px) {
+  .broadcast-layout {
+    grid-template-columns: minmax(0, 1fr) 300px;
+    align-items: start;
+  }
+
+  .chat-panel {
+    position: sticky;
+    top: 16px;
+    height: min(75vh, 640px);
+  }
+}
+
+.chat-title {
+  font-size: 1rem;
+  margin: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+}
+
+.chat-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px;
+}
+
+.chat-list > p {
+  margin: 4px 0;
+}
+
+.chat-older {
+  display: block;
+  margin: 0 auto 8px;
+  font-size: 0.85rem;
+}
+
+.chat-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.chat-item {
+  padding: 3px 0;
+  overflow-wrap: anywhere;
+}
+
+.chat-author {
+  font-weight: 600;
+}
+
+.chat-streamer .chat-author {
+  color: #e11d48;
+}
+
+.chat-badge {
+  margin-left: 4px;
+  background: #e11d48;
+  vertical-align: middle;
+}
+
+.chat-actions {
+  margin-left: 6px;
+  font-size: 0.8rem;
+}
+
+.chat-actions button + button {
+  margin-left: 6px;
+}
+
+.chat-edit,
+.chat-form {
+  display: flex;
+  gap: 6px;
+}
+
+.chat-edit {
+  margin-top: 4px;
+}
+
+.chat-edit input,
+.chat-form input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  background: transparent;
+  color: inherit;
+}
+
+.chat-form {
+  padding: 8px;
+  border-top: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+}
+
+.chat-error {
+  margin: 0;
+  padding: 4px 12px;
+}
+
+.chat-login {
+  margin: 0;
+  padding: 12px;
+  text-align: center;
+  border-top: 1px solid color-mix(in srgb, currentColor 15%, transparent);
 }

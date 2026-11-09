@@ -155,3 +155,25 @@ export const recordings = sqliteTable(
 )
 
 export type Recording = typeof recordings.$inferSelect
+
+// 방송별 댓글 (#10). 삭제는 deleted_at으로 표시하고 목록에는 "삭제된 댓글"로 자리를 남긴다 (DESIGN.md §7).
+// 본문은 DB에 남겨 신고·분쟁 때 확인할 수 있게 하고, 응답에서만 숨긴다.
+export const comments = sqliteTable(
+  'comments',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    broadcastId: integer('broadcast_id')
+      .notNull()
+      .references(() => broadcasts.id, { onDelete: 'cascade' }),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    content: text('content').notNull(),
+    createdAt: createdAt(),
+    // 마지막으로 수정한 시각. 화면의 "(수정됨)" 표시에 쓴다
+    editedAt: integer('edited_at', { mode: 'timestamp_ms' }),
+    deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
+  },
+  // 목록 조회: 방송별 최신 N개 (id 역순 + 커서)
+  (t) => [index('comments_broadcast_id_id_idx').on(t.broadcastId, t.id)],
+)
