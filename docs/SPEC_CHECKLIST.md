@@ -12,7 +12,7 @@
 
 | # | 항목 | 이슈 | 상태 | 근거 |
 |---|---|---|---|---|
-| B1 | 소스에 문법 오류가 없다 | 전체 | 🔧 | CI `typecheck`(api tsc + web tsc·vite build), oxlint |
+| B1 | 소스에 문법 오류가 없다 | 전체 | 🔧 | CI `typecheck`(api tsc + web tsc·vite build), oxlint(로컬) |
 
 ## 필수: PC 라이브 방송
 
