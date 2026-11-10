@@ -101,6 +101,9 @@ export const donationOrders = sqliteTable(
     paymentKey: text('payment_key'),
     // FAILED가 된 이유 (토스 오류 코드 또는 내부 검증 코드). 운영 중 원인 확인용
     failureCode: text('failure_code'),
+    // 토스 승인 시도 번호. 멱등키(confirm-{orderId}-{n})에 들어간다. 일시 오류로 승인되지 않은 것이 확인되면 1 올려
+    // 다음 재시도가 토스에 캐시된 첫 오류 응답을 그대로 받지 않게 한다 (DESIGN §7)
+    confirmAttempt: integer('confirm_attempt').notNull().default(0),
     createdAt: createdAt(),
     updatedAt: nowMs('updated_at'),
   },

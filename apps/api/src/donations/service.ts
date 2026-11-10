@@ -4,10 +4,16 @@
 // 토스 승인 응답도 그대로 믿지 않고 상태·금액·orderId·paymentKey를 다시 대조한다.
 //
 // 멱등성: 같은 승인 통지(새로고침으로 인한 confirm 재요청, 동시 요청, 웹훅)가 여러 번 와도
-//   (1) 토스 승인 요청에 Idempotency-Key를 붙여 결제사 쪽 중복 승인을 막고,
+//   (1) 토스 승인 요청에 Idempotency-Key(confirm-{orderId}-{시도 번호})를 붙여 결제사 쪽 중복 승인을 막고,
 //   (2) "status가 DONE이 아닌 주문만 DONE으로" 바꾸는 조건부 UPDATE가 1행을 바꿨을 때만 원장을 만들며,
 //   (3) 원장의 order_id 유니크 제약이 마지막으로 막는다.
 // 결제 도중 방송이 끝나도(주문 생성 시점에 LIVE였으므로) 승인을 확정한다. 원장은 삭제하지 않는다.
+//
+// 일시 오류(네트워크·5xx·429·PROVIDER_ERROR·처리 중 409): 토스는 같은 멱등키에 첫 응답을 오류까지 그대로 돌려주므로
+//   키를 고정하면 일시 오류가 영원히 재생될 수 있다. 그래서 일시 오류가 나면 결제 조회로 실제 상태를 먼저 확인하고
+//   (승인돼 있으면 그대로 적립), 승인되지 않았으면 시도 번호를 올려 다음 재요청이 새 키로 가게 한다.
+//   새 키로 다시 승인해도 토스는 같은 paymentKey를 두 번 승인하지 않는다(ALREADY_PROCESSED_PAYMENT → 조회 후 적립).
+//   일시 오류로는 주문을 FAILED로 만들지 않는다.
 
 import { randomBytes } from 'node:crypto'
 import { and, count, desc, eq, inArray, lt, sum } from 'drizzle-orm'
@@ -94,6 +100,10 @@ function paymentMismatches(order: DonationOrder, payment: TossPayment, paymentKe
 
 /** 토스 결제창의 orderId 규칙(6~64자, 영문·숫자·-·_·=)을 따르는 추측 불가능한 값 */
 const newOrderId = () => `don_${randomBytes(18).toString('base64url')}`
+
+/** 토스 승인 멱등키. 시도 번호(confirmAttempt)가 바뀌면 새 키가 된다 (DESIGN §7-3) */
+export const confirmIdempotencyKey = (order: Pick<DonationOrder, 'orderId' | 'confirmAttempt'>) =>
+  `confirm-${order.orderId}-${order.confirmAttempt}`
 
 export function createDonationService(deps: { db: Db; toss: TossClient; hub: EventHub; log: FastifyBaseLogger }) {
   const { db, toss, hub, log } = deps
@@ -182,12 +192,37 @@ export function createDonationService(deps: { db: Db; toss: TossClient; hub: Eve
     }
   }
 
-  /** 승인 API 오류를 사용자 안내로 바꾼다. 거절이 확정된 경우만 주문을 FAILED로 둔다 */
-  function rejectionError(order: DonationOrder, e: TossApiError): AppError {
-    if (e.transient) {
-      log.warn({ orderId: order.orderId, code: e.code, status: e.status }, 'toss confirm transient error')
-      return paymentUnavailable()
+  /**
+   * 일시 오류 뒤 실제 결제 상태를 조회한다. 승인(DONE)돼 있으면 그 결제를 돌려줘 같은 대조·적립 경로로 보낸다.
+   * 확인하지 못했거나 승인되지 않았으면 다음 재요청이 새 멱등키를 쓰도록 시도 번호를 올리고 502를 던진다 (주문은 PENDING).
+   * 단 같은 키의 요청이 아직 처리 중(409)이면 키를 바꾸지 않는다: 그 요청의 결과가 같은 키로 캐시되기 때문이다.
+   */
+  async function reconcileAfterTransient(order: DonationOrder, paymentKey: string, e: TossApiError): Promise<TossPayment> {
+    log.warn({ orderId: order.orderId, code: e.code, status: e.status }, 'toss confirm transient error')
+    const payment = await toss.getPayment(paymentKey).catch((lookupError: unknown) => {
+      log.warn({ err: lookupError, orderId: order.orderId }, 'toss payment lookup failed (after transient error)')
+      return null
+    })
+    if (payment?.status === 'DONE') return payment
+    if (e.code !== 'IDEMPOTENT_REQUEST_PROCESSING') {
+      // 동시에 실패한 요청들이 시도 번호를 한 번만 올리도록, 이번에 쓴 번호일 때만 바꾼다
+      orm
+        .update(donationOrders)
+        .set({ confirmAttempt: order.confirmAttempt + 1, updatedAt: new Date() })
+        .where(
+          and(
+            eq(donationOrders.id, order.id),
+            eq(donationOrders.status, 'PENDING'),
+            eq(donationOrders.confirmAttempt, order.confirmAttempt),
+          ),
+        )
+        .run()
     }
+    throw paymentUnavailable()
+  }
+
+  /** 승인 API의 확정 오류(일시 오류 제외)를 사용자 안내로 바꾼다. 거절이 확정된 경우만 주문을 FAILED로 둔다 */
+  function rejectionError(order: DonationOrder, e: TossApiError): AppError {
     if (CONFIG_ERRORS.has(e.code)) {
       log.error({ orderId: order.orderId, code: e.code, message: e.message }, 'toss configuration error')
       return new AppError(
@@ -272,12 +307,31 @@ export function createDonationService(deps: { db: Db; toss: TossClient; hub: Eve
 
       let payment: TossPayment
       try {
-        payment = await toss.confirm({ paymentKey: input.paymentKey, orderId: order.orderId, amount: order.amount })
+        payment = await toss.confirm({
+          paymentKey: input.paymentKey,
+          orderId: order.orderId,
+          amount: order.amount,
+          idempotencyKey: confirmIdempotencyKey(order),
+        })
       } catch (e) {
         if (!(e instanceof TossApiError)) throw e
-        // 다른 요청이 먼저 승인했다. 실제 결제 상태를 조회해 같은 경로로 적립한다
+        // 다른 요청(이전 시도 포함)이 먼저 승인했다. 실제 결제 상태를 조회해 같은 경로로 적립한다
         if (e.code === 'ALREADY_PROCESSED_PAYMENT') payment = await lookupForConfirm(input.paymentKey)
-        else throw rejectionError(order, e)
+        // 승인 여부를 알 수 없다. 조회로 확인한다 (승인 안 됐으면 502, 주문은 PENDING)
+        else if (e.transient) payment = await reconcileAfterTransient(order, input.paymentKey, e)
+        // 이전 시도(번호 n-1)의 결과가 정해지지 않은 채 새 키로 온 거절은, 이전 시도가 승인될 수 있으므로
+        // 그것만으로 실패를 확정하지 않는다. 조회해서 DONE이면 적립, 아니면 아래에서 PENDING + 502
+        else if (order.confirmAttempt > 0 && !CONFIG_ERRORS.has(e.code)) {
+          log.warn({ orderId: order.orderId, code: e.code }, 'toss confirm rejected after an undetermined attempt')
+          payment = await lookupForConfirm(input.paymentKey)
+        } else throw rejectionError(order, e)
+      }
+
+      // DONE이 아닌 상태(IN_PROGRESS·READY·WAITING_FOR_DEPOSIT 등)는 결과가 아직 정해지지 않은 것이다.
+      // 대조 실패나 거절로 보지 않고 PENDING으로 둔다 (승인되면 재요청이나 웹훅이 적립한다)
+      if (payment.status !== 'DONE') {
+        log.warn({ orderId: order.orderId, status: payment.status }, 'toss payment not settled yet')
+        throw paymentUnavailable()
       }
 
       const mismatches = paymentMismatches(order, payment, input.paymentKey)
