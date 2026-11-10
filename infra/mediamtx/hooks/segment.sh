@@ -18,8 +18,12 @@ LOCK=/tmp/segment-convert.lock
 TIMEOUT_SECONDS=1800
 
 # 변환 차례(flock)를 기다리는 동안에도 api 복구 스캔이 "변환 중"으로 보고 원본을 등록하지 않도록 임시 파일을 먼저 만든다.
-# 대기가 길어져(35분 초과) 스캔이 원본을 먼저 등록해도, 변환 후 훅이 크기·길이를 고치고 recording 이벤트를 다시 보낸다 (#31)
+# 대기가 길어져(35분 초과) 스캔이 원본을 먼저 등록해도, 변환 후 훅이 크기·길이를 고치고 recording 이벤트를 다시 보낸다 (#31).
+# 60분 넘게 기다리면 앞선 변환의 정리(find -mmin +60)가 이 표식을 지울 수 있다 → 스캔이 원본을 등록하고, 같은 훅 갱신 경로로 회복된다.
+# 훅이 대기 중에 죽으면(종료 신호) 표식을 지운다. 지우지 못하고 남아도 스캔은 35분 뒤 원본을 등록하고 find가 60분 뒤 정리한다
 : > "$tmp"
+trap 'rm -f "$tmp"' EXIT
+trap 'rm -f "$tmp"; exit 143' INT TERM
 (
   # 앞선 변환이 끝날 때까지 기다린다 (방송 여러 개가 동시에 끝나도 ffmpeg는 하나)
   flock 9
@@ -36,6 +40,9 @@ TIMEOUT_SECONDS=1800
     rm -f "$tmp"
   fi
 ) 9>"$LOCK"
+# 여기서는 임시 파일이 이미 mv됐거나 지워졌다. exec 전에 trap을 해제한다 (notify.sh로 바뀐 프로세스에 남지 않게)
+rm -f "$tmp"
+trap - EXIT INT TERM
 
 MTX_SEGMENT_SIZE="$(stat -c %s "$seg" 2>/dev/null || echo '')"
 export MTX_SEGMENT_SIZE

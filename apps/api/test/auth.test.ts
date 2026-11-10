@@ -170,7 +170,7 @@ describe('인증 API', () => {
     expect(res.json().message).toMatch(/초 후 다시 시도/)
   })
 
-  it('회원가입도 IP당 분당 10회를 넘으면 429 (해시 전에 막는다)', async () => {
+  it('회원가입도 IP당 분당 10회를 넘으면 429', async () => {
     // 성공·실패와 상관없이 시도 횟수로 센다. argon2 비용을 줄이려고 대부분은 검증 실패(400) 요청으로 채운다
     expect((await signup()).statusCode).toBe(201)
     for (let i = 0; i < 9; i++) {

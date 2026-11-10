@@ -79,9 +79,9 @@ describe('mp4 길이 계산', () => {
   })
 
   it('mvhd version 1(64비트 시각·길이)도 읽는다', async () => {
-    // v1: version/flags, creation(u64), modification(u64), timescale(u32), duration(u64)
-    const mvhdV1 = box('mvhd', full(1, 0), u64(1), u64(2), u32(48000), u64(48000 * 3600 * 2 + 24000), Buffer.alloc(80))
-    expect(await mp4DurationMs(file('v1.mp4', ftyp, box('moov', mvhdV1, trak(1, 90000)), mdat(10)))).toBe(7_200_500)
+    // v1: version/flags, creation(u64), modification(u64), timescale(u32), duration(u64). 상위 32비트가 0이 아니어야 하위 워드만 읽는 파서를 잡는다
+    const mvhdV1 = box('mvhd', full(1, 0), u64(1), u64(2), u32(1000), u64(2 ** 32 + 500), Buffer.alloc(80))
+    expect(await mp4DurationMs(file('v1.mp4', ftyp, box('moov', mvhdV1, trak(1, 90000)), mdat(10)))).toBe(2 ** 32 + 500)
   })
 
   it('mp4가 아니거나 잘린 파일은 null', async () => {

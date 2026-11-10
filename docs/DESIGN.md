@@ -194,12 +194,12 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 - MediaMTX `record: yes`, 포맷은 fMP4, path별 디렉터리에 저장한다. 기본값 `recordDeleteAfter: 1d`는 영구 저장 요구와 충돌하므로 `0s`로 끈다.
 - 세그먼트가 닫히면 `hooks/segment.sh`가 mediamtx 컨테이너의 ffmpeg로 **영상은 복사, 오디오만 AAC**로 바꾼 웹용 mp4(`+faststart`)를 같은 경로에 만든다(원본 대체). Safari·iOS의 mp4 Opus 재생이 불확실하고(#2 스파이크), 1GB 서버에서 영상 재인코딩은 감당할 수 없기 때문이다. 변환이 실패하면 원본을 그대로 등록한다.
 - 변환 후 api `/internal/media/events`(type=segment)를 호출하면 `recordings` 테이블(broadcastId, 녹화 디렉터리 기준 상대 경로(유니크), 시작 시각, 길이, 크기)에 등록한다.
-  - 같은 파일은 한 번만 등록한다(멱등). path가 `live/{id}`가 아니거나, 경로가 녹화 디렉터리 밖·다른 방송 디렉터리·정규화되지 않은 경로면 400으로 거절한다.
+  - 같은 파일은 한 번만 등록한다(멱등). 단, 복구 스캔이 변환 전 원본을 먼저 등록한 파일에 훅이 오면 행을 새로 만들지 않고 크기·길이를 훅 값(변환본)으로 고친 뒤 SSE `recording`을 다시 보낸다(#31). path가 `live/{id}`가 아니거나, 경로가 녹화 디렉터리 밖·다른 방송 디렉터리·정규화되지 않은 경로면 400으로 거절한다.
   - 세그먼트 훅은 offline·종료 뒤에 오므로 방송 상태와 상관없이 등록한다. 등록되면 SSE `recording` 이벤트를 보낸다.
   - 시작 시각은 파일 이름(`%Y-%m-%d_%H-%M-%S-%f_%z`)에서 읽는다. 훅 도착 순서는 변환 시간에 따라 바뀔 수 있다.
 - 파일은 Caddy가 recordings 볼륨(읽기 전용)에서 `/recordings/*`로 서빙한다(Range 지원). 요청마다 `forward_auth`로 api `/internal/recordings/authorize`에 묻고, **등록된 파일이고 방송이 삭제되지 않았을 때만** 내보낸다. 변환 중인 임시 파일·미등록 파일·삭제된 방송의 영상은 404.
 - 훅이 유실되면(wget 실패, 변환 중 mediamtx 재시작) api가 기동 시와 5분마다 recordings 볼륨(읽기 전용)을 스캔해 미등록 세그먼트를 등록한다. 최근 2분 안에 바뀐 파일·변환 중인 원본·점 파일은 건너뛰고, 길이는 mp4 박스(mvhd 또는 moof의 tfdt+trun)에서 읽는다. MediaMTX는 세그먼트 훅을 path offline에 묶어 끝내지 않는다(v1.21.3 `internal/core/path.go` `OnSegmentComplete`).
-- 변환은 `flock`으로 한 번에 하나, ffmpeg 스레드 1개·`nice`·30분 `timeout`.
+- 변환은 `flock`으로 한 번에 하나, ffmpeg 스레드 1개·`nice`·30분 `timeout`. 차례를 기다리기 전에 빈 임시 파일(표식)을 먼저 만들어, 대기 중에도 복구 스캔이 "변환 중"으로 보고 원본을 등록하지 않게 한다(#31).
 - API: `GET /api/replays`(녹화가 있는 ENDED 방송, 종료 시각 최신순, 커서), `GET /api/broadcasts/:id/recordings`(재생 순서대로). 공개, 삭제된 방송은 404.
 - 재연결로 세그먼트가 여러 개 생기면 회차 상세에서 시작 시각 순서로 이어서 재생한다(구간 목록 표시). 종료 직후 아직 등록 전이면 "녹화 파일을 준비하고 있습니다"를 보여준다. SSE `recording`과, 종료 후 10분 동안의 10초 주기 조회(개수 무관, 마지막 구간 누락 방지)로 갱신한다.
 

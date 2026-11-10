@@ -236,13 +236,18 @@ describe('방송 API', () => {
     try {
       const viewers = async () => (await list()).json().items as Array<{ id: number; viewers: number }>
       expect((await viewers()).find((b) => b.id === live.id)?.viewers).toBe(2)
-      // 디바운스 뒤 한 번 오는 시청자 수 이벤트도 본인을 뺀 값이다
-      expect((await ownerStream.waitFor((e) => e.event === 'viewers')).data).toEqual({ count: 2 })
+      // 시청자 수 이벤트도 본인을 뺀 값(2)에 도달한다. 디바운스 시점에 따라 중간값이 먼저 올 수 있어 조건으로 기다린다
+      // (본인을 세면 3이 되어 여기서 시간 초과로 실패한다)
+      const reached = await ownerStream.waitFor((e) => e.event === 'viewers' && (e.data as { count: number }).count === 2)
       otherStream.close()
       anonStream.close()
       await expect.poll(async () => (await viewers()).find((b) => b.id === live.id)?.viewers).toBe(0)
-      // 방송자만 남으면 0
-      expect((await ownerStream.waitFor((e) => e.event === 'viewers' && (e.data as { count: number }).count === 0)).data).toEqual({ count: 0 })
+      // 방송자만 남으면 0 (2에 도달한 뒤의 이벤트만 본다)
+      const after = (e: { event: string; data: unknown }) =>
+        ownerStream.events.indexOf(e) > ownerStream.events.indexOf(reached) &&
+        e.event === 'viewers' &&
+        (e.data as { count: number }).count === 0
+      await ownerStream.waitFor(after)
     } finally {
       ownerStream.close()
       otherStream.close()
