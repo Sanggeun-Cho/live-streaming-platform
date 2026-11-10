@@ -151,6 +151,15 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 - **모바일**: `getUserMedia({ video: { facingMode }, audio })`로 송출한다.
 - 코덱은 `setCodecPreferences`로 **H.264**를 우선한다. 녹화(fMP4)와 iOS 재생 호환성 때문이다.
 - 같은 path에 새 송출이 들어오면 기존 송출을 대체한다(`overridePublisher`). 탭 중복이나 재연결 상황을 위한 설정이다.
+- 송출 상태 전이는 `apps/web/src/lib/webrtc/publisher.ts`(Publisher) 한 곳에서 관리하고 단위 테스트(`publisher.test.ts`, 가짜 연결·캡처·fetch·타이머)로 고정한다.
+  - **연결 끊김**: `failed` 또는 `disconnected` 4초 → 서버 상태 확인(3초 뒤) → 다른 기기가 대체했으면 `takenOver`, 종료됐으면 `ended`, 아니면 새 토큰으로 최대 5회 재송출. 소스 선택 창이 열린 동안(`requesting`)의 끊김도 똑같이 복구한다.
+  - **영상 소스 중단**: 화면 공유 중지는 사용자 의도이므로 송출(마이크 포함)을 멈추고 45초 안에 다시 고르지 않으면 방송을 종료한다(`sourceEnded`).
+    카메라 트랙 종료는 다른 앱·OS가 가져간 경우라 같은 카메라를 약 12초 동안(6회) 다시 열어 `replaceTrack`으로 이어 가고, 실패할 때만 `sourceEnded`로 간다.
+  - 카메라가 송출 직후(영상 프레임이 한 번도 나가기 전) 끊기면 MediaMTX가 트랙 수집 시간 안에 영상을 못 받아 **오디오만 있는 스트림**으로 확정한다(`1 track (Opus)`).
+    이때는 트랙 교체로는 영상이 복구되지 않으므로 다시 연 카메라로 **새 WHIP 연결**을 맺어 대체한다.
+  - `getUserMedia`가 처음부터 끝난(`readyState: ended`) 영상 트랙을 돌려주는 경우도 있다(ended 이벤트가 오지 않음). 캡처 단계에서 걸러 다시 연다.
+  - #30 진단: 부하가 큰 환경에서 Chrome 가짜 카메라가 송출 도중 트랙을 끝내거나 끝난 트랙을 돌려주고, 한동안 `NotFoundError`를 냈다.
+    이전에는 이를 `sourceEnded`로만 처리해 e2e/08이 간헐 실패했다(오디오만 송출 → 1초 뒤 연결 종료, 재연결 없음).
 
 ### 지원 환경 (검증 후 README에 확정)
 

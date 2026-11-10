@@ -1,6 +1,17 @@
 // #6 송출 제어 시나리오 (docker compose 전체 구성 필요: E2E_BASE_URL=https://localhost)
 // 가짜 카메라로 WHIP 송출 → 시청자 화면 실시간 상태 변경 → 끊김·재연결 → 종료 → 재송출 거절 → 유예 만료
-import { anonPage, BASE, expectEqual, finish, launch, liveCaptureTracks, signedUpPage, startCameraBroadcast, step } from './lib.mjs'
+import {
+  anonPage,
+  BASE,
+  expectEqual,
+  expectMediaFlowing,
+  finish,
+  launch,
+  liveCaptureTracks,
+  signedUpPage,
+  startCameraBroadcast,
+  step,
+} from './lib.mjs'
 
 const browser = await launch()
 const owner = await signedUpPage(browser, '송출자')
@@ -17,21 +28,12 @@ async function createBroadcast(page, title) {
   return Number(new URL(page.url()).pathname.split('/').pop())
 }
 
+// 영상 프레임이 디코딩되고 오디오 RTP가 실제로 들어오는지로 판정한다 (currentTime은 멈춘 화면에서도 흐를 수 있다)
 const videoPlaying = (page) =>
-  waitVideo(page).catch(async (e) => {
+  expectMediaFlowing(page).catch(async (e) => {
     const err = await page.locator('.player-error').allTextContents()
     throw new Error(`${e.message.split('\n')[0]} / 플레이어 오류: ${err.join(' ') || '없음'}`)
   })
-
-const waitVideo = (page) =>
-  page.waitForFunction(
-    () => {
-      const v = document.querySelector('[data-testid=live-video]')
-      return v && v.videoWidth > 0 && v.currentTime > 0.3
-    },
-    null,
-    { timeout: 20_000 },
-  )
 
 const statusLine = (page) => page.getByTestId('status-line')
 
@@ -61,12 +63,7 @@ await step('토큰 없이 WHIP로 송출을 시도하면 MediaMTX가 거절한�
 await step('소유자가 카메라로 방송을 시작하면 시청자 화면이 새로고침 없이 LIVE로 바뀌고 영상이 재생된다', async () => {
   await startCameraBroadcast(owner, id)
   await statusLine(viewer).getByText('LIVE').waitFor({ timeout: 15_000 })
-  await videoPlaying(viewer)
-  const size = await viewer.evaluate(() => {
-    const v = document.querySelector('[data-testid=live-video]')
-    return `${v.videoWidth}x${v.videoHeight}`
-  })
-  return `시청 영상 ${size}`
+  return await videoPlaying(viewer)
 })
 
 await step('시청자 수가 실시간으로 표시된다', async () => {
@@ -95,7 +92,7 @@ await step('유예 시간 안에 다시 송출하면 같은 방송이 LIVE로 �
   const page = ownerPage
   await startCameraBroadcast(page, id)
   await viewer.getByTestId('live-video').waitFor({ timeout: 15_000 })
-  await videoPlaying(viewer)
+  return await videoPlaying(viewer)
 })
 
 await step('소유자가 방송을 종료하면 시청자 화면이 "방송 종료"로 바뀐다', async () => {

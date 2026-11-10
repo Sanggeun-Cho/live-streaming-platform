@@ -95,7 +95,7 @@ function sessionOf(pc: RTCPeerConnection, resourceUrl: string | null, token?: st
 // 재전송·오류정정용 보조 코덱(rtx, red, ulpfec)은 남긴다.
 const AUX_VIDEO_CODECS = new Set(['video/rtx', 'video/red', 'video/ulpfec', 'video/flexfec-03'])
 
-function h264Rank(codec: RTCRtpCodec): number {
+export function h264Rank(codec: RTCRtpCodec): number {
   const fmtp = codec.sdpFmtpLine ?? ''
   // packetization-mode=1이 아니면 MediaMTX/재생 호환성이 떨어진다
   if (!fmtp.includes('packetization-mode=1')) return 3
