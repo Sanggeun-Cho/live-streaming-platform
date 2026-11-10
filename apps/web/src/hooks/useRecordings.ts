@@ -48,13 +48,13 @@ export function useRecordings(broadcastId: number, enabled: boolean, endedAt: st
     return () => clearInterval(timer)
   }, [recent])
 
-  /** SSE로 받은 새 세그먼트를 끼워 넣는다 (같은 id는 무시) */
+  /** SSE로 받은 새 세그먼트를 끼워 넣는다. 같은 id면 새 값(변환 후 크기·길이)으로 바꾼다 */
   const add = useCallback(
     (recording: Recording) =>
       setState((prev) => {
         if (prev?.key !== broadcastId || !prev.recordings) return prev
-        if (prev.recordings.some((r) => r.id === recording.id)) return prev
-        return { ...prev, recordings: [...prev.recordings, recording].sort(byStart) }
+        const others = prev.recordings.filter((r) => r.id !== recording.id)
+        return { ...prev, recordings: [...others, recording].sort(byStart) }
       }),
     [broadcastId],
   )

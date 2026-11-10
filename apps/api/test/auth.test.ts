@@ -108,6 +108,28 @@ describe('인증 API', () => {
     expect((await me(old)).statusCode).toBe(401)
   })
 
+  it('로그인해도 다른 기기(쿠키가 실려 오지 않은 세션)의 로그인은 유지된다', async () => {
+    const phone = sessionCookie(await signup())!.value
+    const laptop = await login({ email: ACCOUNT.email, password: ACCOUNT.password })
+    expect(laptop.statusCode).toBe(200)
+    const laptopSid = sessionCookie(laptop)!.value
+    expect(laptopSid).not.toBe(phone)
+    expect((await me(phone)).statusCode).toBe(200)
+    expect((await me(laptopSid)).statusCode).toBe(200)
+    expect(db.orm.select().from(sessions).all()).toHaveLength(2)
+
+    // 노트북에서 다시 로그인하면 노트북의 이전 세션만 바뀌고 휴대폰은 그대로다
+    const again = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: ACCOUNT.email, password: ACCOUNT.password },
+      cookies: { sid: laptopSid },
+    })
+    expect(again.statusCode).toBe(200)
+    expect((await me(laptopSid)).statusCode).toBe(401)
+    expect((await me(phone)).statusCode).toBe(200)
+  })
+
   it('로그아웃하면 세션이 삭제되고 쿠키가 지워진다', async () => {
     const sid = sessionCookie(await signup())!.value
     const res = await app.inject({ method: 'POST', url: '/api/auth/logout', cookies: { sid } })
@@ -146,6 +168,19 @@ describe('인증 API', () => {
     expect(res.statusCode).toBe(429)
     expect(res.json()).toMatchObject({ code: 'TOO_MANY_REQUESTS' })
     expect(res.json().message).toMatch(/초 후 다시 시도/)
+  })
+
+  it('회원가입도 IP당 분당 10회를 넘으면 429', async () => {
+    // 성공·실패와 상관없이 시도 횟수로 센다. argon2 비용을 줄이려고 대부분은 검증 실패(400) 요청으로 채운다
+    expect((await signup()).statusCode).toBe(201)
+    for (let i = 0; i < 9; i++) {
+      expect((await signup({ ...ACCOUNT, email: `bad-${i}` })).statusCode).toBe(400)
+    }
+    const res = await signup({ ...ACCOUNT, email: 'late@example.com' })
+    expect(res.statusCode).toBe(429)
+    expect(res.json()).toMatchObject({ code: 'TOO_MANY_REQUESTS' })
+    // 제한에 걸린 요청은 계정을 만들지 않는다
+    expect(db.orm.select().from(channels).all()).toHaveLength(1)
   })
 
   it('신뢰하지 않는 출처가 보낸 X-Forwarded-For로는 시도 제한을 우회할 수 없다', async () => {
