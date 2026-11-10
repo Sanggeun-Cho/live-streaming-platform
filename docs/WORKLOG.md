@@ -595,3 +595,12 @@
 - 상단 `import type * as X from '...'` + `typeof X`로 바꿨다. 같은 계열인 `apps/api/src/app.ts`의 `import('...').Type`(지적되지는 않음)도 일반 `import type`으로 바꿨다. 모두 타입 전용이라 런타임 코드는 같다.
 - 교훈: 앞으로 import 타입(`import('...')`를 타입 위치에 쓰는 것)은 쓰지 않는다.
 - 검증: typecheck(웹 빌드 포함), `npm test` API 409 + 웹 53 통과.
+
+## 2026-11-10 · 운영 자동 배포 (`feat/auto-deploy`)
+- 배경: #37을 main에 머지했는데 운영(galle.cloud)이 옛 버전이었다(`/api/auth/test-accounts` 404). Images 워크플로는 이미지 빌드까지만 하고, 서버 반영(INFRA_SETUP §6-3)은 처음부터 수동이었다. "main 푸시 = 배포"라는 사용자 전제와 달랐는데, 이를 미리 짚지 못했다.
+- 선택: GitHub Actions `deploy` 잡이 빌드 뒤 SSH로 배포 (서버 주기 확인 방식보다 반영이 즉시이고 결과가 Actions에 남는다). 사용자 결정(2026-11-10).
+- 안전장치: 배포 전용 키에 서버 `authorized_keys` 강제 명령(`git pull --ff-only` → `scripts/deploy.sh`) + 포워딩·pty 금지 → 키가 새도 배포 외 불가. `StrictHostKeyChecking=yes`와 등록된 호스트 키. 시크릿이 없으면 잡은 경고만 남기고 건너뜀.
+- 확인: `/api/health`에 이미지 빌드 커밋(`version`, Dockerfile `GIT_SHA` → `APP_VERSION`)을 넣어, 잡이 운영 버전 = 머지 커밋인지 확인한다. 배포 중 실행이 끊기지 않게 워크플로 `cancel-in-progress: false`.
+- `scripts/deploy.sh`: pull → `up -d --no-build` → api healthy 대기(최대 3분) → 이미지 정리, 실패 시 api 로그 50줄. 로컬 compose로 실행해 46초 만에 healthy 확인.
+- 사용자 작업: 키 생성·서버 등록·Secrets 4개 (QUESTIONS U5, INFRA_SETUP §6-4).
+- 리뷰 반영: mediamtx.yml(단일 파일 마운트)이 git pull 뒤에도 옛 내용으로 남는 문제 → 컨테이너 내용과 다를 때만 mediamtx 재생성(매번 재생성하면 방송이 끊김), 실패 시 옛 이미지 보존(prune을 성공 뒤로), 잡 15분 제한·SSH keepalive, `restrict` 옵션·호스트 키 지문 확인 절차, 시크릿 4개 모두 확인, `latest` 태그는 기본 브랜치에서만, main 보호 규칙 권장. 로컬 재실행으로 "변경 없음 → 재생성 안 함" 확인.

@@ -214,10 +214,62 @@ curl -s -o /dev/null -w "%{http_code}\n" https://www.galle.cloud/   # 301
 
 ### 6-3. 업데이트와 롤백
 ```bash
-cd ~/live && git pull && docker compose pull && docker compose up -d --no-build && docker image prune -f
+cd ~/live && git pull --ff-only && sh scripts/deploy.sh   # pull → up -d --no-build → api healthy 대기 → 이미지 정리
 ```
+- 자동 배포(§6-4)를 설정하면 `main` 머지마다 이 과정이 자동으로 돈다.
 - **항상 `--no-build`를 붙인다.** 빠뜨리면 이미지가 없을 때 서버에서 빌드를 시도하는데, 1GB 인스턴스에서는 멈출 수 있다.
 - 롤백할 때는 `.env`에 `IMAGE_TAG=sha-<이전 커밋>`을 넣고 `pull` → `up -d --no-build`를 실행한다.
+
+### 6-4. 자동 배포 (GitHub Actions → SSH)
+`main`에 push되면 이미지 빌드(`build`)가 끝난 뒤 `deploy` 잡이 서버에 SSH로 접속해 배포하고, `https://galle.cloud/api/health`의 `version`이 그 커밋인지 확인한다. 아래 설정이 없으면 `deploy` 잡은 경고만 남기고 건너뛴다(그때는 §6-3처럼 직접 배포).
+
+배포 전용 키에는 서버의 `authorized_keys`에서 **강제 명령**을 건다. 그래서 GitHub에 있는 키가 새더라도 배포(`git pull` → `scripts/deploy.sh`) 외에는 아무것도 할 수 없다.
+
+**1. 배포 전용 키 만들기 (로컬 PC, 1회)**
+```bash
+ssh-keygen -t ed25519 -N "" -C "github-deploy" -f ~/.ssh/live_deploy
+```
+`~/.ssh/live_deploy`(개인키)와 `~/.ssh/live_deploy.pub`(공개키)가 생긴다. 개인키는 저장소나 Notion에 올리지 않는다.
+
+**2. 서버에 공개키를 강제 명령과 함께 등록 (서버, 1회)**
+```bash
+ssh live
+cd ~/live && git pull --ff-only     # scripts/deploy.sh 받기
+# 아래 ssh-ed25519 … 부분을 로컬 live_deploy.pub 내용으로 바꿔서 실행 (앞의 
+은 기존 마지막 줄과 붙지 않게 한다)
+printf '
+%s
+' 'restrict,command="cd ~/live && git pull --ff-only -q && sh scripts/deploy.sh" ssh-ed25519 AAAA… github-deploy' >> ~/.ssh/authorized_keys
+```
+
+**3. 로컬에서 강제 명령 확인 (선택이지만 권장)**
+```bash
+ssh -i ~/.ssh/live_deploy ubuntu@<공인IP> deploy   # 배포가 실행되고 "배포 완료: api healthy (…)"로 끝나야 한다
+```
+
+**4. 서버 호스트 키 받기 (로컬 PC)**
+```bash
+ssh-keyscan -t ed25519 <공인IP>     # 출력 한 줄을 DEPLOY_KNOWN_HOSTS에 넣는다
+ssh-keyscan -t ed25519 <공인IP> 2>/dev/null | ssh-keygen -lf -   # 지문(SHA256:…)
+```
+지문이 서버에서 `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`로 본 값과 같은지 확인한다(중간자 방지). 이미 `ssh live`로 접속해 왔다면 로컬 `~/.ssh/known_hosts`의 줄(`ssh-keygen -F <공인IP>`)을 써도 된다.
+
+**5. GitHub 저장소 Secrets 등록** — 저장소 → Settings → Secrets and variables → Actions → New repository secret
+
+| 이름 | 값 |
+|---|---|
+| `DEPLOY_HOST` | 서버 공인 IP (`ssh live`의 HostName) |
+| `DEPLOY_USER` | `ubuntu` |
+| `DEPLOY_SSH_KEY` | `~/.ssh/live_deploy` **개인키** 전체 (`-----BEGIN` ~ `END-----` 줄까지) |
+| `DEPLOY_KNOWN_HOSTS` | 4번 `ssh-keyscan` 출력 한 줄 |
+
+**6. 확인** — 저장소 → Actions → Images → 최근 실행에서 **Run workflow**(main)를 누른다. `build` → `deploy`가 모두 초록색이고 "운영 버전 확인: <커밋>"이 찍히면 끝이다. 이후로는 `main`에 머지할 때마다 자동으로 배포된다.
+
+- 실패하면 `deploy` 잡 로그에 `scripts/deploy.sh`의 출력(api 로그 50줄 포함)이 그대로 남는다.
+- 키를 폐기하려면 서버 `~/.ssh/authorized_keys`에서 `github-deploy` 줄을 지우고 GitHub Secret `DEPLOY_SSH_KEY`를 삭제한다.
+- `main`에 push할 수 있으면 서버에서 코드를 실행할 수 있는 셈이다(배포 = 서버 실행). GitHub → Settings → Branches에서 `main`에 보호 규칙(PR 필수)을 걸어 두는 것을 권장한다. 키만 새는 경우에는 재배포 외에 할 수 있는 일이 없다.
+- MediaMTX 설정(`mediamtx.yml`)이 바뀐 배포에서만 mediamtx를 다시 만든다(그때는 진행 중인 방송이 잠깐 끊긴다).
+- 롤백은 §6-3과 같다(`.env`의 `IMAGE_TAG`). 자동 배포는 `latest`를 쓰므로, 롤백 중에는 `main` 머지를 멈춘다.
 
 ## 7. 검증 기록
 
