@@ -31,6 +31,9 @@ RUN mkdir -p /data && chown node:node /data
 WORKDIR /repo/apps/api
 USER node
 ENV DATABASE_PATH=/data/app.db
+# 빌드한 커밋. /api/health의 version으로 노출해 자동 배포가 운영 버전을 확인한다 (캐시를 덜 깨도록 마지막에 둔다)
+ARG GIT_SHA=dev
+ENV APP_VERSION=$GIT_SHA
 EXPOSE 3000
 # 1GB VM 기준으로 힙 상한을 둔다
 CMD ["node", "--max-old-space-size=192", "dist/index.js"]

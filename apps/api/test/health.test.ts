@@ -20,7 +20,7 @@ describe('GET /api/health', () => {
     const res = await app.inject({ method: 'GET', url: '/api/health' })
 
     expect(res.statusCode).toBe(200)
-    expect(res.json()).toMatchObject({ status: 'ok', db: 'ok' })
+    expect(res.json()).toMatchObject({ status: 'ok', db: 'ok', version: expect.any(String) })
   })
 
   it('없는 경로는 404 에러 형식으로 응답한다', async () => {
