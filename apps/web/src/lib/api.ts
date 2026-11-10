@@ -35,6 +35,9 @@ export async function api<T>(path: string, { method = 'GET', body, signal }: Opt
   if (res.status === 204) return undefined as T
 
   const data: unknown = await res.json().catch(() => null)
+  // 본문을 읽는 도중 취소되면 json()이 실패해 null이 된다. 성공 응답(null)으로 넘기면 호출한 쪽이
+  // 취소된 요청의 결과를 쓰다 터지므로(예: null.items) 취소로 돌려준다
+  if (signal?.aborted) throw new DOMException('요청이 취소되었습니다', 'AbortError')
   if (!res.ok) {
     const err = (data ?? {}) as { code?: string; message?: string }
     throw new ApiError(res.status, err.code ?? 'UNKNOWN', err.message ?? `요청에 실패했습니다 (HTTP ${res.status})`)

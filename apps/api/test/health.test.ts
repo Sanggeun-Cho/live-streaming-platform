@@ -36,3 +36,12 @@ describe('GET /api/health', () => {
     expect(res.json()).toEqual({ code: 'NOT_FOUND', message: '요청한 리소스를 찾을 수 없습니다' })
   })
 })
+
+describe('로그 마스킹', () => {
+  it('secret·token 쿼리 값을 가린다', async () => {
+    const { redactQuery } = await import('../src/app.js')
+    expect(redactQuery('/internal/media/auth?secret=abc&x=1&token=t')).toBe(
+      '/internal/media/auth?secret=[redacted]&x=1&token=[redacted]',
+    )
+  })
+})

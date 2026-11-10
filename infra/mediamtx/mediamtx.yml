@@ -15,7 +15,7 @@ moq: no
 api: yes
 apiAddress: :9997
 
-# 녹화 재생 서버 (#12에서 사용)
+# 녹화 재생 서버. 다시보기는 Caddy가 웹용 mp4 파일을 직접 서빙하므로 쓰지 않는다 (#12)
 playback: no
 
 webrtc: yes
@@ -27,9 +27,14 @@ webrtcLocalTCPAddress: :8189
 # 대신 MTX_WEBRTCADDITIONALHOSTS로 공인 도메인/IP(로컬에서는 PC의 LAN IP)를 지정한다.
 webrtcIPsFromInterfaces: no
 webrtcAdditionalHosts: []
+# 송출이 붙은 뒤 모든 트랙의 첫 패킷을 기다리는 시간(기본 2s). 이 안에 패킷이 없는 트랙은 버려진다.
+# 휴대폰·저사양 PC는 영상 인코더 시작이 늦어 첫 녹화 구간이 오디오만 남는 일이 있었다(#12 E2E) → 여유를 둔다
+webrtcTrackGatherTimeout: 5s
 
 # 인가는 api에 위임한다. publish/read 요청마다 api의 /internal/media/auth를 호출하고, 2xx면 허용한다.
-# #2 스파이크 단계의 api는 모두 허용하므로 아직 배포하지 않는다. TODO(#6): 토큰·방송 상태 검증
+#   publish: 소유자에게 발급한 publish 토큰(WHIP Authorization: Bearer) + 방송 상태(READY/LIVE)
+#   read:    방송 중(LIVE)이면 누구나
+# 실제 주소는 compose의 MTX_AUTHHTTPADDRESS가 덮어쓴다 (공유 시크릿을 쿼리로 붙인다)
 authMethod: http
 authHTTPAddress: http://api:3000/internal/media/auth
 # Control API는 api 컨테이너만 쓴다. 9997 포트는 외부에 공개하지 않으므로 HTTP 인가에서 제외한다.
@@ -52,7 +57,8 @@ pathDefaults:
   # 상태 머신 입력. 훅이 유실돼도 #6의 Control API 주기 대조로 보정한다.
   runOnOnline: sh /hooks/notify.sh online
   runOnOffline: sh /hooks/notify.sh offline
-  runOnRecordSegmentComplete: sh /hooks/notify.sh segment
+  # 세그먼트가 닫히면 웹용 mp4(영상 복사 + 오디오 AAC, faststart)로 바꾼 뒤 api에 등록한다 (#12)
+  runOnRecordSegmentComplete: sh /hooks/segment.sh
 
 paths:
   # 방송 회차 하나 = path 하나 (live/{broadcastId})

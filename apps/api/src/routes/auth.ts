@@ -3,7 +3,8 @@ import { z } from 'zod'
 import { clearSessionCookie, requireAuth, SESSION_COOKIE, setSessionCookie } from '../auth/plugin.js'
 import type { AuthService } from '../auth/service.js'
 import type { Config } from '../config.js'
-import { validationError } from '../errors.js'
+import { TEST_ACCOUNTS } from '../db/test-accounts.js'
+import { parse } from '../lib/validate.js'
 
 const email = z
   .string({ error: '이메일을 입력하세요' })
@@ -29,12 +30,6 @@ const loginBody = z.object({
   email,
   password: z.string({ error: '비밀번호를 입력하세요' }).min(1, { error: '비밀번호를 입력하세요' }).max(128),
 })
-
-function parse<T extends z.ZodType>(schema: T, body: unknown): z.infer<T> {
-  const result = schema.safeParse(body ?? {})
-  if (!result.success) throw validationError(result.error)
-  return result.data
-}
 
 // 비밀번호 추측과 argon2 연산으로 CPU를 소모시키는 요청 폭주를 막는다
 const authRateLimit = { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }
@@ -78,4 +73,11 @@ export const authRoutes =
     app.get('/auth/me', { preHandler: requireAuth }, async (request) => {
       return { user: request.user }
     })
+
+    // 심사·시연용 테스트 계정(README에 공개된 값). 켜져 있을 때만 로그인 화면에 "바로 로그인" 버튼이 생긴다
+    app.get('/auth/test-accounts', async () => ({
+      accounts: config.SEED_TEST_ACCOUNTS
+        ? TEST_ACCOUNTS.map(({ role, email, password }) => ({ role, email, password }))
+        : [],
+    }))
   }

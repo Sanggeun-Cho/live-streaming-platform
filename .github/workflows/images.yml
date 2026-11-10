@@ -1,6 +1,6 @@
 name: Images
 
-# 서버(Oracle VM)는 빌드하지 않고 여기서 만든 이미지를 pull만 한다 (docs/INFRA_SETUP.md 고정 원칙).
+# 서버(Oracle VM)는 빌드하지 않고 여기서 만든 이미지를 pull만 한다 (docs/INFRA_SETUP.md §1 원칙).
 # amd64(현재 E2.1.Micro)와 arm64(A1 이전 대비)를 함께 빌드한다.
 
 on:

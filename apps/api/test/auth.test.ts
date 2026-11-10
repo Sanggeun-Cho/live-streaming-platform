@@ -2,25 +2,17 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { buildApp } from '../src/app.js'
 import { hashToken } from '../src/auth/service.js'
-import { loadConfig } from '../src/config.js'
-import { createDb } from '../src/db/client.js'
+import type { createDb } from '../src/db/client.js'
 import { channels, sessions } from '../src/db/schema.js'
+import { makeApp, type TestApp } from './helpers.js'
 
-type App = Awaited<ReturnType<typeof buildApp>>
+type App = TestApp
 
 const ACCOUNT = { email: 'Alice@Example.com', password: 'password123', nickname: '앨리스' }
 
 function sessionCookie(res: { cookies: Array<{ name: string; value: string }> }) {
   return res.cookies.find((c) => c.name === 'sid')
-}
-
-async function makeApp(path = ':memory:', env: Record<string, string> = {}) {
-  const config = loadConfig({ NODE_ENV: 'test', DATABASE_PATH: path, ...env })
-  const db = createDb(path)
-  const app = await buildApp({ config, db })
-  return { app, db }
 }
 
 describe('인증 API', () => {
@@ -116,6 +108,28 @@ describe('인증 API', () => {
     expect((await me(old)).statusCode).toBe(401)
   })
 
+  it('로그인해도 다른 기기(쿠키가 실려 오지 않은 세션)의 로그인은 유지된다', async () => {
+    const phone = sessionCookie(await signup())!.value
+    const laptop = await login({ email: ACCOUNT.email, password: ACCOUNT.password })
+    expect(laptop.statusCode).toBe(200)
+    const laptopSid = sessionCookie(laptop)!.value
+    expect(laptopSid).not.toBe(phone)
+    expect((await me(phone)).statusCode).toBe(200)
+    expect((await me(laptopSid)).statusCode).toBe(200)
+    expect(db.orm.select().from(sessions).all()).toHaveLength(2)
+
+    // 노트북에서 다시 로그인하면 노트북의 이전 세션만 바뀌고 휴대폰은 그대로다
+    const again = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: ACCOUNT.email, password: ACCOUNT.password },
+      cookies: { sid: laptopSid },
+    })
+    expect(again.statusCode).toBe(200)
+    expect((await me(laptopSid)).statusCode).toBe(401)
+    expect((await me(phone)).statusCode).toBe(200)
+  })
+
   it('로그아웃하면 세션이 삭제되고 쿠키가 지워진다', async () => {
     const sid = sessionCookie(await signup())!.value
     const res = await app.inject({ method: 'POST', url: '/api/auth/logout', cookies: { sid } })
@@ -154,6 +168,19 @@ describe('인증 API', () => {
     expect(res.statusCode).toBe(429)
     expect(res.json()).toMatchObject({ code: 'TOO_MANY_REQUESTS' })
     expect(res.json().message).toMatch(/초 후 다시 시도/)
+  })
+
+  it('회원가입도 IP당 분당 10회를 넘으면 429', async () => {
+    // 성공·실패와 상관없이 시도 횟수로 센다. argon2 비용을 줄이려고 대부분은 검증 실패(400) 요청으로 채운다
+    expect((await signup()).statusCode).toBe(201)
+    for (let i = 0; i < 9; i++) {
+      expect((await signup({ ...ACCOUNT, email: `bad-${i}` })).statusCode).toBe(400)
+    }
+    const res = await signup({ ...ACCOUNT, email: 'late@example.com' })
+    expect(res.statusCode).toBe(429)
+    expect(res.json()).toMatchObject({ code: 'TOO_MANY_REQUESTS' })
+    // 제한에 걸린 요청은 계정을 만들지 않는다
+    expect(db.orm.select().from(channels).all()).toHaveLength(1)
   })
 
   it('신뢰하지 않는 출처가 보낸 X-Forwarded-For로는 시도 제한을 우회할 수 없다', async () => {
@@ -240,5 +267,32 @@ describe('세션 영속성', () => {
 
     expect(meRes.statusCode).toBe(200)
     expect(meRes.json().user.email).toBe('alice@example.com')
+  })
+
+  it('SEED_TEST_ACCOUNTS가 켜지면 기동 시 테스트 계정을 만들고(재기동해도 중복 없음) 목록을 공개한다', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'live-seed-'))
+    const path = join(dir, 'app.db')
+    try {
+      for (let i = 0; i < 2; i++) {
+        const { app: seeded } = await makeApp(path, { SEED_TEST_ACCOUNTS: 'true' })
+        const list = (await seeded.inject({ method: 'GET', url: '/api/auth/test-accounts' })).json().accounts
+        expect(list.map((a: { email: string }) => a.email)).toEqual(['streamer@test.com', 'viewer@test.com'])
+        const res = await seeded.inject({
+          method: 'POST',
+          url: '/api/auth/login',
+          payload: { email: 'streamer@test.com', password: 'test1234!' },
+        })
+        expect(res.statusCode).toBe(200)
+        await seeded.close()
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('SEED_TEST_ACCOUNTS가 꺼져 있으면 테스트 계정 목록은 비어 있다', async () => {
+    const { app: plain } = await makeApp()
+    expect((await plain.inject({ method: 'GET', url: '/api/auth/test-accounts' })).json()).toEqual({ accounts: [] })
+    await plain.close()
   })
 })

@@ -1,4 +1,3 @@
-import { resolve } from 'node:path'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
@@ -6,16 +5,13 @@ import { defineConfig } from 'vite'
 // 배포 환경에서는 Caddy가 같은 출처에서 정적 파일과 /api를 함께 서빙한다.
 export default defineConfig({
   plugins: [react()],
-  build: {
-    rollupOptions: {
-      // spike.html: #2 WebRTC 검증 화면 (#7에서 운영 화면으로 대체 후 삭제)
-      input: { main: resolve(import.meta.dirname, 'index.html'), spike: resolve(import.meta.dirname, 'spike.html') },
-    },
-  },
   server: {
     host: true,
+    // 여러 작업 트리를 동시에 띄울 때 api 포트를 바꿀 수 있게 한다 (기본 3000)
     proxy: {
-      '/api': 'http://localhost:3000',
+      '/api': { target: process.env.API_PROXY_TARGET ?? 'http://localhost:3000', secure: false, changeOrigin: true },
+      // WHIP/WHEP 시그널링. docker compose를 띄운 상태에서 개발 서버로 송출·시청을 확인할 때 쓴다 (로컬 인증서라 검증 생략)
+      '/live': { target: process.env.LIVE_PROXY_TARGET ?? 'https://localhost', secure: false, changeOrigin: true },
     },
   },
 })

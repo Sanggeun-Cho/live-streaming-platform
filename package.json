@@ -11,7 +11,12 @@
     "dev:api": "npm run dev -w @live/api",
     "dev:web": "npm run dev -w @live/web",
     "build": "npm run build -w @live/api && npm run build -w @live/web",
-    "typecheck": "npm run typecheck -w @live/api && npm run build -w @live/web",
-    "test": "npm test -w @live/api"
+    "typecheck": "npm run typecheck -w @live/api && npm run build -w @live/web && npm run check:css",
+    "test": "npm test -w @live/api && npm test -w @live/web",
+    "e2e": "node e2e/run.mjs",
+    "check:css": "node scripts/check-css.mjs apps/web/src/index.css"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.56.1"
   }
 }

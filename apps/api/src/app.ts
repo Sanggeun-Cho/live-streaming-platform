@@ -1,36 +1,80 @@
 import rateLimit from '@fastify/rate-limit'
-import Fastify, { type FastifyError } from 'fastify'
+import Fastify, { type FastifyError, type FastifyReply } from 'fastify'
 import type { Config } from './config.js'
 import type { Db } from './db/client.js'
 import { authPlugin } from './auth/plugin.js'
 import { createAuthService } from './auth/service.js'
-import { AppError } from './errors.js'
+import { ensureTestAccounts } from './db/test-accounts.js'
+import { createBroadcastLifecycle } from './broadcasts/lifecycle.js'
+import { createBroadcastService } from './broadcasts/service.js'
+import { createDonationService } from './donations/service.js'
+import { createCommentService } from './comments/service.js'
+import { createMediaControl, type MediaControl } from './media/control.js'
+import { createPublishTokenSigner } from './media/token.js'
+import { createFakeTossClient, createTossClient, disabledTossClient, type TossClient } from './payments/toss.js'
+import { createEventHub } from './realtime/hub.js'
+import { AppError, toErrorReply } from './errors.js'
 import { authRoutes } from './routes/auth.js'
+import { broadcastRoutes } from './routes/broadcasts.js'
+import { channelRoutes } from './routes/channels.js'
+import { donationRoutes } from './routes/donations.js'
+import { commentRoutes } from './routes/comments.js'
 import { healthRoutes } from './routes/health.js'
 import { internalMediaRoutes } from './routes/internal-media.js'
+import { recordingRoutes } from './routes/recordings.js'
+import { createRecordingService } from './recordings/service.js'
 
 export type AppDeps = {
   config: Config
   db: Db
+  /** 테스트에서 MediaMTX 대신 넣는다 */
+  mediaControl?: MediaControl
+  /** 테스트에서 토스 결제 API 대신 넣는다 */
+  toss?: TossClient
 }
 
-export async function buildApp({ config, db }: AppDeps) {
+/** 로그용: secret·token 쿼리 값을 가린다 */
+export function redactQuery(url: string): string {
+  return url.replace(/([?&](?:secret|token)=)[^&]*/gi, '$1[redacted]')
+}
+
+export async function buildApp({ config, db, mediaControl, toss }: AppDeps) {
   const app = Fastify({
-    logger: config.NODE_ENV === 'test' ? false : { level: config.LOG_LEVEL },
+    logger:
+      config.NODE_ENV === 'test'
+        ? false
+        : {
+            level: config.LOG_LEVEL,
+            serializers: {
+              // MediaMTX 인가 요청은 공유 시크릿을 쿼리로 보낸다. 로그에 남지 않도록 쿼리 값을 가린다
+              req: (req: { method: string; url: string; hostname?: string; ip?: string }) => ({
+                method: req.method,
+                url: redactQuery(req.url),
+                host: req.hostname,
+                remoteAddress: req.ip,
+              }),
+            },
+          },
     // 지정한 프록시(Caddy)가 보낸 X-Forwarded-*만 믿는다. request.ip는 시도 횟수 제한의 기준이라
     // 아무나 보낸 헤더를 믿으면 요청마다 IP를 바꿔 제한을 우회할 수 있다.
     trustProxy: config.TRUST_PROXY.length > 0 ? config.TRUST_PROXY : false,
+    // 라우팅 전에 나는 오류(잘못된 퍼센트 인코딩 주소, 너무 긴 경로 파라미터)는 setErrorHandler를 거치지 않고
+    // Fastify 기본 형식({error, code, message, statusCode}, 영어)으로 나간다. 공통 형식으로 맞춘다
+    frameworkErrors: (error, _request, reply) => {
+      const { statusCode, body } = toErrorReply(error)
+      // 이 시점의 reply는 라우트 스키마 제네릭이 비어 있어 상태 코드 타입이 좁다. 일반 FastifyReply로 다룬다
+      void (reply as FastifyReply).code(statusCode).send(body)
+    },
   })
 
   app.setErrorHandler<FastifyError | AppError>((error, request, reply) => {
-    const statusCode = error.statusCode ?? 500
+    // 5xx는 내부 정보를 숨긴다. 노출을 명시한 AppError(외부 결제 API 장애 안내 등)만 문구를 그대로 보낸다.
+    // Fastify 본문 파싱 오류(잘못된 JSON, 415, 413)도 같은 형식의 한국어 안내로 바꾼다 (errors.ts toErrorReply)
+    const { statusCode, body } = toErrorReply(error)
     if (statusCode >= 500) {
       request.log.error({ err: error }, 'unhandled error')
     }
-    reply.code(statusCode).send({
-      code: error.code ?? 'INTERNAL_ERROR',
-      message: statusCode >= 500 ? '서버 오류가 발생했습니다' : error.message,
-    })
+    reply.code(statusCode).send(body)
   })
 
   app.setNotFoundHandler((_request, reply) => {
@@ -54,6 +98,10 @@ export async function buildApp({ config, db }: AppDeps) {
   })
 
   const auth = createAuthService(db, { sessionTtlDays: config.SESSION_TTL_DAYS })
+  if (config.SEED_TEST_ACCOUNTS) {
+    const created = await ensureTestAccounts(db, auth)
+    if (created.length > 0) app.log.info({ created }, '테스트 계정 생성')
+  }
   auth.deleteExpiredSessions()
   const cleanup = setInterval(() => auth.deleteExpiredSessions(), 60 * 60 * 1000)
   cleanup.unref()
@@ -61,12 +109,102 @@ export async function buildApp({ config, db }: AppDeps) {
 
   await app.register(healthRoutes(db), { prefix: '/api' })
   await app.register(authRoutes({ config, auth }), { prefix: '/api' })
-  await app.register(internalMediaRoutes, { prefix: '/internal' })
+  const broadcasts = createBroadcastService(db)
+  const hub = createEventHub()
+  const lifecycle = createBroadcastLifecycle({
+    db,
+    hub,
+    control: mediaControl ?? createMediaControl(config.MEDIAMTX_API_URL),
+    signer: createPublishTokenSigner(config.INTERNAL_SECRET, config.PUBLISH_TOKEN_TTL_SECONDS),
+    graceMs: config.PUBLISH_GRACE_SECONDS * 1000,
+    log: app.log,
+  })
+  // 테스트는 주기 작업 대신 메서드를 직접 호출한다
+  const stopLifecycle = config.NODE_ENV === 'test' ? () => {} : lifecycle.start()
+  app.decorate('lifecycle', lifecycle)
 
+  await app.register(broadcastRoutes({ broadcasts, lifecycle, hub }), { prefix: '/api' })
+  await app.register(channelRoutes(db), { prefix: '/api' })
+
+  // 후원: 토스 키가 있으면 실제(테스트) 결제, 가짜 결제 모드면 토스를 거치지 않는다. 둘 다 아니면 꺼진다
+  // (키와 가짜 결제를 함께 켜는 설정은 config에서 거부한다)
+  const tossEnabled = Boolean(config.TOSS_SECRET_KEY)
+  if (config.TOSS_FAKE_PAYMENTS) {
+    app.log.warn('TOSS_FAKE_PAYMENTS=true: 결제창 없이 모든 후원을 승인 처리합니다. 개발·E2E 전용입니다')
+  }
+  const donations = createDonationService({
+    db,
+    hub,
+    log: app.log,
+    toss:
+      toss ??
+      (config.TOSS_FAKE_PAYMENTS
+        ? createFakeTossClient()
+        : tossEnabled
+          ? createTossClient(config.TOSS_SECRET_KEY)
+          : disabledTossClient),
+  })
+  await app.register(
+    donationRoutes({
+      donations,
+      settings: {
+        enabled: tossEnabled || config.TOSS_FAKE_PAYMENTS,
+        clientKey: config.TOSS_CLIENT_KEY || null,
+        fake: config.TOSS_FAKE_PAYMENTS,
+      },
+    }),
+    { prefix: '/api' },
+  )
+  await app.register(commentRoutes({ comments: createCommentService(db), hub }), { prefix: '/api' })
+  const recordings = createRecordingService(db, { recordingsDir: config.RECORDINGS_DIR })
+  app.decorate('recordings', recordings)
+  await app.register(recordingRoutes(recordings), { prefix: '/api' })
+  await app.register(internalMediaRoutes({ secret: config.INTERNAL_SECRET, lifecycle, recordings, hub }), {
+    prefix: '/internal',
+  })
+
+  // 녹화 복구 스캔 (#12): 훅이 유실된 세그먼트를 기동 시와 5분마다 등록한다. 테스트는 scan()을 직접 부른다
+  let scanning: Promise<void> | null = null
+  const runScan = () => {
+    if (scanning) return
+    scanning = recordings
+      .scan()
+      .then(({ registered }) => {
+        for (const r of registered) {
+          app.log.info({ broadcastId: r.broadcastId, url: r.recording.url }, '복구 스캔으로 녹화 등록')
+          hub.publish(r.broadcastId, 'recording', r.recording)
+        }
+      })
+      .catch((err: unknown) => app.log.error({ err }, '녹화 복구 스캔 실패'))
+      .finally(() => {
+        scanning = null
+      })
+  }
+  const scanTimer = config.NODE_ENV === 'test' ? undefined : setInterval(runScan, 5 * 60_000)
+  scanTimer?.unref()
+  if (scanTimer) runScan()
+
+  // 열린 SSE 응답을 닫지 않으면 서버 close가 끝나지 않는다 (hub가 모든 응답을 닫는다)
+  app.addHook('preClose', async () => {
+    stopLifecycle()
+    clearInterval(scanTimer)
+    // DB를 닫기 전에 진행 중인 스캔을 기다린다
+    await scanning
+    hub.closeAll()
+  })
   app.addHook('onClose', async () => {
     clearInterval(cleanup)
     db.sqlite.close()
   })
 
   return app
+}
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    /** 방송 상태 머신 (테스트에서 주기 작업을 직접 실행할 때 쓴다) */
+    lifecycle: import('./broadcasts/lifecycle.js').BroadcastLifecycle
+    /** 녹화 서비스 (테스트에서 복구 스캔을 직접 실행할 때 쓴다) */
+    recordings: import('./recordings/service.js').RecordingService
+  }
 }

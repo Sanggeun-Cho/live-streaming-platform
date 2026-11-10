@@ -15,9 +15,13 @@ services:
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
       WWW_ADDRESS: ${WWW_ADDRESS:-www.localhost}
+      # /recordings/* 요청마다 api에 파일 공개 여부를 묻는다(forward_auth). api 내부 경로라 공유 시크릿이 필요하다
+      INTERNAL_SECRET: ${INTERNAL_SECRET:?INTERNAL_SECRET를 .env에 설정하세요}
     volumes:
       - caddy_data:/data
       - caddy_config:/config
+      # 다시보기 파일 서빙 (#12). 쓰기는 MediaMTX만 한다
+      - recordings:/media/recordings:ro
     depends_on:
       - api
       - mediamtx
@@ -38,10 +42,19 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
       SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
+      # 심사·시연용 테스트 계정(README 공개)을 기동 시 만들고 로그인 화면에 "바로 로그인"을 보여준다
+      SEED_TEST_ACCOUNTS: ${SEED_TEST_ACCOUNTS:-true}
+      # 토스페이먼츠 테스트 키. 비우면 후원 기능이 꺼진다 (.env.example 참고)
+      TOSS_CLIENT_KEY: ${TOSS_CLIENT_KEY:-}
+      TOSS_SECRET_KEY: ${TOSS_SECRET_KEY:-}
+      # 로컬 docker E2E 전용 가짜 결제 (NODE_ENV=development와 함께. 운영에서는 api가 기동을 거부한다)
+      TOSS_FAKE_PAYMENTS: ${TOSS_FAKE_PAYMENTS:-false}
       # Caddy 컨테이너만 프록시로 믿는다. 같은 네트워크의 다른 컨테이너가 보낸 X-Forwarded-For는 무시된다
       TRUST_PROXY: 10.89.0.10
     volumes:
       - api_data:/data
+      # 녹화 복구 스캔 (#12): 훅이 유실된 세그먼트를 찾아 등록한다. 읽기만 한다 (RECORDINGS_DIR 기본값과 같은 경로)
+      - recordings:/recordings:ro
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
@@ -61,6 +74,10 @@ services:
     environment:
       # 브라우저가 미디어를 보낼 주소. 운영: galle.cloud / 로컬 휴대폰 테스트: PC의 LAN IP
       MTX_WEBRTCADDITIONALHOSTS: ${MEDIA_PUBLIC_HOST:-127.0.0.1}
+      # 인가 요청에 공유 시크릿을 붙인다 (MediaMTX는 인가 요청에 헤더를 넣을 수 없어 쿼리로 전달)
+      MTX_AUTHHTTPADDRESS: http://api:3000/internal/media/auth?secret=${INTERNAL_SECRET:?INTERNAL_SECRET를 .env에 설정하세요}
+      # 훅(notify.sh)이 X-Internal-Secret 헤더로 보낸다
+      INTERNAL_SECRET: ${INTERNAL_SECRET:?INTERNAL_SECRET를 .env에 설정하세요}
     volumes:
       - ./infra/mediamtx/mediamtx.yml:/mediamtx.yml:ro
       - ./infra/mediamtx/hooks:/hooks:ro
@@ -73,6 +90,8 @@ networks:
         # Caddy에 고정 IP를 주기 위해 서브넷을 고정한다.
         # Docker 기본 대역(172.17~31, 192.168)과 Oracle VCN 기본값(10.0.0.0/16)을 피했다
         - subnet: 10.89.0.0/24
+          # 자동 할당은 .128 이후만 쓰게 해서, 먼저 뜨는 api·mediamtx가 Caddy의 고정 IP(.10)를 가져가지 못하게 한다
+          ip_range: 10.89.0.128/25
 
 volumes:
   caddy_data:

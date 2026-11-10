@@ -1,0 +1,1 @@
+ALTER TABLE `donation_orders` ADD `confirm_attempt` integer DEFAULT 0 NOT NULL;
