@@ -7,7 +7,9 @@
 //                                                         └─ 새 토큰으로 재송출 → live
 //   영상 소스가 끝남(화면 공유 중지 등) → sourceEnded: 송출을 멈춘다(마이크 포함).
 //     유예 시간 안에 다시 선택하면 재송출, 아니면 서버가 방송을 종료한다.
-//     카메라는 사용자가 끈 것이 아니므로(다른 앱·OS가 가져감) 먼저 같은 카메라를 다시 열어 이어 간다. 실패하면 sourceEnded.
+//     카메라는 사용자가 끈 것이 아니므로(다른 앱·OS가 가져감) 먼저 같은 카메라를 다시 열어 이어 간다(healCamera).
+//     다시 열지 못하거나, 권한이 회수됐거나, 1분에 복구가 너무 잦으면 sourceEnded.
+//     sourceEnded 자동 종료는 마감 시각으로 관리해 다시 고르다 취소해도 시한이 이어진다.
 //   소스를 고르는 중(requesting)에도 송출은 계속된다. 그사이 연결이 끊기면 똑같이 재연결한다.
 //   종료(이 화면·다른 탭·유예 만료) → ended
 //
@@ -61,6 +63,10 @@ const STATUS_CHECK_DELAY_MS = 3000
 // 카메라 서비스가 재시작되는 동안에는 한동안 장치가 없다고(NotFoundError) 나오므로 몇 초는 기다려 본다
 export const CAMERA_RECOVER_ATTEMPTS = 6
 const cameraRecoverDelay = (attempt: number) => Math.min(1000 * (attempt - 1), 3000)
+// 1분 안에 이보다 많이 복구(카메라 다시 열기·재송출)해야 하면 장치가 불안정한 것이다 → 송출을 멈춘다
+export const RECOVERY_BUDGET = 5
+const CAMERA_LOST_MESSAGE = '카메라를 다시 열지 못해 송출을 멈췄습니다. 다른 앱이 카메라를 쓰고 있는지 확인한 뒤 다시 선택하세요'
+const SOURCE_UNSTABLE_MESSAGE = '영상이 계속 끊겨 송출을 멈췄습니다. 장치와 네트워크를 확인한 뒤 다시 선택하세요'
 // 영상 소스가 끝난 뒤 다시 선택하지 않으면 이 시간 뒤 방송을 종료한다 (서버 유예 시간과 같게).
 // 송출 직후 바로 끊기면 MediaMTX에 송출이 잡히지 않아 서버가 끊김을 모를 수 있어서 화면이 직접 끝낸다
 export const SOURCE_ENDED_TIMEOUT_MS = 45_000
@@ -92,12 +98,20 @@ export class Publisher {
   private session: WebRtcSession | null = null
   private disconnectTimer: ReturnType<typeof setTimeout> | undefined
   private sourceEndedTimer: ReturnType<typeof setTimeout> | undefined
+  // sourceEnded 자동 종료 시각 (다시 고르다 취소해도 시한은 이어진다)
+  private sourceEndedDeadline: number | null = null
   private wakeLock: WakeLockSentinel | null = null
   private gen = 0
   // 소스 선택 창이 열려 있다 (연결이 끊겨 phase가 reconnecting으로 바뀌어도 중복 요청을 막는다)
   private picking = false
-  // 다시 열고 있는 카메라 캡처 (ended와 전환 실패가 겹쳐도 복구는 한 번만 돈다)
-  private recovering: Capture | null = null
+  // 복구 루프가 돌고 있는 카메라 캡처 (ended·전환 실패·연결 직후 확인이 겹쳐도 루프는 하나)
+  private healing: Capture | null = null
+  // 영상 없이 맺어진 것으로 보여 새로 맺어야 하는 연결
+  private republishFor: WebRtcSession | null = null
+  // 끊기기 전 영상 송출 여부를 이미 확인한 연결
+  private framesChecked: WebRtcSession | null = null
+  // 최근 1분 복구 시각 (RECOVERY_BUDGET)
+  private recoveries: number[] = []
   // 같은 브라우저의 다른 탭과 "누가 송출 중인지" 공유한다 (두 탭이 서로 송출을 빼앗지 않게)
   private channel: BroadcastChannel | null = null
   private readonly tabId = Math.random().toString(36).slice(2)
@@ -175,7 +189,10 @@ export class Publisher {
       next = source === 'screen' ? await captureScreen({ mic: true }) : await captureCamera(this.state.facing)
     } catch (e) {
       // 고르는 사이 상태가 바뀌었으면(연결 끊김 → 재연결 등) 그 상태를 유지한다
-      this.set(this.state.phase === 'requesting' ? { phase: before, ...errorState(e) } : errorState(e))
+      if (this.state.phase !== 'requesting') return this.set(errorState(e))
+      this.set({ phase: before, ...errorState(e) })
+      // 소스 중단 뒤 고르다 취소했다: 자동 종료 시한은 그대로다 (이미 지났으면 바로 종료)
+      if (before === 'sourceEnded') this.armSourceEndedTimer()
       return
     } finally {
       this.picking = false
@@ -186,10 +203,11 @@ export class Publisher {
     const from = now === 'requesting' ? before : now
     const previous = this.capture
     this.capture = next
+    this.recoveries = []
     next.onEnded(() => this.onSourceEnded(next))
     this.set({
       source,
-      stream: next.stream,
+      stream: previewStream(next),
       hasDisplayAudio: next.hasDisplayAudio,
       hasMic: next.hasMic,
       displayVolume: 1,
@@ -199,26 +217,35 @@ export class Publisher {
 
     if (this.session) {
       // 송출 중이면 연결을 유지한 채 트랙만 바꾼다. 시청자는 끊김 없이 새 화면을 본다
-      await this.replaceTracks(next.stream)
-      await setMaxBitrate(this.session.pc, MAX_BITRATE[source]).catch(() => undefined)
+      const session = this.session
+      try {
+        await this.replaceTracks(session, next.stream)
+        await setMaxBitrate(session.pc, MAX_BITRATE[source]).catch(() => undefined)
+      } catch {
+        // 트랙 교체가 안 되면 새 캡처로 연결을 다시 맺는다 (checkVideo가 처리)
+        if (session === this.session) this.republishFor = session
+      }
       previous?.stop()
-      this.set({ phase: from === 'reconnecting' ? 'reconnecting' : 'live' })
+      if (this.state.phase === 'requesting') this.set({ phase: 'live' })
+      this.checkVideo()
       return
     }
     previous?.stop()
-    if (from === 'reconnecting') {
-      // 재연결 루프가 새 캡처로 이어서 연결한다
-      this.set({ phase: 'reconnecting' })
+    if (from === 'reconnecting' || from === 'connecting') {
+      // 진행 중인 (재)연결이 새 캡처로 이어서 연결한다 (connect가 바뀐 캡처를 확인한다)
+      this.set({ phase: from })
     } else if (now === 'takenOver') {
       // 고르는 사이 다른 탭이 송출을 가져갔다: 새 소스만 준비해 두고 송출을 빼앗지 않는다
       this.set({ phase: 'takenOver' })
     } else if (from === 'sourceEnded' || from === 'takenOver') {
       clearTimeout(this.sourceEndedTimer)
+      this.sourceEndedDeadline = null
       // 멈췄던 방송을 이어서 송출한다
       this.set({ phase: 'preview' })
       await this.start()
     } else {
       this.set({ phase: 'preview' })
+      this.checkVideo()
     }
   }
 
@@ -229,15 +256,13 @@ export class Publisher {
     const facing: FacingMode = this.state.facing === 'user' ? 'environment' : 'user'
     try {
       const track = await capture.switchFacing(facing)
+      this.set({ facing, stream: previewStream(capture) })
       await this.videoSender()?.replaceTrack(track)
-      this.set({ facing, stream: new MediaStream(capture.stream.getTracks()) })
     } catch (e) {
-      this.set({ ...errorState(e), stream: new MediaStream(capture.stream.getTracks()) })
-      // 새 카메라도 원래 카메라도 열지 못해 영상 트랙이 없다 → 끊긴 카메라처럼 다시 열어 본다
-      if (capture === this.capture && !capture.stream.getVideoTracks().some((t) => t.readyState === 'live')) {
-        void this.recoverCamera(capture)
-      }
+      this.set({ ...errorState(e), stream: previewStream(capture) })
     }
+    // 전환에 실패해 영상 트랙이 없어졌거나, 송출 연결에 새 트랙을 붙이지 못했으면 복구한다
+    this.checkVideo()
   }
 
   setMicMuted(muted: boolean) {
@@ -259,8 +284,8 @@ export class Publisher {
     return this.session?.pc.getSenders().find((s) => s.track?.kind === 'video' || s.track === null)
   }
 
-  private async replaceTracks(stream: MediaStream) {
-    for (const sender of this.session?.pc.getSenders() ?? []) {
+  private async replaceTracks(session: WebRtcSession, stream: MediaStream) {
+    for (const sender of session.pc.getSenders()) {
       const track = stream.getTracks().find((t) => t.kind === sender.track?.kind)
       if (track) await sender.replaceTrack(track)
     }
@@ -269,91 +294,151 @@ export class Publisher {
   /** 화면 공유를 브라우저에서 중지했거나 카메라를 다른 앱·OS가 가져갔다 */
   private onSourceEnded(ended: Capture) {
     if (ended !== this.capture) return
-    // 카메라는 사용자가 직접 끈 것이 아니다 → 같은 카메라를 다시 열어 본다
-    if (ended.restartVideo) {
-      void this.recoverCamera(ended)
+    // 화면 공유 중지는 사용자 의도다 → 송출을 멈춘다. 카메라는 사용자가 끈 것이 아니다 → 다시 열어 본다
+    if (this.state.source === 'camera' && ended.restartVideo) void this.healCamera(ended)
+    else this.stopSource(ended)
+  }
+
+  /** 카메라 영상이 살아 있고 송출 연결이 그 영상을 보내는지 확인하고, 아니면 복구를 시작한다 */
+  private checkVideo() {
+    const capture = this.capture
+    if (!capture) return
+    if (this.state.source !== 'camera' || !capture.restartVideo) {
+      // 화면 공유: 트랙 교체에 실패한 연결만 새로 맺는다 (공유 중지는 ended 이벤트 → stopSource)
+      if (this.session && this.republishFor === this.session) {
+        if (this.spendRecovery()) void this.reconnect({ immediate: true })
+        else this.stopSource(capture, SOURCE_UNSTABLE_MESSAGE)
+      }
       return
     }
-    this.stopSource(ended)
+    const sender = this.videoSender()
+    const track = liveVideo(capture)
+    if (!track || (sender && sender.track !== track) || (this.session && this.republishFor === this.session)) {
+      void this.healCamera(capture)
+    }
   }
 
   /**
-   * 카메라를 다시 열어 영상 트랙을 바꾼다. 연결은 유지한다.
-   * 단, 이 연결로 영상이 한 프레임도 나가지 않았다면 MediaMTX가 영상 트랙 없이(오디오만) 스트림을 확정했을 수
-   * 있으므로 새 연결로 다시 송출한다. 몇 번 시도해도 열리지 않으면 sourceEnded로 넘어간다.
+   * 카메라 복구 루프. 매 바퀴 상태를 다시 보고, 할 일이 없을 때만 끝난다 (그사이 다시 끊겨도 놓치지 않는다).
+   *  1) 영상 트랙이 끝났으면 같은 카메라를 다시 연다 (약 12초 동안 6번, 권한 거부면 바로 포기)
+   *  2) 이 연결로 영상이 한 프레임도 나가기 전에 끊겼다면 MediaMTX가 영상 없이(오디오만) 스트림을 확정했을 수 있으므로
+   *     새 WHIP 연결로 다시 송출한다. 아니면 연결을 유지한 채 replaceTrack으로 바꾼다
+   *  3) 1분에 RECOVERY_BUDGET번 넘게 복구해야 하면 카메라가 불안정한 것이다 → 송출을 멈춘다(sourceEnded)
+   * 세대가 아니라 캡처로 유효성을 판단한다: 재연결(세대 변경) 중에도 카메라는 계속 다시 열어야 한다.
+   * 종료·release·소스 변경은 this.capture를 바꾸므로 그때 멈춘다.
    */
-  private async recoverCamera(capture: Capture) {
-    if (this.recovering === capture) return
-    this.recovering = capture
+  private async healCamera(capture: Capture) {
+    if (this.healing === capture) return // 이미 도는 루프가 다음 바퀴에 다시 확인한다
+    this.healing = capture
     try {
-      await this.recoverCameraLoop(capture)
+      await this.healLoop(capture)
     } finally {
-      if (this.recovering === capture) this.recovering = null
+      if (this.healing === capture) this.healing = null
     }
+    // 루프가 끝나는 사이(마지막 await 뒤) 생긴 문제를 놓치지 않는다
+    if (this.capture === capture) this.checkVideo()
   }
 
-  private async recoverCameraLoop(capture: Capture) {
-    // 세대가 아니라 캡처로 판단한다: 복구 중 재연결(세대 변경)이 일어나도 카메라는 계속 다시 열어야
-    // 재연결이 끝난 트랙을 보내지 않는다. 종료·release·소스 변경은 this.capture를 바꾸므로 여기서 멈춘다
+  private async healLoop(capture: Capture) {
+    const restart = capture.restartVideo
+    if (!restart) return
     const valid = () => this.capture === capture
-    for (let attempt = 1; attempt <= CAMERA_RECOVER_ATTEMPTS; attempt++) {
-      if (attempt > 1) await sleep(cameraRecoverDelay(attempt))
-      if (!valid()) return
-      let track: MediaStreamTrack
-      try {
-        track = await capture.restartVideo!()
-      } catch {
+    let failures = 0
+    while (valid()) {
+      const session = this.session
+      const track = liveVideo(capture)
+      if (!track) {
+        // 끊기기 전에 이 연결로 영상이 나갔는지 한 번 확인한다 (안 나갔으면 다시 송출해야 한다)
+        if (session && this.framesChecked !== session) {
+          this.framesChecked = session
+          if (!(await videoFramesSent(session.pc)) && session === this.session) this.republishFor = session
+          continue
+        }
+        if (failures >= CAMERA_RECOVER_ATTEMPTS) return this.stopSource(capture, CAMERA_LOST_MESSAGE)
+        if (failures > 0) await sleep(cameraRecoverDelay(failures + 1))
+        if (!valid()) return
+        let next: MediaStreamTrack
+        try {
+          next = await restart()
+        } catch (e) {
+          // 권한을 거둬 갔으면 다시 열어도 소용없다
+          if (e instanceof DOMException && e.name === 'NotAllowedError') {
+            return valid() ? this.stopSource(capture, publishErrorMessage(e)) : undefined
+          }
+          failures++
+          continue
+        }
+        if (!valid()) return next.stop()
+        failures = 0
+        if (!this.spendRecovery()) return this.stopSource(capture, SOURCE_UNSTABLE_MESSAGE)
+        this.set({ stream: previewStream(capture) })
         continue
       }
-      if (!valid()) return track.stop()
-      this.set({ stream: new MediaStream(capture.stream.getTracks()) })
-      const session = this.session
-      if (!session) return
-      if (await videoFramesSent(session.pc)) {
-        if (valid() && session === this.session) await this.videoSender()?.replaceTrack(track).catch(() => undefined)
-      } else if (valid() && session === this.session) {
-        await this.republish()
+      if (!session) return // 연결되면 start·재연결이 checkVideo로 다시 확인한다
+      if (this.republishFor === session) {
+        if (!this.spendRecovery()) return this.stopSource(capture, SOURCE_UNSTABLE_MESSAGE)
+        await this.reconnect({ immediate: true })
+        continue
+      }
+      const sender = this.videoSender()
+      if (sender && sender.track !== track) {
+        // 이 연결로 영상이 아직 한 프레임도 안 나갔다(끝난 트랙으로 연결됨) → 영상 없는 스트림이다. 새로 맺는다
+        if (!(await videoFramesSent(session.pc))) {
+          if (session === this.session) this.republishFor = session
+          continue
+        }
+        if (session !== this.session || !valid()) continue
+        try {
+          await sender.replaceTrack(track)
+        } catch {
+          // 트랙을 붙이지 못했다 → 새 연결로 다시 송출한다
+          if (session === this.session) this.republishFor = session
+        }
+        continue
       }
       return
     }
-    if (valid()) this.stopSource(capture)
   }
 
-  /** 지금 캡처로 새 연결을 맺어 다시 송출한다 (overridePublisher로 이전 송출을 대체) */
-  private async republish() {
-    const gen = this.nextGen()
-    this.closeSession()
-    this.set({ phase: 'connecting', reconnectAttempt: 0 })
-    try {
-      if (!(await this.connect(gen))) return
-      this.set({ phase: 'live', error: null, errorCode: null })
-      this.onLive()
-    } catch (e) {
-      if (this.stale(gen)) return
-      if (e instanceof ApiError && e.code === 'BROADCAST_ENDED') return this.handleServerEnded()
-      // 일반 재연결 절차(서버 상태 확인 → 재시도)로 넘긴다
-      this.set({ phase: 'live', ...errorState(e) })
-      void this.handleDrop()
-    }
+  /** 1분 안의 복구 횟수가 예산 안이면 기록하고 true */
+  private spendRecovery() {
+    const now = Date.now()
+    this.recoveries = this.recoveries.filter((t) => now - t < 60_000)
+    if (this.recoveries.length >= RECOVERY_BUDGET) return false
+    this.recoveries.push(now)
+    return true
   }
 
   /** 영상 소스를 잃었다: 영상이 멈춘 채 마이크만 나가지 않도록 송출과 장치를 모두 멈춘다 */
-  private stopSource(ended: Capture) {
+  private stopSource(ended: Capture, error: string | null = null) {
     const wasOnAir = this.isOnAir()
     this.nextGen()
-    // 영상이 멈춘 채 마이크만 계속 나가지 않도록 송출과 장치를 모두 멈춘다.
     // 서버는 끊김으로 보고 유예 시간을 시작한다 → 그 안에 다시 선택하면 같은 방송이 이어진다
     this.closeSession()
     ended.stop()
     this.capture = null
     void this.releaseWakeLock()
-    this.set({ phase: wasOnAir ? 'sourceEnded' : 'idle', stream: null })
+    this.set({ phase: wasOnAir ? 'sourceEnded' : 'idle', stream: null, ...(error ? { error, errorCode: null } : {}) })
     if (wasOnAir) {
-      const gen = this.gen
-      this.sourceEndedTimer = setTimeout(() => {
-        if (!this.stale(gen) && this.state.phase === 'sourceEnded') void this.end()
-      }, SOURCE_ENDED_TIMEOUT_MS)
+      this.sourceEndedDeadline = Date.now() + SOURCE_ENDED_TIMEOUT_MS
+      this.armSourceEndedTimer()
     }
+  }
+
+  /** sourceEnded 자동 종료 타이머. 시한이 지났으면 바로 종료한다 */
+  private armSourceEndedTimer() {
+    clearTimeout(this.sourceEndedTimer)
+    const deadline = this.sourceEndedDeadline
+    if (deadline === null) return
+    const gen = this.gen
+    this.sourceEndedTimer = setTimeout(
+      () => {
+        if (this.stale(gen)) return
+        // 다시 고르는 중이면 결과를 기다린다: 취소하면 selectSource가 이 함수를 다시 불러 바로 종료한다
+        if (this.state.phase === 'sourceEnded') void this.end()
+      },
+      Math.max(0, deadline - Date.now()),
+    )
   }
 
   // ---- 송출 ----
@@ -363,9 +448,7 @@ export class Publisher {
     const gen = this.nextGen()
     this.set({ phase: 'connecting', error: null, errorCode: null, reconnectAttempt: 0 })
     try {
-      if (!(await this.connect(gen))) return
-      this.set({ phase: 'live' })
-      this.onLive()
+      if (await this.connect(gen)) this.wentLive()
     } catch (e) {
       if (this.stale(gen)) return
       if (e instanceof ApiError && e.code === 'BROADCAST_ENDED') return this.handleServerEnded()
@@ -379,23 +462,36 @@ export class Publisher {
    */
   private async connect(gen: number): Promise<boolean> {
     const { token, whipPath } = await issuePublishToken(this.broadcastId)
-    if (this.stale(gen) || !this.capture) return false
-    const session = await publish(whipPath, this.capture.stream, {
+    const capture = this.capture
+    if (this.stale(gen) || !capture) return false
+    const session = await publish(whipPath, capture.stream, {
       token,
       maxVideoBitrate: MAX_BITRATE[this.state.source ?? 'camera'],
     })
-    if (this.stale(gen)) {
+    if (this.stale(gen) || !this.capture) {
       void session.close()
       return false
     }
     this.session = session
     session.pc.addEventListener('connectionstatechange', () => this.onConnectionState(session))
+    // 연결하는 사이 소스를 바꿨다(공유 창에서 새로 고름): 끈 이전 캡처를 보내지 않도록 지금 캡처로 바꾼다
+    if (this.capture !== capture) {
+      try {
+        await this.replaceTracks(session, this.capture.stream)
+      } catch {
+        this.republishFor = session
+      }
+    }
     return true
   }
 
-  private onLive() {
+  /** (재)연결이 끝나 LIVE가 됐다 */
+  private wentLive() {
+    this.set({ phase: 'live', reconnectAttempt: 0, error: null, errorCode: null })
     this.channel?.postMessage({ broadcastId: this.broadcastId, tabId: this.tabId })
     void this.acquireWakeLock()
+    // 연결하는 사이 카메라가 끊겼을 수 있다
+    this.checkVideo()
   }
 
   private onConnectionState(session: WebRtcSession) {
@@ -408,24 +504,31 @@ export class Publisher {
 
   /** 연결이 끊겼다: 다른 곳에서 송출을 가져갔는지, 방송이 끝났는지, 내 네트워크 문제인지 가린다 */
   private async handleDrop() {
-    // 소스를 고르는 중(requesting)에도 송출은 살아 있으므로 똑같이 복구한다
-    const p = this.state.phase
-    if (p !== 'live' && !(p === 'requesting' && this.session)) return
+    // 소스를 고르는 중(requesting)에도 연결이 있으면 송출 중이므로 똑같이 복구한다
+    if (!this.session) return
+    await this.reconnect({ immediate: false })
+  }
+
+  /**
+   * 지금 연결을 닫고 새 토큰으로 다시 송출한다.
+   * immediate: 카메라 복구처럼 이쪽 사정으로 다시 맺는 경우. 바로 시도하고, 서버가 아직 LIVE로 보는 것을
+   * 다른 기기의 송출로 오해하지 않는다. 실패하면 일반 재연결과 같이 재시도한다.
+   */
+  private async reconnect({ immediate }: { immediate: boolean }) {
     const gen = this.nextGen()
     this.closeSession()
     for (let attempt = 1; attempt <= MAX_RECONNECT; attempt++) {
       this.set({ phase: 'reconnecting', reconnectAttempt: attempt })
-      await sleep(attempt === 1 ? STATUS_CHECK_DELAY_MS : 2000 * attempt)
+      if (!(immediate && attempt === 1)) await sleep(attempt === 1 ? STATUS_CHECK_DELAY_MS : 2000 * attempt)
       if (this.stale(gen)) return
       try {
         const b = await getBroadcast(this.broadcastId)
         if (this.stale(gen)) return
         if (b.status === 'ENDED') return this.handleServerEnded()
         // 서버는 송출이 붙어 있다고 본다 = 다른 탭·기기가 송출을 대체했다
-        if (b.status === 'LIVE' && !b.disconnectedAt && attempt === 1) return this.toTakenOver()
+        if (!immediate && b.status === 'LIVE' && !b.disconnectedAt && attempt === 1) return this.toTakenOver()
         if (!(await this.connect(gen))) return
-        this.set({ phase: 'live', reconnectAttempt: 0, error: null, errorCode: null })
-        this.onLive()
+        this.wentLive()
         return
       } catch (e) {
         if (this.stale(gen)) return
@@ -510,6 +613,12 @@ export class Publisher {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/** 미리보기에 붙일 새 스트림 (트랙 구성이 바뀌면 새 객체여야 화면이 다시 그린다) */
+const previewStream = (capture: Capture) => new MediaStream(capture.stream.getTracks())
+
+/** 살아 있는 영상 트랙 (없으면 null) */
+const liveVideo = (capture: Capture) => capture.stream.getVideoTracks().find((t) => t.readyState === 'live') ?? null
 
 type OutboundStats = { type?: string; kind?: string; framesEncoded?: number; bytesSent?: number }
 

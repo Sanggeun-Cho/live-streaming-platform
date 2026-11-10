@@ -57,8 +57,9 @@ await step('스튜디오: 화면 공유 버튼 대신 안내가 보이고 카메
   await phone.goto(`${BASE}/broadcasts/${id}/studio`)
   expectEqual(await phone.getByRole('button', { name: /화면 공유/ }).count(), 0, '화면 공유 버튼')
   await phone.getByText('화면 공유를 지원하지 않아 카메라로 송출합니다').waitFor()
-  // 카메라를 열지 못하면 화면이 오류를 안내하고 사용자가 다시 누른다. 부하가 큰 환경에서는 Chrome 가짜 카메라가
-  // 잠깐 열리지 않기도 하므로(#30) 그 경우에만 사용자처럼 한 번 더 누르고, 몇 번 다시 눌렀는지 결과에 남긴다
+  // 카메라를 열지 못하면 화면이 오류("다시 시도")를 안내하고 사용자가 다시 누르는 것이 제품 동작이다.
+  // 부하가 큰 환경에서는 Chrome 가짜 카메라가 잠깐 열리지 않기도 해서(#30) 한 번까지만 다시 누르고 결과에 남긴다.
+  // 두 번째도 실패하면 환경이 아니라 회귀로 보고 실패시킨다 (재시도로 불안정을 숨기지 않는다)
   const errors = []
   for (let attempt = 1; ; attempt++) {
     const preview = phase(phone).getByText('미리보기')
@@ -69,7 +70,7 @@ await step('스튜디오: 화면 공유 버튼 대신 안내가 보이고 카메
     await preview.or(error).first().waitFor({ timeout: 30_000 })
     if (await preview.isVisible()) break
     errors.push(await error.innerText())
-    if (attempt >= 3) throw new Error(`카메라를 열지 못함: ${errors.join(' / ')}`)
+    if (attempt >= 2) throw new Error(`카메라를 두 번 모두 열지 못함: ${errors.join(' / ')}`)
   }
   expectEqual(await noHorizontalScroll(phone), true, '가로 스크롤 없음')
   return errors.length > 0 ? `카메라 다시 누름 ${errors.length}회 (${errors[0]})` : undefined

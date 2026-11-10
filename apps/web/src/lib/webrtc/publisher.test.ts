@@ -14,7 +14,7 @@ vi.mock('./whip', async (importOriginal) => ({
 
 const { captureCamera, captureScreen } = await import('./media')
 const { publish } = await import('./whip')
-const { CAMERA_RECOVER_ATTEMPTS, MAX_RECONNECT, Publisher, SOURCE_ENDED_TIMEOUT_MS } = await import('./publisher')
+const { CAMERA_RECOVER_ATTEMPTS, MAX_RECONNECT, Publisher, RECOVERY_BUDGET, SOURCE_ENDED_TIMEOUT_MS } = await import('./publisher')
 
 // ---- 가짜 미디어 ----
 
@@ -109,6 +109,9 @@ class FakePeerConnection {
       }
       return sender
     })
+    // 끝난 영상 트랙으로 연결하면 영상 프레임이 한 번도 나가지 않는다
+    const video = this.senders.find((x) => x.track?.kind === 'video')?.track
+    this.framesEncoded = video?.readyState === 'live' ? 30 : 0
   }
   getSenders() {
     return this.senders
@@ -202,13 +205,39 @@ beforeEach(() => {
   vi.mocked(captureCamera).mockImplementation(async () => fakeCapture('camera'))
   vi.mocked(captureScreen).mockImplementation(async () => fakeCapture('screen'))
   vi.mocked(publish).mockReset()
-  vi.mocked(publish).mockImplementation(async (_url, stream) => {
-    const pc = new FakePeerConnection(stream as unknown as FakeMediaStream)
-    const session: FakeSession = { pc, close: vi.fn(async () => undefined) }
-    sessions.push(session)
-    return session as unknown as WebRtcSession
-  })
+  vi.mocked(publish).mockImplementation(async (_url, stream) => makeSession(stream))
 })
+
+function makeSession(stream: MediaStream) {
+  const pc = new FakePeerConnection(stream as unknown as FakeMediaStream)
+  const session: FakeSession = { pc, close: vi.fn(async () => undefined) }
+  sessions.push(session)
+  return session as unknown as WebRtcSession
+}
+
+/** 다음 publish를 붙잡아 둔다: 호출 시점의 스트림으로 연결을 만들되, release/fail을 부를 때까지 끝나지 않는다 */
+function holdNextPublish() {
+  let resolve!: () => void
+  let reject!: (e: unknown) => void
+  let calledWith: MediaStream | null = null
+  vi.mocked(publish).mockImplementationOnce((_url, stream) => {
+    calledWith = stream
+    // 실제 publish처럼 호출 시점의 트랙으로 송신기를 만든다 (그 뒤 스트림이 바뀌어도 송신 트랙은 그대로)
+    const tracks = new FakeMediaStream((stream as unknown as FakeMediaStream).getTracks()) as unknown as MediaStream
+    return new Promise((res, rej) => {
+      resolve = () => res(makeSession(tracks))
+      reject = rej
+    })
+  })
+  return {
+    called: () => calledWith !== null,
+    release: () => resolve(),
+    fail: (e: unknown) => reject(e),
+  }
+}
+
+/** 연결의 영상 송신 트랙 */
+const sentVideo = (s: FakeSession) => s.pc.senders.find((x) => x.track?.kind === 'video')?.track ?? null
 
 afterEach(() => {
   vi.useRealTimers()
@@ -603,5 +632,211 @@ describe('소스 선택 중(requesting) 연결 끊김', () => {
     await selecting
     expect(a.snapshot.phase).toBe('takenOver')
     expect(b.snapshot.phase).toBe('live')
+  })
+})
+
+describe('카메라 복구 루프 (리뷰 반영)', () => {
+  const videoSenderOf = (s: FakeSession) => s.pc.senders.find((x) => x.track?.kind === 'video')!
+
+  it('트랙 교체(replaceTrack) 중에 다시 끊겨도 놓치지 않고 한 번 더 복구한다', async () => {
+    const { p } = newPublisher()
+    await goLive(p)
+    const capture = await captureOf('camera')
+    const session = lastSession()
+    const sender = videoSenderOf(session)
+    let finishReplace!: () => void
+    sender.replaceTrack.mockImplementationOnce(
+      (t: FakeTrack | null) =>
+        new Promise<void>((r) => {
+          finishReplace = () => {
+            sender.track = t
+            r()
+          }
+        }),
+    )
+    capture.endVideo()
+    await settle()
+    expect(capture.restartVideo).toHaveBeenCalledTimes(1)
+    capture.endVideo() // 교체하는 사이 다시 끊김
+    finishReplace()
+    await settle()
+    expect(capture.restartVideo).toHaveBeenCalledTimes(2)
+    expect(sentVideo(session)).toBe(capture.videoTrack())
+    expect(capture.videoTrack().readyState).toBe('live')
+    expect(sessions).toHaveLength(1)
+    expect(p.snapshot.phase).toBe('live')
+  })
+
+  it('다시 송출하는 사이 또 끊겨도 영상이 살아 있는 연결로 끝난다', async () => {
+    const { p } = newPublisher()
+    await goLive(p)
+    const capture = await captureOf('camera')
+    lastSession().pc.framesEncoded = 0
+    const held = holdNextPublish()
+    capture.endVideo()
+    await settle()
+    expect(held.called()).toBe(true)
+    capture.endVideo() // 새 연결을 맺는 사이 다시 끊김
+    held.release()
+    await settle()
+    const video = sentVideo(lastSession())!
+    expect(video).toBe(capture.videoTrack())
+    expect(video.readyState).toBe('live')
+    expect(p.snapshot.phase).toBe('live')
+    expect(sessions.slice(0, -1).every((s) => s.close.mock.calls.length > 0)).toBe(true)
+  })
+
+  it('방송 시작(연결 중)에 카메라가 끊기면 연결된 뒤 확인해 다시 연 카메라로 다시 송출한다', async () => {
+    const { p } = newPublisher()
+    await p.selectSource('camera')
+    const capture = await captureOf('camera')
+    const held = holdNextPublish()
+    const starting = p.start()
+    await settle()
+    expect(held.called()).toBe(true)
+    capture.endVideo()
+    await settle()
+    held.release()
+    await starting
+    await settle()
+    expect(sessions).toHaveLength(2)
+    expect(sentVideo(lastSession())).toBe(capture.videoTrack())
+    expect(capture.videoTrack().readyState).toBe('live')
+    expect(p.snapshot.phase).toBe('live')
+  })
+
+  it('공유 창이 열린 사이 재송출하고 창에서 새 소스를 고르면, 끈 카메라가 아니라 새 소스로 LIVE가 된다', async () => {
+    const { p } = newPublisher()
+    await goLive(p)
+    const camera = await captureOf('camera')
+    lastSession().pc.framesEncoded = 0
+    let pick!: (c: Capture) => void
+    vi.mocked(captureScreen).mockImplementationOnce(() => new Promise((r) => (pick = r)))
+    const selecting = p.selectSource('screen')
+    const held = holdNextPublish()
+    camera.endVideo()
+    await settle()
+    expect(held.called()).toBe(true)
+    expect(p.snapshot.phase).toBe('reconnecting')
+
+    const screen = fakeCapture('screen')
+    pick(screen)
+    await selecting
+    expect(camera.stop).toHaveBeenCalled()
+    held.release()
+    await settle()
+    expect(p.snapshot.phase).toBe('live')
+    expect(p.snapshot.source).toBe('screen')
+    expect(sentVideo(lastSession())).toBe(screen.videoTrack())
+    expect(lastSession().pc.senders.every((s) => s.track?.readyState === 'live')).toBe(true)
+  })
+
+  it('재송출이 실패하면 LIVE로 표시하지 않고 재연결 절차로 넘어간다', async () => {
+    const { p } = newPublisher()
+    await goLive(p)
+    const capture = await captureOf('camera')
+    lastSession().pc.framesEncoded = 0
+    vi.mocked(publish).mockRejectedValueOnce(new Error('media server down'))
+    const phases: string[] = []
+    p.subscribe((s) => phases.at(-1) !== s.phase && phases.push(s.phase))
+    capture.endVideo()
+    await settle()
+    expect(p.snapshot.phase).toBe('reconnecting')
+    // 재송출을 시작한 뒤로는 실제로 연결될 때까지 LIVE가 아니다
+    expect(phases.slice(phases.indexOf('reconnecting'))).not.toContain('live')
+    await vi.advanceTimersByTimeAsync(4000)
+    expect(p.snapshot.phase).toBe('live')
+    expect(sentVideo(lastSession())).toBe(capture.videoTrack())
+  })
+
+  it(`1분에 ${RECOVERY_BUDGET}번 넘게 복구해야 하면 카메라가 불안정한 것으로 보고 송출을 멈춘다`, async () => {
+    const { p } = newPublisher()
+    await goLive(p)
+    const capture = await captureOf('camera')
+    for (let i = 0; i < RECOVERY_BUDGET; i++) {
+      capture.endVideo()
+      await settle()
+      expect(p.snapshot.phase).toBe('live')
+    }
+    capture.endVideo()
+    await settle()
+    expect(capture.restartVideo).toHaveBeenCalledTimes(RECOVERY_BUDGET + 1)
+    expect(p.snapshot.phase).toBe('sourceEnded')
+    expect(p.snapshot.error).toMatch(/계속 끊겨/)
+    expect(capture.stop).toHaveBeenCalled()
+  })
+
+  it('카메라 권한을 거둬 가면(NotAllowedError) 다시 열지 않고 바로 sourceEnded', async () => {
+    const { p } = newPublisher()
+    await goLive(p)
+    const capture = await captureOf('camera')
+    capture.restartVideo!.mockRejectedValue(new DOMException('denied', 'NotAllowedError'))
+    capture.endVideo()
+    await settle()
+    expect(capture.restartVideo).toHaveBeenCalledTimes(1)
+    expect(p.snapshot.phase).toBe('sourceEnded')
+    expect(p.snapshot.error).toMatch(/권한이 거부/)
+  })
+
+  it('다시 연 트랙을 연결에 붙이지 못하면(replaceTrack 실패) 새 연결로 다시 송출한다', async () => {
+    const { p } = newPublisher()
+    await goLive(p)
+    const capture = await captureOf('camera')
+    videoSenderOf(lastSession()).replaceTrack.mockRejectedValueOnce(new Error('InvalidStateError'))
+    capture.endVideo()
+    await settle()
+    expect(sessions).toHaveLength(2)
+    expect(sentVideo(lastSession())).toBe(capture.videoTrack())
+    expect(p.snapshot.phase).toBe('live')
+  })
+
+  it('화면 공유 중지는 카메라 복구 로직을 타지 않는다 (restartVideo 없음 → 바로 sourceEnded)', async () => {
+    const { p } = newPublisher()
+    await goLive(p, 'screen')
+    const screen = await captureOf('screen')
+    expect(screen.restartVideo).toBeUndefined()
+    screen.endVideo()
+    await settle()
+    expect(p.snapshot.phase).toBe('sourceEnded')
+    expect(vi.mocked(captureCamera)).not.toHaveBeenCalled()
+    expect(sessions).toHaveLength(1)
+  })
+})
+
+describe('소스 중단 뒤 자동 종료 시한', () => {
+  it('다시 고르는 창이 열린 채 시한이 지나고 취소하면 바로 방송을 종료한다', async () => {
+    const { p } = newPublisher()
+    await goLive(p, 'screen')
+    ;(await captureOf('screen')).endVideo()
+    await vi.advanceTimersByTimeAsync(40_000)
+    let cancel!: (e: unknown) => void
+    vi.mocked(captureScreen).mockImplementationOnce(() => new Promise((_, rej) => (cancel = rej)))
+    const selecting = p.selectSource('screen')
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(endCalls).toBe(0) // 고르는 중에는 기다린다
+    cancel(new DOMException('cancel', 'NotAllowedError'))
+    await selecting
+    await settle()
+    expect(endCalls).toBe(1)
+    expect(p.snapshot.phase).toBe('ended')
+  })
+
+  it('시한 전에 취소하면 남은 시간만큼 기다렸다가 종료한다', async () => {
+    const { p } = newPublisher()
+    await goLive(p, 'screen')
+    ;(await captureOf('screen')).endVideo()
+    let cancel!: (e: unknown) => void
+    vi.mocked(captureScreen).mockImplementationOnce(() => new Promise((_, rej) => (cancel = rej)))
+    const selecting = p.selectSource('screen')
+    await vi.advanceTimersByTimeAsync(20_000)
+    cancel(new DOMException('cancel', 'NotAllowedError'))
+    await selecting
+    expect(p.snapshot.phase).toBe('sourceEnded')
+    await vi.advanceTimersByTimeAsync(SOURCE_ENDED_TIMEOUT_MS - 20_000 - 1)
+    expect(endCalls).toBe(0)
+    await vi.advanceTimersByTimeAsync(1)
+    await settle()
+    expect(endCalls).toBe(1)
+    expect(p.snapshot.phase).toBe('ended')
   })
 })

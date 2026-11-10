@@ -1,6 +1,6 @@
 // 카메라 캡처: 처음부터 끝난 영상 트랙 거르기, 끊긴 카메라 다시 열기
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { captureCamera } from './media'
+import { captureCamera, captureScreen } from './media'
 
 class FakeTrack extends EventTarget {
   readyState: 'live' | 'ended'
@@ -54,6 +54,40 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
+})
+
+describe('captureScreen', () => {
+  it('화면 공유 캡처에는 카메라 복구 수단(restartVideo·switchFacing)이 없다 → 공유 중지는 항상 sourceEnded로 간다', async () => {
+    const mixed = new FakeTrack('audio')
+    class FakeAudioContext {
+      state = 'running'
+      async resume() {}
+      async close() {}
+      createMediaStreamDestination() {
+        return { stream: new FakeStream([mixed]) }
+      }
+      createGain() {
+        const node = { gain: { value: 1 }, connect: () => node }
+        return node
+      }
+      createMediaStreamSource() {
+        return { connect: (n: unknown) => n }
+      }
+    }
+    vi.stubGlobal('AudioContext', FakeAudioContext)
+    vi.stubGlobal('MediaStream', FakeStream)
+    const display = streamOf('live')
+    vi.stubGlobal('navigator', {
+      mediaDevices: { getUserMedia: vi.fn(async () => new FakeStream([new FakeTrack('audio')])), getDisplayMedia: vi.fn(async () => display) },
+    })
+    const capture = await captureScreen({ mic: true })
+    expect(capture.restartVideo).toBeUndefined()
+    expect(capture.switchFacing).toBeUndefined()
+    const ended = vi.fn()
+    capture.onEnded(ended)
+    display.getVideoTracks()[0]!.dispatchEvent(new Event('ended'))
+    expect(ended).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('captureCamera', () => {
