@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { formatDuration, type Recording } from '../lib/recordings'
+import { formatDuration, nextSegment, type Recording, segmentPosition } from '../lib/recordings'
 
 const timeFormat = new Intl.DateTimeFormat('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
@@ -17,10 +17,7 @@ export function ReplayPlayer({ recordings }: { recordings: Recording[] }) {
   const [error, setError] = useState<string | null>(null)
   // 앞 구간이 끝났거나 사용자가 고른 경우에만 자동 재생한다 (처음 열 때는 사용자가 누른다)
   const autoplayRef = useRef(false)
-  const position = Math.max(
-    0,
-    recordings.findIndex((r) => r.id === selectedId),
-  )
+  const position = segmentPosition(recordings, selectedId)
   const current = recordings[position]!
   const total = recordings.reduce((sum, r) => sum + r.durationMs, 0)
 
@@ -52,7 +49,7 @@ export function ReplayPlayer({ recordings }: { recordings: Recording[] }) {
           data-testid="replay-video"
           data-segment={position + 1}
           onEnded={() => {
-            const next = recordings[position + 1]
+            const next = nextSegment(recordings, current.id)
             if (next) select(next)
           }}
           onError={() => setError('영상을 불러오지 못했습니다. 네트워크를 확인하고 다시 시도하세요')}

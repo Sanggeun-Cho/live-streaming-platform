@@ -18,6 +18,11 @@ export type Capture = {
    * 휴대폰은 카메라 두 개를 동시에 열지 못하는 경우가 많아 이전 트랙을 먼저 끈 뒤 새로 연다.
    */
   switchFacing?: (facing: FacingMode) => Promise<MediaStreamTrack>
+  /**
+   * 카메라만: 같은 방향의 카메라를 다시 열어 새 영상 트랙을 돌려준다(stream 안의 트랙도 교체).
+   * 다른 앱이 카메라를 잠깐 가져갔거나 OS가 트랙을 끊었을 때 송출을 이어가는 데 쓴다.
+   */
+  restartVideo?: () => Promise<MediaStreamTrack>
   stop: () => void
 }
 
@@ -133,13 +138,34 @@ export async function captureScreen({ mic = true }: { mic?: boolean } = {}): Pro
 
 export type FacingMode = 'user' | 'environment'
 
+// 카메라가 이미 끝난(ended) 영상 트랙을 돌려주면 다시 열어 보는 횟수
+const CAMERA_OPEN_ATTEMPTS = 3
+
+/**
+ * 카메라 서비스가 불안정하면(부하, 다른 앱과 경쟁) getUserMedia가 처음부터 끝난 영상 트랙을 돌려주기도 한다.
+ * 이 트랙에는 ended 이벤트가 오지 않으므로 그대로 송출하면 영상 없이 소리만 나간다(MediaMTX가 오디오 트랙만으로 스트림 확정).
+ * 살아 있는 트랙을 받을 때까지 몇 번 다시 연다.
+ */
+async function openLiveVideo(open: () => Promise<MediaStream>): Promise<MediaStream> {
+  for (let attempt = 1; ; attempt++) {
+    const stream = await open()
+    if (stream.getVideoTracks()[0]?.readyState === 'live') return stream
+    stream.getTracks().forEach((t) => t.stop())
+    if (attempt >= CAMERA_OPEN_ATTEMPTS) throw new DOMException('카메라 영상을 받지 못했습니다', 'NotReadableError')
+    await new Promise((r) => setTimeout(r, 500 * attempt))
+  }
+}
+
 export async function captureCamera(facingMode: FacingMode = 'user'): Promise<Capture> {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: cameraConstraints(facingMode),
-    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-  })
+  const stream = await openLiveVideo(() =>
+    navigator.mediaDevices.getUserMedia({
+      video: cameraConstraints(facingMode),
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    }),
+  )
   let videoTrack = stream.getVideoTracks()[0]!
   videoTrack.contentHint = 'motion'
+  let facing = facingMode
   let endedCallback: (() => void) | null = null
   // 의도적으로 끈 트랙(카메라 전환)의 ended는 무시한다
   const watch = (track: MediaStreamTrack) =>
@@ -156,13 +182,13 @@ export async function captureCamera(facingMode: FacingMode = 'user'): Promise<Ca
     onEnded: (cb) => {
       endedCallback = cb
     },
-    switchFacing: async (facing) => {
+    switchFacing: async (nextFacing) => {
       const old = videoTrack
       stream.removeTrack(old)
       old.stop()
       let next: MediaStreamTrack
       try {
-        next = (await navigator.mediaDevices.getUserMedia({ video: cameraConstraints(facing) })).getVideoTracks()[0]!
+        next = (await navigator.mediaDevices.getUserMedia({ video: cameraConstraints(nextFacing) })).getVideoTracks()[0]!
       } catch (e) {
         // 새 카메라를 못 열면 원래 카메라로 되돌린다
         const restored = (await navigator.mediaDevices.getUserMedia({ video: { facingMode: old.getSettings().facingMode ?? 'user' } })).getVideoTracks()[0]!
@@ -173,6 +199,23 @@ export async function captureCamera(facingMode: FacingMode = 'user'): Promise<Ca
         throw e
       }
       next.contentHint = 'motion'
+      videoTrack = next
+      facing = nextFacing
+      stream.addTrack(next)
+      watch(next)
+      return next
+    },
+    restartVideo: async () => {
+      // 새 트랙을 먼저 얻는다: 실패하면 기존(끝난) 트랙을 그대로 두고 호출한 쪽이 다시 시도하거나 포기한다
+      const next = (await navigator.mediaDevices.getUserMedia({ video: cameraConstraints(facing) })).getVideoTracks()[0]!
+      if (next.readyState !== 'live') {
+        next.stop()
+        throw new DOMException('카메라 영상을 받지 못했습니다', 'NotReadableError')
+      }
+      next.contentHint = 'motion'
+      const old = videoTrack
+      stream.removeTrack(old)
+      old.stop()
       videoTrack = next
       stream.addTrack(next)
       watch(next)

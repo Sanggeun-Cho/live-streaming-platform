@@ -1,7 +1,7 @@
 // #7 PC 송출(방송 스튜디오) 시나리오 (docker compose 전체 구성 필요: E2E_BASE_URL=https://localhost)
 // Chrome 가짜 화면 공유(--auto-select-desktop-capture-source)와 가짜 카메라·마이크를 쓴다.
 import { execSync } from 'node:child_process'
-import { anonPage, BASE, expectEqual, finish, launch, liveCaptureTracks, signedUpPage, step } from './lib.mjs'
+import { anonPage, BASE, expectEqual, expectMediaFlowing, finish, launch, liveCaptureTracks, signedUpPage, step } from './lib.mjs'
 
 const browser = await launch()
 const owner = await signedUpPage(browser, '스튜디오')
@@ -14,15 +14,8 @@ const videoInfo = (page) =>
     const v = document.querySelector('[data-testid=live-video]')
     return v ? { w: v.videoWidth, t: v.currentTime } : null
   })
-const waitPlaying = (page) =>
-  page.waitForFunction(
-    () => {
-      const v = document.querySelector('[data-testid=live-video]')
-      return v && v.videoWidth > 0 && v.currentTime > 0.3
-    },
-    null,
-    { timeout: 20_000 },
-  )
+// 디코딩된 영상 프레임과 수신 오디오 RTP가 늘어나는지로 재생을 판정한다
+const waitPlaying = (page) => expectMediaFlowing(page)
 
 await step('소유자: 방송 상세의 "방송 시작하기"로 스튜디오에 들어간다', async () => {
   await owner.goto(`${BASE}/broadcasts/new`)

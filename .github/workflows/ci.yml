@@ -17,7 +17,7 @@ jobs:
       - run: npm ci
       - name: Typecheck & build
         run: npm run typecheck
-      - name: Test
+      - name: Test (api 통합 + web 단위)
         run: npm test
       - name: Validate compose file
         run: INTERNAL_SECRET=ci-dummy-secret-value docker compose config --quiet

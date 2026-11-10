@@ -16,7 +16,7 @@ const PHASE_LABEL: Record<Phase, string> = {
   connecting: '연결 중',
   live: 'LIVE',
   reconnecting: '재연결 중',
-  sourceEnded: '화면 공유 중지됨',
+  sourceEnded: '영상 소스 중지됨',
   takenOver: '다른 곳에서 송출 중',
   ended: '방송 종료',
 }
