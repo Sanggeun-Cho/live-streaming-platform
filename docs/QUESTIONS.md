@@ -10,9 +10,10 @@
 | # | 할 일 | 왜 | 상태 |
 |---|---|---|---|
 | U0 | `dev → main` 머지(= 운영 배포). PR: dev → main | 에이전트의 운영 배포는 권한 정책상 막혀 있다. 머지하면 이미지가 빌드된다 | ⬜ |
-| U1 | 운영 서버에서 `cd ~/live && git pull && docker compose pull && docker compose up -d --no-build` (main 배포 뒤) | MediaMTX 설정·훅 스크립트와 compose는 서버의 저장소 파일을 쓴다. 이미지만 바뀌면 송출 인가가 실패한다 | ⬜ |
+| U1 | 운영 서버에서 `cd ~/live && git pull --ff-only && sh scripts/deploy.sh` (main 배포 뒤, U5 설정 전까지) | MediaMTX 설정·훅 스크립트와 compose는 서버의 저장소 파일을 쓴다. 이미지만 바뀌면 송출 인가가 실패한다 | ⬜ |
 | U2 | 운영 `.env`에 토스 결제창형 테스트 키(`TOSS_CLIENT_KEY=test_gck_…`, `TOSS_SECRET_KEY=test_gsk_…`) 추가 후 api 재시작 | 없으면 후원 버튼이 "결제 설정이 없어 후원을 사용할 수 없습니다"로 꺼진다 (Q5) | ⬜ |
 | U3 | 실기기 확인(#9): PC Chrome 화면 공유 송출 → 휴대폰(이동통신망) 시청, 휴대폰(iOS Safari·Android Chrome) 카메라 송출 → PC 시청, 다시보기 Safari 재생 | 가짜 장치·같은 PC로는 NAT·모바일 브라우저 동작을 확인할 수 없다 | ⬜ |
+| U5 | 자동 배포 설정: 배포 전용 키 생성 → 서버 `authorized_keys`에 강제 명령과 함께 등록 → GitHub Secrets 4개(`DEPLOY_HOST`·`DEPLOY_USER`·`DEPLOY_SSH_KEY`·`DEPLOY_KNOWN_HOSTS`) 등록 (절차: INFRA_SETUP §6-4) | 지금은 main 머지 시 이미지만 빌드되고 서버 반영은 U1처럼 수동이다. 서버 접속·키 등록은 에이전트 권한 밖 | ⬜ |
 | U4 | (선택) 로컬 테스트 볼륨 정리: `docker volume rm live_api_data live_recordings live12_api_data live12_recordings` | 리베이스 전 마이그레이션이 적용된 개발용 볼륨이라 `live` 프로젝트 api가 뜨지 않는다. 삭제는 에이전트 권한 밖 | ⬜ |
 
 ## 판단 질문
