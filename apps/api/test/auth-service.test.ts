@@ -4,6 +4,7 @@
 // 시간을 재는 대신 argon2 verify 호출을 감시한다 (시간 측정은 CI에서 흔들린다)
 
 import * as argon2 from '@node-rs/argon2'
+import type * as Argon2 from '@node-rs/argon2'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createAuthService } from '../src/auth/service.js'
 import { createDb } from '../src/db/client.js'
@@ -11,7 +12,7 @@ import { ensureTestAccounts, TEST_ACCOUNTS } from '../src/db/test-accounts.js'
 import { AppError } from '../src/errors.js'
 
 vi.mock('@node-rs/argon2', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@node-rs/argon2')>()
+  const actual = await importOriginal<typeof Argon2>()
   return { ...actual, verify: vi.fn(actual.verify) }
 })
 

@@ -4,10 +4,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Capture } from './media'
 import type { WebRtcSession } from './whip'
+import type * as Whip from './whip'
 
 vi.mock('./media', () => ({ captureCamera: vi.fn(), captureScreen: vi.fn() }))
 vi.mock('./whip', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./whip')>()),
+  ...(await importOriginal<typeof Whip>()),
   publish: vi.fn(),
   setMaxBitrate: vi.fn(async () => undefined),
 }))

@@ -5,7 +5,7 @@ import type { Db } from './db/client.js'
 import { authPlugin } from './auth/plugin.js'
 import { createAuthService } from './auth/service.js'
 import { ensureTestAccounts } from './db/test-accounts.js'
-import { createBroadcastLifecycle } from './broadcasts/lifecycle.js'
+import { type BroadcastLifecycle, createBroadcastLifecycle } from './broadcasts/lifecycle.js'
 import { createBroadcastService } from './broadcasts/service.js'
 import { createDonationService } from './donations/service.js'
 import { createCommentService } from './comments/service.js'
@@ -22,7 +22,7 @@ import { commentRoutes } from './routes/comments.js'
 import { healthRoutes } from './routes/health.js'
 import { internalMediaRoutes } from './routes/internal-media.js'
 import { recordingRoutes } from './routes/recordings.js'
-import { createRecordingService } from './recordings/service.js'
+import { createRecordingService, type RecordingService } from './recordings/service.js'
 
 export type AppDeps = {
   config: Config
@@ -203,8 +203,8 @@ export async function buildApp({ config, db, mediaControl, toss }: AppDeps) {
 declare module 'fastify' {
   interface FastifyInstance {
     /** 방송 상태 머신 (테스트에서 주기 작업을 직접 실행할 때 쓴다) */
-    lifecycle: import('./broadcasts/lifecycle.js').BroadcastLifecycle
+    lifecycle: BroadcastLifecycle
     /** 녹화 서비스 (테스트에서 복구 스캔을 직접 실행할 때 쓴다) */
-    recordings: import('./recordings/service.js').RecordingService
+    recordings: RecordingService
   }
 }
