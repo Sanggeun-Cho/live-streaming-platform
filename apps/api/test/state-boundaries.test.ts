@@ -255,7 +255,7 @@ describe('상태 전이 경계 (#13)', () => {
       await goOnline()
       const orderId = await newOrder()
       // 토스에서는 승인됐지만 브라우저가 confirm을 보내지 못한 상황
-      await toss.client.confirm({ paymentKey: 'pk_hook', orderId, amount: 3000 })
+      await toss.client.confirm({ paymentKey: 'pk_hook', orderId, amount: 3000, idempotencyKey: 'manual' })
       await end()
       await remove()
       const res = await app.inject({
