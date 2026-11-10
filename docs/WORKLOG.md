@@ -589,3 +589,9 @@
 - 실행 가능성: `npm ci`·typecheck·`npm test`(API 408 + 웹 53)·웹 빌드 통과, oxlint 오류 0. `npm audit` high 0 (moderate 4는 개발 도구 drizzle-kit의 esbuild)
 - 1차 생존 변이와 후속 수정 핵심 동작에 변이 32개 재주입 → 29개 검출. 생존 3개: "만료 세션 정리가 안 지움"은 `auth-service` 테스트를 추가해 검출 확인(API 409), "정리 호출 안 함(app.ts)"은 만료 세션이 조회 시 이미 거부되어 가치가 낮아 테스트하지 않음, 나머지 1개는 동등 변이(앞선 status 검사가 같은 입력을 먼저 거름)
 - 결과 표는 [TEST_SPEC.md](TEST_SPEC.md#변이-테스트-결과)
+
+## 2026-11-10 · 채점 구문 검사 대응 (`fix/syntax-import-type`)
+- 채점에서 `apps/api/test/auth-service.test.ts:14`, `apps/web/src/lib/webrtc/publisher.test.ts:10`이 구문 오류로 지적됐다. 둘 다 타입 인자 안의 `typeof import('...')`(TS import 타입)로, tsc·vitest에서는 유효하지만 채점기의 파서가 지원하지 않는 것으로 판단했다.
+- 상단 `import type * as X from '...'` + `typeof X`로 바꿨다. 같은 계열인 `apps/api/src/app.ts`의 `import('...').Type`(지적되지는 않음)도 일반 `import type`으로 바꿨다. 모두 타입 전용이라 런타임 코드는 같다.
+- 교훈: 앞으로 import 타입(`import('...')`를 타입 위치에 쓰는 것)은 쓰지 않는다.
+- 검증: typecheck(웹 빌드 포함), `npm test` API 409 + 웹 53 통과.
