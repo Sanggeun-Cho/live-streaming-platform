@@ -2,7 +2,8 @@ import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadConfig } from '../src/config.js'
 import { broadcasts, donationOrders, donations } from '../src/db/schema.js'
-import { type TossClient, TossApiError, type TossPayment, withFakeIdempotency } from '../src/payments/toss.js'
+import { confirmIdempotencyKey } from '../src/donations/service.js'
+import { type ConfirmInput, type TossClient, TossApiError, type TossPayment, withFakeIdempotency } from '../src/payments/toss.js'
 import { idleMediaControl, makeApp, signupAs, type TestApp, type TestUser } from './helpers.js'
 
 type Db = Awaited<ReturnType<typeof makeApp>>['db']
@@ -42,16 +43,16 @@ function fakeToss() {
     next: Next
     /** 다음 getPayment를 이 횟수만큼 일시 오류(500)로 실패시킨다 */
     lookupFailures: number
+    /** 다음 getPayment를 이 횟수만큼 '아직 처리 중'(IN_PROGRESS)으로 답한다 */
+    lookupInProgress: number
     /** 다음 confirm이 토스에 닿기 직전에 한 번 실행한다 (경합 재현용) */
     beforeConfirm: null | (() => Promise<void>)
     /** 설정하면 토스 쪽 처리가 이 약속이 풀릴 때까지 멈춘다 (처리 중 409 재현용) */
     hold: null | Promise<void>
-  } = { next: null, lookupFailures: 0, beforeConfirm: null, hold: null }
+  } = { next: null, lookupFailures: 0, lookupInProgress: 0, beforeConfirm: null, hold: null }
 
   // 토스 서버 쪽 처리. 멱등키 캐시 안쪽이라 여기서 난 오류는 같은 키로 다시 와도 그대로 재생된다
-  let current: Next = null
-  const server = withFakeIdempotency(async ({ paymentKey, orderId, amount }) => {
-    const next = current
+  const server = withFakeIdempotency(async ({ paymentKey, orderId, amount, next }: ConfirmInput & { next: Next }) => {
     calls.processed++
     // 동시 요청이 실제로 겹치게 한 틱 쉰다
     await delay(5)
@@ -85,9 +86,7 @@ function fakeToss() {
       state.next = null
       // 요청이 토스에 닿기 전에 끊겼다 (토스에는 아무 기록도 없다)
       if (next === 'networkBeforeToss') throw new TossApiError(0, 'NETWORK_ERROR', 'connect timeout')
-      current = next
-      const result = server(input)
-      current = null
+      const result = server({ ...input, next })
       // 토스는 처리했지만 응답이 오지 않은 경우 (네트워크 끊김)
       if (next === 'approveButTimeout') {
         await result.catch(() => {})
@@ -100,6 +99,11 @@ function fakeToss() {
       if (state.lookupFailures > 0) {
         state.lookupFailures--
         throw new TossApiError(500, 'FAILED_INTERNAL_SYSTEM_PROCESSING', '내부 시스템 처리 작업이 실패했습니다.')
+      }
+      if (state.lookupInProgress > 0) {
+        state.lookupInProgress--
+        // 토스가 아직 승인 처리 중이다 (승인될 수도, 안 될 수도 있다)
+        return { paymentKey, orderId: approved.get(paymentKey)?.orderId ?? 'unknown', status: 'IN_PROGRESS', totalAmount: 0 }
       }
       const payment = approved.get(paymentKey)
       if (!payment) throw new TossApiError(404, 'NOT_FOUND_PAYMENT', '존재하지 않는 결제 정보 입니다.')
@@ -352,7 +356,6 @@ describe('도네이션 API', () => {
 
     it.each([
       ['wrongAmount', '금액'],
-      ['notDone', '상태(DONE 아님)'],
       ['wrongOrderId', 'orderId'],
       ['wrongPaymentKey', 'paymentKey'],
       ['wrongCurrency', '통화'],
@@ -364,6 +367,67 @@ describe('도네이션 API', () => {
       expect(res.json().code).toBe('PAYMENT_VERIFICATION_FAILED')
       expect(orderRow(order.orderId)).toMatchObject({ status: 'FAILED', failureCode: 'VERIFICATION_FAILED' })
       expect(ledgerCount()).toBe(0)
+    })
+
+    it('토스 승인 응답의 상태가 DONE이 아니면(입금 대기 등) 적립하지 않고, 결과 미정으로 PENDING에 둔다', async () => {
+      const order = await newOrder()
+      toss.state.next = 'notDone'
+      const res = await confirm(viewer, { orderId: order.orderId, paymentKey: 'pk_1', amount: 5000 })
+      expect(res.statusCode).toBe(502)
+      expect(res.json().code).toBe('PAYMENT_UNAVAILABLE')
+      expect(orderRow(order.orderId)).toMatchObject({ status: 'PENDING', failureCode: null })
+      expect(ledgerCount()).toBe(0)
+    })
+
+    it('시간 초과 뒤 조회가 처리 중(IN_PROGRESS)이면, 새 키 재요청의 ALREADY_PROCESSED도 처리 중이면 실패로 만들지 않는다', async () => {
+      const order = await newOrder()
+      const body = { orderId: order.orderId, paymentKey: 'pk_1', amount: 5000 }
+      // 우리 쪽 시간 초과(status 0) 동안 토스는 key-0을 처리 중이고, 조회도 처리 중이라고 답한다
+      toss.state.next = 'approveButTimeout'
+      toss.state.lookupInProgress = 2
+      const first = await confirm(viewer, body)
+      expect(first.json().code).toBe('PAYMENT_UNAVAILABLE')
+      expect(orderRow(order.orderId)).toMatchObject({ status: 'PENDING', confirmAttempt: 1 })
+      // key-1 → ALREADY_PROCESSED_PAYMENT → 조회: 아직 처리 중 → 대조 실패가 아니라 결과 미정
+      const second = await confirm(viewer, body)
+      expect(second.statusCode).toBe(502)
+      expect(second.json().code).toBe('PAYMENT_UNAVAILABLE')
+      expect(orderRow(order.orderId)).toMatchObject({ status: 'PENDING', failureCode: null })
+      // 처리가 끝나면 다시 확인해 1번만 적립한다
+      const third = await confirm(viewer, body)
+      expect(third.json().alreadyConfirmed).toBe(false)
+      expect(ledgerCount()).toBe(1)
+    })
+
+    it('이전 시도의 결과가 미정일 때 새 키 재요청이 거절돼도 실패로 확정하지 않는다 (조회로 승인되면 적립)', async () => {
+      const order = await newOrder()
+      const body = { orderId: order.orderId, paymentKey: 'pk_1', amount: 5000 }
+      toss.state.next = 'approveButTimeout'
+      toss.state.lookupInProgress = 2
+      await confirm(viewer, body)
+      expect(orderRow(order.orderId).confirmAttempt).toBe(1)
+      // key-1이 영구 4xx로 거절되지만, key-0이 아직 처리 중일 수 있다
+      toss.state.next = 'reject'
+      const rejected = await confirm(viewer, body)
+      expect(rejected.statusCode).toBe(502)
+      expect(rejected.json().code).toBe('PAYMENT_UNAVAILABLE')
+      expect(orderRow(order.orderId)).toMatchObject({ status: 'PENDING', failureCode: null })
+      // 토스 처리가 끝났다(key-0 승인). 웹훅이 오면 적립된다
+      expect((await webhook({ orderId: order.orderId, paymentKey: 'pk_1' })).json().result).toBe('settled')
+      expect(ledgerCount()).toBe(1)
+    })
+
+    it('이전 시도의 결과가 미정일 때 새 키 재요청이 거절되고 조회로 승인이 확인되면 그 자리에서 적립한다', async () => {
+      const order = await newOrder()
+      const body = { orderId: order.orderId, paymentKey: 'pk_1', amount: 5000 }
+      toss.state.next = 'approveButTimeout'
+      toss.state.lookupInProgress = 1
+      await confirm(viewer, body)
+      toss.state.next = 'reject'
+      const res = await confirm(viewer, body)
+      expect(res.statusCode).toBe(200)
+      expect(res.json().alreadyConfirmed).toBe(false)
+      expect(ledgerCount()).toBe(1)
     })
 
     it('승인 요청 중 다른 경로(웹훅)가 먼저 적립했으면, 이 요청의 거절로 완료된 주문을 실패로 덮지 않는다', async () => {
@@ -429,6 +493,7 @@ describe('도네이션 API', () => {
       expect(retry.statusCode).toBe(200)
       expect(retry.json().alreadyConfirmed).toBe(false)
       expect(toss.keys).toEqual([`confirm-${order.orderId}-0`, `confirm-${order.orderId}-1`])
+      expect(toss.keys[1]).toBe(confirmIdempotencyKey(orderRow(order.orderId)))
       expect(ledgerCount()).toBe(1)
     })
 

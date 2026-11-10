@@ -26,6 +26,7 @@ export type TossPayment = z.infer<typeof paymentSchema>
 const errorSchema = z.object({ code: z.string(), message: z.string() })
 
 // HTTP 상태와 무관하게 재시도 대상인 코드. https://docs.tosspayments.com/reference/error-codes
+//   INVALID_RESPONSE: 토스 코드가 아니라 이 클라이언트가 붙이는 내부 코드 (성공 응답의 형식이 예상과 다름)
 //   PROVIDER_ERROR(400): "일시적인 오류가 발생했습니다. 잠시 후 다시 시도해주세요"
 //   FAILED_PAYMENT_INTERNAL_SYSTEM_PROCESSING: "결제가 완료되지 않았어요. 다시 시도해주세요"
 //   IDEMPOTENT_REQUEST_PROCESSING(409): 같은 멱등키의 이전 요청이 아직 처리 중
@@ -128,7 +129,9 @@ export function createTossClient(secretKey: string, { timeoutMs = 10_000, baseUr
  *   - 같은 키의 첫 요청이 아직 처리 중이면 409 IDEMPOTENT_REQUEST_PROCESSING
  * 키를 붙이지 않은 요청 본문 비교 등 나머지 규칙은 흉내 내지 않는다.
  */
-export function withFakeIdempotency(confirm: TossClient['confirm']): TossClient['confirm'] {
+export function withFakeIdempotency<I extends ConfirmInput>(
+  confirm: (input: I) => Promise<TossPayment>,
+): (input: I) => Promise<TossPayment> {
   const responses = new Map<string, { settled: boolean; result: Promise<TossPayment> }>()
   return (input) => {
     const cached = responses.get(input.idempotencyKey)

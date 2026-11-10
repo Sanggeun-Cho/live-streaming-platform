@@ -101,6 +101,10 @@ function paymentMismatches(order: DonationOrder, payment: TossPayment, paymentKe
 /** 토스 결제창의 orderId 규칙(6~64자, 영문·숫자·-·_·=)을 따르는 추측 불가능한 값 */
 const newOrderId = () => `don_${randomBytes(18).toString('base64url')}`
 
+/** 토스 승인 멱등키. 시도 번호(confirmAttempt)가 바뀌면 새 키가 된다 (DESIGN §7-3) */
+export const confirmIdempotencyKey = (order: Pick<DonationOrder, 'orderId' | 'confirmAttempt'>) =>
+  `confirm-${order.orderId}-${order.confirmAttempt}`
+
 export function createDonationService(deps: { db: Db; toss: TossClient; hub: EventHub; log: FastifyBaseLogger }) {
   const { db, toss, hub, log } = deps
   const { orm } = db
@@ -307,7 +311,7 @@ export function createDonationService(deps: { db: Db; toss: TossClient; hub: Eve
           paymentKey: input.paymentKey,
           orderId: order.orderId,
           amount: order.amount,
-          idempotencyKey: `confirm-${order.orderId}-${order.confirmAttempt}`,
+          idempotencyKey: confirmIdempotencyKey(order),
         })
       } catch (e) {
         if (!(e instanceof TossApiError)) throw e
@@ -315,7 +319,19 @@ export function createDonationService(deps: { db: Db; toss: TossClient; hub: Eve
         if (e.code === 'ALREADY_PROCESSED_PAYMENT') payment = await lookupForConfirm(input.paymentKey)
         // 승인 여부를 알 수 없다. 조회로 확인한다 (승인 안 됐으면 502, 주문은 PENDING)
         else if (e.transient) payment = await reconcileAfterTransient(order, input.paymentKey, e)
-        else throw rejectionError(order, e)
+        // 이전 시도(번호 n-1)의 결과가 정해지지 않은 채 새 키로 온 거절은, 이전 시도가 승인될 수 있으므로
+        // 그것만으로 실패를 확정하지 않는다. 조회해서 DONE이면 적립, 아니면 아래에서 PENDING + 502
+        else if (order.confirmAttempt > 0 && !CONFIG_ERRORS.has(e.code)) {
+          log.warn({ orderId: order.orderId, code: e.code }, 'toss confirm rejected after an undetermined attempt')
+          payment = await lookupForConfirm(input.paymentKey)
+        } else throw rejectionError(order, e)
+      }
+
+      // DONE이 아닌 상태(IN_PROGRESS·READY·WAITING_FOR_DEPOSIT 등)는 결과가 아직 정해지지 않은 것이다.
+      // 대조 실패나 거절로 보지 않고 PENDING으로 둔다 (승인되면 재요청이나 웹훅이 적립한다)
+      if (payment.status !== 'DONE') {
+        log.warn({ orderId: order.orderId, status: payment.status }, 'toss payment not settled yet')
+        throw paymentUnavailable()
       }
 
       const mismatches = paymentMismatches(order, payment, input.paymentKey)
