@@ -56,6 +56,8 @@ type Row = {
   other: UserName
   send: Send
   expect: Partial<Record<Actor, Expected>>
+  /** 성공(2xx) 칸에서 응답 본문까지 확인한다. 상태 코드만 맞고 엉뚱한 대상이 바뀌는 회귀를 잡는다 */
+  verify?: (res: LightMyRequestResponse, w: World, actor: TestUser) => void
 }
 
 const json = (method: 'POST' | 'PATCH' | 'DELETE' | 'GET', url: string, payload?: object): Send =>
@@ -79,6 +81,9 @@ const writeRows: Row[] = [
     other: 'viewer',
     send: (w, c) => json('POST', '/api/broadcasts', { title: '새 방송' })(w, c, undefined),
     expect: { anon: U401, other: 201, owner: 201 },
+    // 요청자 본인 채널에 만들어진다
+    verify: (res, _w, actor) =>
+      expect(res.json().broadcast).toMatchObject({ title: '새 방송', status: 'READY', channel: { id: actor.user.channelId } }),
   },
   {
     action: '방송 수정 (PATCH /broadcasts/:id)',
@@ -86,6 +91,7 @@ const writeRows: Row[] = [
     other: 'viewer',
     send: (w, c) => json('PATCH', `/api/broadcasts/${w.ready}`, { title: '바꾼 제목' })(w, c, undefined),
     expect: { anon: U401, other: F403, owner: 200 },
+    verify: (res, w) => expect(res.json().broadcast).toMatchObject({ id: w.ready, title: '바꾼 제목', status: 'READY' }),
   },
   {
     action: '방송 수정 — 종료된 방송도 소유자는 수정한다',
@@ -170,6 +176,13 @@ const writeRows: Row[] = [
     other: 'stranger',
     send: (w, c) => json('POST', `/api/broadcasts/${w.ready}/comments`, { content: '안녕하세요' })(w, c, undefined),
     expect: { anon: U401, other: 201, owner: 201 },
+    // 작성자는 요청자이고, 방송자 표시는 방송자 본인일 때만 붙는다
+    verify: (res, w, actor) =>
+      expect(res.json().comment).toMatchObject({
+        content: '안녕하세요',
+        author: { id: actor.user.id },
+        isStreamer: actor.user.id === w.streamer.user.id,
+      }),
   },
   {
     action: '댓글 작성 — 종료된 방송',
@@ -185,6 +198,8 @@ const writeRows: Row[] = [
     other: 'stranger',
     send: (w, c) => json('PATCH', `/api/comments/${w.commentId}`, { content: '고친 댓글' })(w, c, undefined),
     expect: { anon: U401, other: F403, owner: 200, broadcaster: F403 },
+    verify: (res, w) =>
+      expect(res.json().comment).toMatchObject({ id: w.commentId, content: '고친 댓글', author: { id: w.viewer.user.id } }),
   },
   {
     action: '댓글 삭제 (DELETE /comments/:id)',
@@ -239,6 +254,8 @@ const writeRows: Row[] = [
     other: 'stranger',
     send: (w, c) => json('POST', '/api/auth/login', { email: 'viewer@test.com', password: 'password123' })(w, c, undefined),
     expect: { anon: 200, other: 200, owner: 200 },
+    // 누가 시도했든 로그인되는 계정은 입력한 이메일의 계정이다
+    verify: (res, w) => expect(res.json().user).toEqual(w.viewer.user),
   },
   {
     action: '로그아웃 (POST /auth/logout) — 공개',
@@ -322,6 +339,7 @@ readRows.push(
     other: 'viewer',
     send: (w, c) => json('GET', '/api/auth/me')(w, c, undefined),
     expect: { anon: U401, other: 200, owner: 200 },
+    verify: (res, _w, actor) => expect(res.json().user).toEqual(actor.user),
   },
 )
 
@@ -449,33 +467,35 @@ describe('권한 매트릭스 (DESIGN §5)', () => {
   async function run(row: Row, actor: Actor) {
     const user =
       actor === 'anon' ? undefined : actor === 'owner' ? w[row.owner] : actor === 'other' ? w[row.other] : w.streamer
-    return row.send(w, user ? { sid: user.sid } : undefined, user)
+    const res = await row.send(w, user ? { sid: user.sid } : undefined, user)
+    return { res, user }
   }
 
-  function check(res: LightMyRequestResponse, expected: Expected) {
+  function check({ res, user }: { res: LightMyRequestResponse; user: TestUser | undefined }, expected: Expected, row: Row) {
     const [status, code] = Array.isArray(expected) ? expected : [expected, undefined]
     expect(res.statusCode, res.body).toBe(status)
     if (code) {
       // 4xx는 모두 공통 형식 {code, message(한국어)}
       expect(res.json()).toEqual({ code, message: expect.stringMatching(/[가-힣]/) })
     }
+    if (status < 300 && row.verify && user) row.verify(res, w, user)
   }
 
   describe('쓰기', () => {
     it.each(cases(writeRows))('$name', async ({ row, actor, expected }) => {
-      check(await run(row, actor), expected)
+      check(await run(row, actor), expected, row)
     })
   })
 
   describe('공개 조회', () => {
     it.each(cases(readRows))('$name', async ({ row, actor, expected }) => {
-      check(await run(row, actor), expected)
+      check(await run(row, actor), expected, row)
     })
   })
 
   describe('삭제된 방송', () => {
     it.each(cases(deletedRows))('$name', async ({ row, actor, expected }) => {
-      check(await run(row, actor), expected)
+      check(await run(row, actor), expected, row)
     })
   })
 

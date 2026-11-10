@@ -17,6 +17,9 @@ tmp="$(dirname "$seg")/.$(basename "$seg" .mp4).web.tmp.mp4"
 LOCK=/tmp/segment-convert.lock
 TIMEOUT_SECONDS=1800
 
+# 변환 차례(flock)를 기다리는 동안에도 api 복구 스캔이 "변환 중"으로 보고 원본을 등록하지 않도록 임시 파일을 먼저 만든다.
+# 대기가 길어져(35분 초과) 스캔이 원본을 먼저 등록해도, 변환 후 훅이 크기·길이를 고치고 recording 이벤트를 다시 보낸다 (#31)
+: > "$tmp"
 (
   # 앞선 변환이 끝날 때까지 기다린다 (방송 여러 개가 동시에 끝나도 ffmpeg는 하나)
   flock 9

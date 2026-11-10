@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mp4DurationMs } from '../src/recordings/mp4.js'
-import { makeApp, signupAs, type TestApp, type TestUser } from './helpers.js'
+import { makeApp, openEvents, signupAs, type TestApp, type TestUser } from './helpers.js'
 
 // ---- ISO BMFF 박스를 직접 만들어 길이 계산을 검증한다 ----
 const u32 = (n: number) => {
@@ -76,6 +76,12 @@ describe('mp4 길이 계산', () => {
       mdat(10),
     )
     expect(await mp4DurationMs(p)).toBe(2000)
+  })
+
+  it('mvhd version 1(64비트 시각·길이)도 읽는다', async () => {
+    // v1: version/flags, creation(u64), modification(u64), timescale(u32), duration(u64)
+    const mvhdV1 = box('mvhd', full(1, 0), u64(1), u64(2), u32(48000), u64(48000 * 3600 * 2 + 24000), Buffer.alloc(80))
+    expect(await mp4DurationMs(file('v1.mp4', ftyp, box('moov', mvhdV1, trak(1, 90000)), mdat(10)))).toBe(7_200_500)
   })
 
   it('mp4가 아니거나 잘린 파일은 null', async () => {
@@ -157,6 +163,49 @@ describe('녹화 복구 스캔 (#12)', () => {
     put(id, '2026-11-09_12-10-00-000000_Z.mp4', mp4(5000))
     put(id, '.2026-11-09_12-10-00-000000_Z.web.tmp.mp4', mp4(1))
     expect((await app.recordings.scan()).registered).toHaveLength(1)
+  })
+
+  it('변환 차례를 기다리는 동안(빈 임시 파일)은 원본을 등록하지 않는다', async () => {
+    // segment.sh는 flock을 잡기 전에 빈 임시 파일을 만들어 둔다
+    const name = '2026-11-09_12-10-00-000000_Z.mp4'
+    put(id, name, mp4(5000))
+    put(id, `.${name.replace(/\.mp4$/, '')}.web.tmp.mp4`, Buffer.alloc(0), { fresh: true })
+    expect(await app.recordings.scan()).toEqual({ registered: [], skipped: 1 })
+  })
+
+  it('스캔이 변환 전 원본을 먼저 등록했어도, 변환 후 훅이 크기·길이를 고치고 recording 이벤트를 다시 보낸다', async () => {
+    // segment.sh가 flock 대기로 35분 넘게 밀리면 스캔이 Opus 원본을 먼저 등록할 수 있다 (#31)
+    const name = '2026-11-09_12-00-00-000000_Z.mp4'
+    const original = mp4(5000)
+    put(id, name, original)
+    const [scanned] = (await app.recordings.scan()).registered
+    expect(scanned!.recording).toMatchObject({ durationMs: 5000, sizeBytes: original.length })
+
+    const stream = await openEvents(app, id)
+    try {
+      await stream.waitFor((e) => e.event === 'status')
+      const hook = (segmentSize: string) =>
+        app.inject({
+          method: 'POST',
+          url: '/internal/media/events',
+          headers: { 'x-internal-secret': SECRET },
+          payload: { type: 'segment', path: `live/${id}`, segmentPath: `${dir}/live/${id}/${name}`, segmentDuration: '5.02', segmentSize },
+        })
+      expect((await hook('4321')).statusCode).toBe(204)
+      const event = await stream.waitFor((e) => e.event === 'recording')
+      expect(event.data).toMatchObject({ id: scanned!.recording.id, durationMs: 5020, sizeBytes: 4321 })
+      expect(await listed()).toEqual([event.data])
+
+      // 같은 값의 훅이 다시 오면 아무것도 바꾸지 않는다. 크기를 못 읽은 훅(빈 값)은 있던 크기를 지우지 않는다
+      await hook('4321')
+      await hook('')
+      expect((await listed())[0]).toMatchObject({ durationMs: 5020, sizeBytes: 4321 })
+      await app.inject({ method: 'PATCH', url: `/api/broadcasts/${id}`, payload: { title: '표시' }, cookies: { sid: owner.sid } })
+      await stream.waitFor((e) => e.event === 'updated')
+      expect(stream.events.filter((e) => e.event === 'recording')).toHaveLength(1)
+    } finally {
+      stream.close()
+    }
   })
 
   it('없는 방송의 디렉터리·live/{id}가 아닌 디렉터리는 등록하지 않는다', async () => {

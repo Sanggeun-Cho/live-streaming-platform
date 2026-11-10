@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { broadcasts } from '../src/db/schema.js'
-import { makeApp, signupAs, type TestApp, type TestUser } from './helpers.js'
+import { makeApp, openEvents, signupAs, type TestApp, type TestUser } from './helpers.js'
 
 type Db = Awaited<ReturnType<typeof makeApp>>['db']
 type Item = { id: number; title: string }
@@ -126,12 +126,16 @@ describe('방송 API', () => {
   })
 
   describe('수정', () => {
-    it('소유자는 제목과 설명을 수정한다', async () => {
-      const { id } = await createOwned()
+    it('소유자는 제목과 설명을 수정하고, 보내지 않은 항목은 그대로 둔다', async () => {
+      const { id } = (await create(owner, { title: '첫 방송', description: '원래 설명' })).json().broadcast
       const res = await patch(id, owner, { title: '바뀐 제목' })
       expect(res.statusCode).toBe(200)
-      expect(res.json().broadcast).toMatchObject({ title: '바뀐 제목', description: '' })
-      expect((await get(id)).json().broadcast.title).toBe('바뀐 제목')
+      expect(res.json().broadcast).toMatchObject({ title: '바뀐 제목', description: '원래 설명' })
+      expect((await get(id)).json().broadcast).toMatchObject({ title: '바뀐 제목', description: '원래 설명' })
+
+      // 설명만 보내면 제목이 유지된다. 빈 설명('')은 "지우기"로 받는다
+      expect((await patch(id, owner, { description: '새 설명' })).json().broadcast).toMatchObject({ title: '바뀐 제목', description: '새 설명' })
+      expect((await patch(id, owner, { description: '' })).json().broadcast).toMatchObject({ title: '바뀐 제목', description: '' })
     })
 
     it('방송 중에도 제목을 바꿀 수 있다', async () => {
@@ -221,6 +225,29 @@ describe('방송 API', () => {
     expect(items.find((b) => b.id === live.id)?.viewers).toBe(1)
     expect(items.find((b) => b.id === ready.id)?.viewers).toBe(0)
     controller.abort()
+  })
+
+  it('방송자 본인의 SSE 연결은 시청자 수에서 빠지고, 다른 로그인 사용자는 센다 (목록·viewers 이벤트 모두)', async () => {
+    const live = await createOwned('라이브')
+    setStatus(live.id, 'LIVE')
+    const ownerStream = await openEvents(app, live.id, owner.sid)
+    const otherStream = await openEvents(app, live.id, other.sid)
+    const anonStream = await openEvents(app, live.id)
+    try {
+      const viewers = async () => (await list()).json().items as Array<{ id: number; viewers: number }>
+      expect((await viewers()).find((b) => b.id === live.id)?.viewers).toBe(2)
+      // 디바운스 뒤 한 번 오는 시청자 수 이벤트도 본인을 뺀 값이다
+      expect((await ownerStream.waitFor((e) => e.event === 'viewers')).data).toEqual({ count: 2 })
+      otherStream.close()
+      anonStream.close()
+      await expect.poll(async () => (await viewers()).find((b) => b.id === live.id)?.viewers).toBe(0)
+      // 방송자만 남으면 0
+      expect((await ownerStream.waitFor((e) => e.event === 'viewers' && (e.data as { count: number }).count === 0)).data).toEqual({ count: 0 })
+    } finally {
+      ownerStream.close()
+      otherStream.close()
+      anonStream.close()
+    }
   })
 
   it('서버를 재시작해도 방송 정보가 유지된다', async () => {
