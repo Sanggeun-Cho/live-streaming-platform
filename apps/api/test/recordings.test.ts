@@ -1,9 +1,11 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { broadcasts, recordings } from '../src/db/schema.js'
 import { parseDurationMs, parseSegmentStart, toRelativePath } from '../src/recordings/service.js'
-import { makeApp, signupAs, type TestApp, type TestUser } from './helpers.js'
+import { makeApp, openEvents, signupAs, type TestApp, type TestUser } from './helpers.js'
 
 const SECRET = 'test-internal-secret-0123456789'
 const ENV = { INTERNAL_SECRET: SECRET }
@@ -35,12 +37,13 @@ const recordingsOf = (app: TestApp, id: number) => app.inject({ method: 'GET', u
 
 describe('녹화 등록·다시보기 (#12)', () => {
   let app: TestApp
+  let db: Awaited<ReturnType<typeof makeApp>>['db']
   let owner: TestUser
   let other: TestUser
   let id: number
 
   beforeEach(async () => {
-    ;({ app } = await makeApp(':memory:', ENV))
+    ;({ app, db } = await makeApp(':memory:', ENV))
     owner = await signupAs(app, 'owner')
     other = await signupAs(app, 'other')
     id = await createBroadcast(app, owner)
@@ -180,7 +183,14 @@ describe('녹화 등록·다시보기 (#12)', () => {
     expect((await authorize(app, file.replace('+', '%2B'))).statusCode).toBe(204)
 
     expect((await authorize(app, seg(id, '2026-11-09_13-00-00'))).statusCode).toBe(404) // 미등록(변환 중 등)
-    expect((await authorize(app, `/recordings/live/${id}/../${id}/x.mp4`)).statusCode).toBe(404)
+    // 경로 조작: `/../`·`%2e%2e/`는 URL 해석(new URL)에서 이미 정규화되어 "미등록"으로 404가 될 뿐이라 가드를 거치지 않는다.
+    // URL 해석에서 정규화되지 않는 `%2F`·`%5C` 인코딩으로, 디코딩하면 등록된 파일을 가리키는 경로를 보낸다
+    // (가드 자체는 아래 '경로 형식 가드' 테스트에서 DB에 일부러 넣은 행으로 확인한다)
+    const name = file.split('/').pop()!
+    expect((await authorize(app, `/recordings/live/${id}/..%2F${id}%2F${name}`)).statusCode).toBe(404)
+    expect((await authorize(app, `/recordings/live/${id}%2F..%2F${id}%2F${name}`)).statusCode).toBe(404)
+    expect((await authorize(app, `/recordings/live/${id}/.%2F${name}`)).statusCode).toBe(404)
+    expect((await authorize(app, `/recordings/live/${id}/..%5C${id}%5C${name}`)).statusCode).toBe(404)
     expect((await authorize(app, '/recordings/')).statusCode).toBe(404)
     expect((await authorize(app, undefined)).statusCode).toBe(404)
     expect((await authorize(app, file, null)).statusCode).toBe(401)
@@ -188,6 +198,88 @@ describe('녹화 등록·다시보기 (#12)', () => {
     await end()
     await app.inject({ method: 'DELETE', url: `/api/broadcasts/${id}`, cookies: { sid: owner.sid } })
     expect((await authorize(app, file)).statusCode).toBe(404)
+  })
+
+  it('경로 형식 가드: DB에 행이 있어도 live/{id}/{이름}.mp4 형식이 아니면(임시 파일·상위 경로·다른 디렉터리) 내보내지 않는다', async () => {
+    // 정상 경로로는 이런 행이 생기지 않는다. 가드가 DB 조회 결과에 기대지 않고 스스로 막는지 보려고 일부러 넣는다
+    const rows = [
+      `live/${id}/.2026-11-09_12-00-00-000000_+0000.web.tmp.mp4`, // 변환 임시 파일
+      `live/${id}/../${id}/x.mp4`, // 상위 경로
+      `other/${id}/x.mp4`, // live/ 밖
+      `live/${id}/x.txt`, // mp4가 아님
+    ]
+    for (const filePath of rows) {
+      db.orm.insert(recordings).values({ broadcastId: id, filePath, startedAt: new Date(), durationMs: 1000 }).run()
+    }
+    const enc = (p: string) => p.split('/').map(encodeURIComponent).join('/')
+    expect((await authorize(app, `/recordings/${enc(rows[0]!)}`)).statusCode).toBe(404)
+    expect((await authorize(app, `/recordings/live/${id}/..%2F${id}%2Fx.mp4`)).statusCode).toBe(404)
+    expect((await authorize(app, `/recordings/${rows[2]}`)).statusCode).toBe(404)
+    expect((await authorize(app, `/recordings/${rows[3]}`)).statusCode).toBe(404)
+    // 대조: 형식이 맞는 행은 허용된다 (위 404가 DB 조회 실패 때문이 아님을 보인다)
+    db.orm.insert(recordings).values({ broadcastId: id, filePath: `live/${id}/x.mp4`, startedAt: new Date(), durationMs: 1000 }).run()
+    expect((await authorize(app, `/recordings/live/${id}/x.mp4`)).statusCode).toBe(204)
+  })
+
+  it('세그먼트가 등록되면 방송 SSE로 recording 이벤트를 보낸다 (중복 훅은 다시 보내지 않는다)', async () => {
+    const stream = await openEvents(app, id)
+    try {
+      await stream.waitFor((e) => e.event === 'status')
+      const file = seg(id, '2026-11-09_12-00-00')
+      await segmentHook(app, { path: `live/${id}`, segmentPath: file })
+      const event = await stream.waitFor((e) => e.event === 'recording')
+      expect(event.data).toMatchObject({
+        url: file,
+        durationMs: 12500,
+        sizeBytes: 1048576,
+        startedAt: '2026-11-09T12:00:00.000Z',
+      })
+      expect(event.data).toEqual((await recordingsOf(app, id)).json().recordings[0])
+
+      // 같은 훅 반복 → 이벤트 없음. 다음 이벤트(제목 변경)가 오기 전까지 recording이 하나뿐인지 본다
+      await segmentHook(app, { path: `live/${id}`, segmentPath: file })
+      await app.inject({ method: 'PATCH', url: `/api/broadcasts/${id}`, payload: { title: '표시' }, cookies: { sid: owner.sid } })
+      await stream.waitFor((e) => e.event === 'updated')
+      expect(stream.events.filter((e) => e.event === 'recording')).toHaveLength(1)
+    } finally {
+      stream.close()
+    }
+  })
+
+  it('종료·삭제 뒤에 늦게 도착한 세그먼트도 기록은 남기되, 조회·서빙은 막는다', async () => {
+    await end()
+    await app.inject({ method: 'DELETE', url: `/api/broadcasts/${id}`, cookies: { sid: owner.sid } })
+    const file = seg(id, '2026-11-09_12-00-00')
+    expect((await segmentHook(app, { path: `live/${id}`, segmentPath: file })).statusCode).toBe(204)
+    // 파일은 디스크에 남으므로 행을 남겨 둔다 (복구 스캔이 같은 파일을 반복해서 등록 시도하지 않게, 정리 작업의 근거)
+    const rows = db.orm.select().from(recordings).where(eq(recordings.broadcastId, id)).all()
+    expect(rows.map((r) => r.filePath)).toEqual([file.slice('/recordings/'.length)])
+    expect((await recordingsOf(app, id)).statusCode).toBe(404)
+    expect((await authorize(app, file)).statusCode).toBe(404)
+    expect((await app.inject({ method: 'GET', url: '/api/replays' })).json().items).toEqual([])
+  })
+
+  it('다시보기 커서: 종료 시각이 같은 방송은 ID 내림차순으로 이어 읽어 빠지거나 겹치지 않는다', async () => {
+    const b = await createBroadcast(app, owner, '같은 시각 B')
+    const c = await createBroadcast(app, owner, '같은 시각 C')
+    const earlier = await createBroadcast(app, owner, '더 이른 방송')
+    for (const bid of [id, b, c, earlier]) {
+      await segmentHook(app, { path: `live/${bid}`, segmentPath: seg(bid, '2026-11-09_12-00-00') })
+      await end(bid)
+    }
+    const same = new Date('2026-11-09T13:00:00.000Z')
+    for (const bid of [id, b, c]) db.orm.update(broadcasts).set({ endedAt: same }).where(eq(broadcasts.id, bid)).run()
+    db.orm.update(broadcasts).set({ endedAt: new Date('2026-11-09T12:00:00.000Z') }).where(eq(broadcasts.id, earlier)).run()
+
+    const seen: number[] = []
+    let cursor: number | null = null
+    do {
+      const res = await app.inject({ method: 'GET', url: `/api/replays?limit=1${cursor ? `&cursor=${cursor}` : ''}` })
+      const page = res.json() as { items: Array<{ id: number }>; nextCursor: number | null }
+      seen.push(...page.items.map((x) => x.id))
+      cursor = page.nextCursor
+    } while (cursor !== null && seen.length < 10)
+    expect(seen).toEqual([c, b, id, earlier])
   })
 })
 

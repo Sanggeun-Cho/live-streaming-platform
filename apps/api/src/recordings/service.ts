@@ -39,6 +39,8 @@ export type SegmentEvent = {
 
 export type RegisterResult =
   | { status: 'registered'; broadcastId: number; recording: RecordingView }
+  /** 복구 스캔이 먼저 등록한 원본을 훅(웹용 변환 완료)이 최종 크기·길이로 고쳤다 */
+  | { status: 'updated'; broadcastId: number; recording: RecordingView }
   | { status: 'duplicate' }
   | { status: 'unknown-broadcast' }
   | { status: 'invalid'; reason: string }
@@ -129,8 +131,19 @@ export function createRecordingService(db: Db, { recordingsDir }: { recordingsDi
       .where(activeOnly ? and(eq(broadcasts.id, id), isNull(broadcasts.deletedAt)) : eq(broadcasts.id, id))
       .get() !== undefined
 
-  /** 훅과 복구 스캔이 함께 쓰는 등록. 같은 파일은 한 번만 들어간다 (file_path 유니크) */
-  function insert(broadcastId: number, relative: string, durationMs: number, sizeBytes: number | null, now: Date): RegisterResult {
+  /**
+   * 훅과 복구 스캔이 함께 쓰는 등록. 같은 파일은 한 번만 들어간다 (file_path 유니크).
+   * fromHook이면 이미 있는 행의 크기·길이를 훅 값으로 고친다: segment.sh가 변환 차례(flock)를 기다리는 동안
+   * 복구 스캔이 변환 전 원본(Opus)을 먼저 등록할 수 있다. 훅은 변환이 끝난 최종 파일 기준이라 훅 값이 맞다.
+   */
+  function insert(
+    broadcastId: number,
+    relative: string,
+    durationMs: number,
+    sizeBytes: number | null,
+    now: Date,
+    { fromHook }: { fromHook: boolean },
+  ): RegisterResult {
     // 종료 → 삭제 뒤에 늦게 도착한 세그먼트도 등록해 둔다 (조회·서빙은 삭제 기준으로 막힌다)
     if (!broadcastExists(broadcastId, { activeOnly: false })) return { status: 'unknown-broadcast' }
     // 파일 이름을 못 읽으면 "지금 - 길이"로 추정한다 (훅은 세그먼트가 닫힌 직후 실행된다)
@@ -141,8 +154,20 @@ export function createRecordingService(db: Db, { recordingsDir }: { recordingsDi
       .onConflictDoNothing({ target: recordings.filePath })
       .returning(recordingColumns)
       .get()
-    if (!row) return { status: 'duplicate' }
-    return { status: 'registered', broadcastId, recording: toView(row) }
+    if (row) return { status: 'registered', broadcastId, recording: toView(row) }
+    if (!fromHook) return { status: 'duplicate' }
+
+    const existing = orm.select(recordingColumns).from(recordings).where(eq(recordings.filePath, relative)).get()
+    // 훅이 크기를 못 읽었으면(stat 실패) 있던 값을 지우지 않는다
+    const nextSize = sizeBytes ?? existing?.sizeBytes ?? null
+    if (!existing || (existing.durationMs === durationMs && existing.sizeBytes === nextSize)) return { status: 'duplicate' }
+    const updated = orm
+      .update(recordings)
+      .set({ durationMs, sizeBytes: nextSize })
+      .where(eq(recordings.id, existing.id))
+      .returning(recordingColumns)
+      .get()
+    return { status: 'updated', broadcastId, recording: toView(updated!) }
   }
 
   return {
@@ -157,7 +182,7 @@ export function createRecordingService(db: Db, { recordingsDir }: { recordingsDi
       if (durationMs === null) return { status: 'invalid', reason: 'segmentDuration 형식 오류' }
       const size = event.segmentSize ? Number(event.segmentSize) : NaN
       const sizeBytes = Number.isSafeInteger(size) && size >= 0 ? size : null
-      return insert(pathId, parsed.relative, durationMs, sizeBytes, now)
+      return insert(pathId, parsed.relative, durationMs, sizeBytes, now, { fromHook: true })
     },
 
     /**
@@ -208,7 +233,7 @@ export function createRecordingService(db: Db, { recordingsDir }: { recordingsDi
               result.skipped++
               continue
             }
-            const r = insert(broadcastId, relative, durationMs, info.size, new Date(now))
+            const r = insert(broadcastId, relative, durationMs, info.size, new Date(now), { fromHook: false })
             if (r.status === 'registered') result.registered.push(r)
           } catch {
             result.skipped++
@@ -271,6 +296,8 @@ export function createRecordingService(db: Db, { recordingsDir }: { recordingsDi
       }
       if (!pathname.startsWith(RECORDINGS_URL_PREFIX)) return false
       const relative = pathname.slice(RECORDINGS_URL_PREFIX.length)
+      // 디코딩 뒤 `..%2F` 같은 우회는 RELATIVE_PATH(파일 이름에 슬래시·선행 점 금지)가 막는다.
+      // normalize 비교는 RELATIVE_PATH가 느슨해질 때를 대비한 이중 방어라 지금은 단독으로 걸리는 입력이 없다
       if (!RELATIVE_PATH.test(relative) || posix.normalize(relative) !== relative) return false
       const row = orm
         .select({ id: recordings.id })

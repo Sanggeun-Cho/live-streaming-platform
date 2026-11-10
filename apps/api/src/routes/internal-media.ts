@@ -84,8 +84,11 @@ export const internalMediaRoutes =
           return reply.code(400).send()
         }
         if (result.status === 'unknown-broadcast') request.log.warn({ mediaEvent: event }, '없는 방송의 녹화 세그먼트')
-        // 다시보기 화면을 보고 있는 시청자에게 새 세그먼트를 바로 알린다 ("준비 중" → 재생)
-        if (result.status === 'registered') hub.publish(result.broadcastId, 'recording', result.recording)
+        // 다시보기 화면을 보고 있는 시청자에게 새 세그먼트를 바로 알린다 ("준비 중" → 재생).
+        // 복구 스캔이 먼저 등록한 원본을 변환본 값으로 고친 경우(updated)도 같은 id로 다시 알린다 (화면은 id로 교체)
+        if (result.status === 'registered' || result.status === 'updated') {
+          hub.publish(result.broadcastId, 'recording', result.recording)
+        }
       }
       return reply.code(204).send()
     })

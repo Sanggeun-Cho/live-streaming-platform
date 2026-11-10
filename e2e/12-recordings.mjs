@@ -3,6 +3,8 @@
 // → api 컨테이너 재시작 후에도 조회 → 삭제하면 파일 접근도 막힘
 // 결과 파일의 코덱은 mediamtx 컨테이너의 ffprobe로 확인해 출력한다 (WORKLOG 기록용)
 import { spawnSync } from 'node:child_process'
+import http from 'node:http'
+import https from 'node:https'
 import { anonPage, BASE, expectEqual, finish, launch, signedUpPage, startCameraBroadcast, step } from './lib.mjs'
 
 const ROOT = new URL('..', import.meta.url)
@@ -21,6 +23,25 @@ let id
 let recordings = []
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+/** 경로를 정규화하지 않고 그대로 보내는 GET (로컬 Caddy 인증서 허용). 본문은 앞 4KB만 */
+const rawGet = (path) =>
+  new Promise((resolve, reject) => {
+    const base = new URL(BASE)
+    const req = (base.protocol === 'https:' ? https : http).request(
+      { host: base.hostname, port: base.port || undefined, method: 'GET', path, rejectUnauthorized: false },
+      (res) => {
+        let body = ''
+        res.setEncoding('utf8')
+        res.on('data', (chunk) => {
+          if (body.length < 4096) body += chunk
+        })
+        res.on('end', () => resolve({ status: res.statusCode, body }))
+      },
+    )
+    req.on('error', reject)
+    req.end()
+  })
 const api = (page, path, init) =>
   page.evaluate(
     async ([p, i]) => {
@@ -168,11 +189,26 @@ await step('ffprobe: 세그먼트 파일 코덱이 h264 + aac다', async () => {
 })
 
 await step('등록되지 않은 파일·경로 조작은 받을 수 없다 (404)', async () => {
-  const statuses = await viewer.evaluate(async (bid) => {
-    const urls = [`/recordings/live/${bid}/nope.mp4`, `/recordings/live/${bid}/%2e%2e/${bid}/x.mp4`, '/recordings/']
-    return Promise.all(urls.map((u) => fetch(u).then((r) => r.status)))
-  }, id)
-  for (const s of statuses) if (s !== 404) throw new Error(`상태 ${statuses.join(',')}`)
+  // fetch·브라우저는 `..`·`%2e%2e`를 보내기 전에 정규화한다. 경로를 그대로 보내야 Caddy·api의 가드까지 닿으므로
+  // node의 https.request로 요청 줄(request-target)을 손대지 않고 보낸다 (curl --path-as-is와 같다)
+  const name = recordings[0].url.split('/').pop()
+  const raw = [
+    [`/recordings/live/${id}/nope.mp4`, 404],
+    ['/recordings/', 404],
+    // 디코딩하면 등록된 파일을 가리키지만 정규화되지 않는 인코딩 → api 가드(형식 검사)가 거절한다
+    [`/recordings/live/${id}/..%2F${id}%2F${name}`, 404],
+    [`/recordings/live/${id}/%2e%2e/${id}/nope.mp4`, 404],
+  ]
+  const results = []
+  for (const [path, expected] of raw) {
+    const { status } = await rawGet(path)
+    results.push(`${path} → ${status}`)
+    if (status !== expected) throw new Error(`기대 ${expected}: ${results.join(', ')}`)
+  }
+  // 녹화 디렉터리 밖으로 나가는 경로: Caddy가 경로를 정리해 /recordings/* 밖(SPA)으로 보내므로 파일 내용이 나오면 안 된다
+  const escape = await rawGet(`/recordings/live/${id}/../../../../etc/passwd`)
+  if (escape.body.includes('root:')) throw new Error('녹화 디렉터리 밖의 파일이 노출됨')
+  return `${results.length + 1}건 원문 경로로 확인`
 })
 
 await step('api 컨테이너를 재시작해도 다시보기 목록·녹화 목록·파일이 그대로 조회된다', async () => {

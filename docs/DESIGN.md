@@ -186,13 +186,16 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 ### 도네이션
 1. `POST /api/broadcasts/:id/donation-orders`: 로그인(401), 본인 방송 아님(403), LIVE 상태(409 `BROADCAST_NOT_LIVE`)를 검증한다. 금액(1,000~1,000,000원, 1,000원 단위)과 메시지(선택, 100자)를 검증한 뒤 주문(무작위 `orderId`, 금액, 메시지, 대상 방송, 후원자)을 `PENDING`으로 생성한다.
 2. 클라이언트가 토스 **결제창형 결제**(SDK v2 `widgets().renderPaymentWindow()` → `paymentRequest` 이벤트에서 `requestPayment()`)를 띄운다. 결제창(구버전) `payment()`는 API 개별 연동 키(`test_ck_`)가 필요하고, 공개 문서용 `test_ck_` 키는 더 이상 인증되지 않아(2026-11-09 확인) 결제창형을 택했다. 성공·실패는 `/broadcasts/:id/donation/success|fail`로 돌아온다(취소 시 orderId가 없어 방송 ID를 경로에 둔다).
-3. `POST /api/donations/confirm`(로그인, 주문한 본인만): `orderId`, `paymentKey`, `amount`를 받는다. **저장된 주문 금액과 일치하는지** 확인하고(다르면 승인 요청 없이 FAILED) 토스 승인 API(`Idempotency-Key: confirm-{orderId}`)를 호출한 뒤, 응답의 상태(DONE)·금액·orderId·paymentKey·통화를 다시 대조한다.
+3. `POST /api/donations/confirm`(로그인, 주문한 본인만): `orderId`, `paymentKey`, `amount`를 받는다. **저장된 주문 금액과 일치하는지** 확인하고(다르면 승인 요청 없이 FAILED) 토스 승인 API(`Idempotency-Key: confirm-{orderId}-{confirm_attempt}`)를 호출한 뒤, 응답의 상태(DONE)·금액·orderId·paymentKey·통화를 다시 대조한다.
    - 토스 거절(4xx) → 주문 FAILED, 400 `PAYMENT_REJECTED`. 토스 원문 메시지는 보내지 않고, 사용자 원인 코드(카드 거절·한도·결제 시간 만료 등)만 정해 둔 안내 문구로 바꾼다. 키 불일치 같은 설정 오류(`UNAUTHORIZED_KEY` 등)는 503 `PAYMENT_CONFIG_ERROR`("결제 설정 오류") + 오류 로그, 주문은 PENDING.
-   - 네트워크·429·5xx·응답 형식 오류(zod 검증 실패) → 주문은 PENDING 유지, 502 `PAYMENT_UNAVAILABLE`("새로고침해 다시 확인"). 재요청은 멱등키 덕분에 안전하다.
+   - 일시 오류(네트워크·429·5xx·응답 형식 오류(zod 검증 실패)·`PROVIDER_ERROR`·`FAILED_PAYMENT_INTERNAL_SYSTEM_PROCESSING`·처리 중 409 `IDEMPOTENT_REQUEST_PROCESSING`) → 승인 여부를 알 수 없으므로 FAILED로 만들지 않는다. 먼저 결제 조회 API로 실제 상태를 확인해 DONE이면 그대로 대조·적립한다. 아니면 주문은 PENDING 유지, 502 `PAYMENT_UNAVAILABLE`("새로고침해 다시 확인").
+   - **멱등키 시도 번호**(#29): 토스는 같은 멱등키 재요청에 첫 응답을 오류까지 그대로 돌려주고(실제 API로 확인), 처리 중이면 409를 준다. 키를 주문별로 고정하면 일시 오류가 재요청마다 재생되어 주문이 PENDING에 갇힐 수 있다. 그래서 일시 오류 뒤 조회로 승인되지 않았음(또는 확인 불가)을 보면 `donation_orders.confirm_attempt`를 1 올려(이번에 쓴 번호일 때만 바꾸는 조건부 UPDATE) 다음 재요청이 새 키로 가게 한다. 처리 중 409는 진행 중인 요청의 결과가 같은 키로 남으므로 번호를 올리지 않는다. 새 키로 다시 승인해도 토스는 같은 `paymentKey`를 두 번 승인하지 않으므로(`ALREADY_PROCESSED_PAYMENT` → 조회 후 적립) 이중 결제·이중 적립은 없다. 같은 시도 안의 동시 요청은 같은 키를 써서 토스 쪽에서 하나로 합쳐진다.
    - 5xx 안내 문구는 `AppError`에 노출(`expose`)을 명시한 경우에만 그대로 보낸다. 나머지 5xx는 "서버 오류가 발생했습니다".
    - **한계**: 승인 후 응답 대조가 어긋나면 적립하지 않고 FAILED + 오류 로그만 남긴다. 결제 취소 API는 연동하지 않아 운영자가 토스 상점관리자에서 취소해야 한다.
+   - **결과 미정은 실패가 아니다**: 승인 응답·조회 결과의 상태가 DONE이 아니면(IN_PROGRESS·READY·WAITING_FOR_DEPOSIT 등, `ALREADY_PROCESSED_PAYMENT` 뒤 조회 포함) 대조 실패로 보지 않고 PENDING + 502로 둔다. 시도 번호가 1 이상(이전 시도 결과 미정)인 주문에 새 키로 온 거절도 이전 시도가 승인될 수 있으므로 조회해서 DONE이면 적립하고, 아니면 FAILED로 확정하지 않고 PENDING + 502로 둔다.
+   - **한계**: 사용자가 다시 확인(새로고침)하지 않으면 결과 미정 주문은 웹훅이 올 때까지 PENDING으로 남는다. 실제로 거절된 결제도 이전 시도가 미정이었다면 FAILED가 아니라 PENDING으로 남는다(돈은 빠지지 않았고, 사용자는 새 주문으로 다시 후원한다).
    - `ALREADY_PROCESSED_PAYMENT`(다른 요청이 먼저 승인) → 결제 조회 API(`GET /v1/payments/{paymentKey}`)로 실제 상태를 확인해 같은 경로로 적립한다.
-4. **멱등성**: `orderId`는 유니크이고, `UPDATE ... SET status='DONE' WHERE status IN ('PENDING','FAILED')`의 영향받은 행 수가 1일 때만 같은 트랜잭션에서 원장(`donations`, `order_id` 유니크)을 생성한다. 같은 승인 통지(재요청, 동시 요청, 웹훅)가 반복되어도 한 번만 적립된다. 이미 DONE인 주문의 재요청은 토스에 다시 묻지 않고 기존 결과를 돌려준다. FAILED → DONE을 허용하는 이유: 토스 조회로 승인이 확인된 결제는 돈이 빠져나갔으므로 적립이 맞다(confirm 경로는 FAILED 주문을 409로 먼저 거절한다).
+4. **멱등성**: `orderId`는 유니크이고, `UPDATE ... SET status='DONE' WHERE status IN ('PENDING','FAILED')`의 영향받은 행 수가 1일 때만 같은 트랜잭션에서 원장(`donations`, `order_id` 유니크)을 생성한다. 실패 기록은 PENDING 주문만 바꾸고(먼저 적립된 주문을 늦게 온 거절이 덮지 않게), SSE 알림은 원장 행을 새로 만든 요청만 보낸다. 같은 승인 통지(재요청, 동시 요청, 웹훅)가 반복되어도 한 번만 적립된다. 이미 DONE인 주문의 재요청은 토스에 다시 묻지 않고 기존 결과를 돌려준다. FAILED → DONE을 허용하는 이유: 토스 조회로 승인이 확인된 결제는 돈이 빠져나갔으므로 적립이 맞다(confirm 경로는 FAILED 주문을 409로 먼저 거절한다).
 5. 주문 생성 시점에 LIVE였다면, 결제 도중 방송이 종료되어도 확정한다. 단 confirm 전에 방송이 **삭제**됐으면 토스 승인을 요청하지 않고 404(주문 FAILED, 결제 안 됨)로 끝낸다(#13, 삭제된 방송의 후원은 아무도 볼 수 없다). 이미 승인된 결제가 웹훅으로 오면 돈이 빠져나갔으므로 삭제된 방송이어도 적립한다. 삭제 확인은 토스 승인 요청 직전에 한 번 하므로, 승인 요청(수 초) 도중 삭제되면 웹훅 경로와 같은 결과(적립)가 된다(알려진 한계, 돈은 보전된다).
 6. 원장은 삭제하지 않는다. 방송별 내역과 합계는 원장에서 집계한다: `GET /api/broadcasts/:id/donations`(공개, 최신순 커서 페이지 + `total {amount, count}`).
 7. 적립되면 SSE `donation` 이벤트(`{donation: {후원자 닉네임, 금액, 메시지}, total}`)를 보낸다. 방송 화면은 알림을 띄우고 합계·내역을 갱신하며, SSE가 다시 연결되면 내역을 다시 읽는다.
@@ -203,12 +206,12 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 - MediaMTX `record: yes`, 포맷은 fMP4, path별 디렉터리에 저장한다. 기본값 `recordDeleteAfter: 1d`는 영구 저장 요구와 충돌하므로 `0s`로 끈다.
 - 세그먼트가 닫히면 `hooks/segment.sh`가 mediamtx 컨테이너의 ffmpeg로 **영상은 복사, 오디오만 AAC**로 바꾼 웹용 mp4(`+faststart`)를 같은 경로에 만든다(원본 대체). Safari·iOS의 mp4 Opus 재생이 불확실하고(#2 스파이크), 1GB 서버에서 영상 재인코딩은 감당할 수 없기 때문이다. 변환이 실패하면 원본을 그대로 등록한다.
 - 변환 후 api `/internal/media/events`(type=segment)를 호출하면 `recordings` 테이블(broadcastId, 녹화 디렉터리 기준 상대 경로(유니크), 시작 시각, 길이, 크기)에 등록한다.
-  - 같은 파일은 한 번만 등록한다(멱등). path가 `live/{id}`가 아니거나, 경로가 녹화 디렉터리 밖·다른 방송 디렉터리·정규화되지 않은 경로면 400으로 거절한다.
+  - 같은 파일은 한 번만 등록한다(멱등). 단, 복구 스캔이 변환 전 원본을 먼저 등록한 파일에 훅이 오면 행을 새로 만들지 않고 크기·길이를 훅 값(변환본)으로 고친 뒤 SSE `recording`을 다시 보낸다(#31). path가 `live/{id}`가 아니거나, 경로가 녹화 디렉터리 밖·다른 방송 디렉터리·정규화되지 않은 경로면 400으로 거절한다.
   - 세그먼트 훅은 offline·종료 뒤에 오므로 방송 상태와 상관없이 등록한다. 등록되면 SSE `recording` 이벤트를 보낸다.
   - 시작 시각은 파일 이름(`%Y-%m-%d_%H-%M-%S-%f_%z`)에서 읽는다. 훅 도착 순서는 변환 시간에 따라 바뀔 수 있다.
 - 파일은 Caddy가 recordings 볼륨(읽기 전용)에서 `/recordings/*`로 서빙한다(Range 지원). 요청마다 `forward_auth`로 api `/internal/recordings/authorize`에 묻고, **등록된 파일이고 방송이 삭제되지 않았을 때만** 내보낸다. 변환 중인 임시 파일·미등록 파일·삭제된 방송의 영상은 404.
 - 훅이 유실되면(wget 실패, 변환 중 mediamtx 재시작) api가 기동 시와 5분마다 recordings 볼륨(읽기 전용)을 스캔해 미등록 세그먼트를 등록한다. 최근 2분 안에 바뀐 파일·변환 중인 원본·점 파일은 건너뛰고, 길이는 mp4 박스(mvhd 또는 moof의 tfdt+trun)에서 읽는다. MediaMTX는 세그먼트 훅을 path offline에 묶어 끝내지 않는다(v1.21.3 `internal/core/path.go` `OnSegmentComplete`).
-- 변환은 `flock`으로 한 번에 하나, ffmpeg 스레드 1개·`nice`·30분 `timeout`.
+- 변환은 `flock`으로 한 번에 하나, ffmpeg 스레드 1개·`nice`·30분 `timeout`. 차례를 기다리기 전에 빈 임시 파일(표식)을 먼저 만들어, 대기 중에도 복구 스캔이 "변환 중"으로 보고 원본을 등록하지 않게 한다(#31).
 - API: `GET /api/replays`(녹화가 있는 ENDED 방송, 종료 시각 최신순, 커서), `GET /api/broadcasts/:id/recordings`(재생 순서대로). 공개, 삭제된 방송은 404.
 - 재연결로 세그먼트가 여러 개 생기면 회차 상세에서 시작 시각 순서로 이어서 재생한다(구간 목록 표시). 종료 직후 아직 등록 전이면 "녹화 파일을 준비하고 있습니다"를 보여준다. SSE `recording`과, 종료 후 10분 동안의 10초 주기 조회(개수 무관, 마지막 구간 누락 방지)로 갱신한다.
 
