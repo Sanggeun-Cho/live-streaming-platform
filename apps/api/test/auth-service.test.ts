@@ -78,3 +78,29 @@ describe('테스트 계정 시드 (ensureTestAccounts)', () => {
     expect(await ensureTestAccounts(db, auth)).toEqual([])
   })
 })
+
+describe('만료 세션 정리 (deleteExpiredSessions)', () => {
+  let db: ReturnType<typeof createDb>
+  beforeEach(() => {
+    db = createDb(':memory:')
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    db.sqlite.close()
+  })
+
+  it('만료된 세션만 지우고 유효한 세션은 남긴다', async () => {
+    const auth = createAuthService(db, { sessionTtlDays: 1 })
+    const user = await auth.signup({ email: 'a@example.com', password: 'password123', nickname: '에이' })
+    // 2일 전에 만든 세션(TTL 1일)은 이미 만료, 지금 만든 세션은 유효
+    vi.useFakeTimers({ now: Date.now() - 2 * 24 * 60 * 60 * 1000, toFake: ['Date'] })
+    const expired = auth.createSession(user.id)
+    vi.useRealTimers()
+    const valid = auth.createSession(user.id)
+
+    expect(auth.deleteExpiredSessions()).toBe(1)
+    expect(db.sqlite.prepare('SELECT count(*) AS n FROM sessions').get()).toEqual({ n: 1 })
+    expect(auth.findSession(valid.token)).toBeDefined()
+    expect(auth.findSession(expired.token)).toBeUndefined()
+  })
+})

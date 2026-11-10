@@ -40,7 +40,7 @@ PC 화면 공유(탭·시스템 소리 + 마이크)와 휴대폰 카메라로 �
 1. 휴대폰(iOS Safari, Android Chrome)으로 접속해 로그인 → `● 방송하기` → 제목 입력 → `만들기` → `방송 시작하기`.
 2. `📷 카메라` → 카메라·마이크 권한 허용 → 미리보기 확인 → `방송 시작`.
 3. 방송 중 `🔄 전면/후면 전환`으로 카메라를 바꿀 수 있습니다(시청자 연결은 끊기지 않습니다).
-4. 종료는 `방송 종료`. 송출 중에는 화면을 켜 두세요(앱을 전환하면 휴대폰이 카메라를 멈출 수 있습니다).
+4. 종료는 `방송 종료`. 송출 중에는 화면을 켜 두세요(앱을 전환하면 휴대폰이 카메라를 멈출 수 있습니다). 카메라가 잠깐 끊기면 약 12초 동안 자동으로 다시 열어 송출을 이어 가고, 그래도 열리지 않거나 카메라 권한을 거두면 송출을 멈추고 안내합니다(45초 안에 다시 고르지 않으면 자동 종료).
 
 ### 3. 시청 (다른 기기, 로그인 불필요)
 1. 다른 기기(PC↔휴대폰)에서 https://galle.cloud 접속 → 홈의 **지금 방송 중**에서 방송을 고릅니다. 로그인하지 않아도 되고, 방송자 본인 계정으로 봐도 됩니다(시청자 수에는 방송자 본인이 빠집니다).
@@ -121,18 +121,28 @@ docker compose up -d --build
 npm install
 npm run dev:api   # http://localhost:3000
 npm run dev:web   # http://localhost:5173 (/api는 3000으로 프록시)
-npm test          # API 통합 테스트
+npm test          # API 통합 + 웹 단위 테스트
 npm run typecheck # 타입·빌드·CSS 검사
 ```
 - 송출·시청까지 개발 서버로 확인하려면 docker compose를 함께 띄우고 `API_PROXY_TARGET=https://localhost npm run dev:web`.
 - DB 마이그레이션은 api 기동 시 자동 적용됩니다.
 
+### 테스트
+| 계층 | 건수 | 명령 |
+|---|---|---|
+| API 통합 (vitest + Fastify inject, SQLite) | 409 | `npm test -w @live/api` |
+| 웹 단위 (vitest: 송출 상태 전이·WHIP·캡처·다시보기 구간) | 53 | `npm test -w @live/web` |
+| 둘 다 (CI와 같음) | 462 | `npm test` |
+
+명세 항목별로 어떤 테스트가 검증하는지, 테스트로 증명하지 못해 실기기로 확인할 항목은 [docs/TEST_SPEC.md](docs/TEST_SPEC.md)에 정리했습니다.
+
 ### 브라우저 E2E (선택)
-설치된 Chrome과 가짜 카메라·마이크·화면으로 실제 송출·시청을 자동 확인합니다.
+설치된 Chrome과 가짜 카메라·마이크·화면으로 실제 송출·시청을 자동 확인합니다. 재생은 시청 화면의 디코딩 영상 프레임과 수신 오디오 RTP가 늘어나는지로 판정합니다.
 ```bash
 E2E_BASE_URL=https://localhost npm run e2e        # 전체 (docker compose 실행 중)
 E2E_BASE_URL=https://localhost npm run e2e -- 07  # 방송 스튜디오만
 ```
+- `13-restart`는 `.env`에 `NODE_ENV=development`, `TOSS_FAKE_PAYMENTS=true`가 필요하고, `11-donations`는 개발 서버(`npm run dev:api` + `dev:web`, api에 `TOSS_FAKE_PAYMENTS=true`)에서 `npm run e2e -- 11`로 돌립니다. 시나리오별 환경은 [docs/TEST_SPEC.md](docs/TEST_SPEC.md) 참고.
 
 ## 구성
 ```mermaid
@@ -158,6 +168,7 @@ flowchart LR
 ## 설계 문서
 - [docs/DESIGN.md](docs/DESIGN.md): 아키텍처, 방송 상태 머신, 인증·인가와 권한 매트릭스, 선택 기능 설계
 - [docs/SPEC_CHECKLIST.md](docs/SPEC_CHECKLIST.md): 명세 항목별 구현·검증 근거
+- [docs/TEST_SPEC.md](docs/TEST_SPEC.md): 테스트 명세(계층·실행 방법, 명세 항목 ↔ 테스트 추적표, 테스트 대역과 한계)
 - [docs/WORKLOG.md](docs/WORKLOG.md): 이슈별 설계 판단·코드 리뷰 반영·검증 기록
 - [docs/INFRA_SETUP.md](docs/INFRA_SETUP.md): 운영 서버 구성과 배포
 - [docs/spikes/2-webrtc.md](docs/spikes/2-webrtc.md): WebRTC 송출·시청·녹화 기술 검증
@@ -172,6 +183,7 @@ flowchart LR
 | [Fastify](https://fastify.dev/), [Drizzle ORM](https://orm.drizzle.team/), [zod](https://zod.dev/), [better-sqlite3](https://github.com/WiseLibs/better-sqlite3), [@node-rs/argon2](https://github.com/napi-rs/node-rs) | API 서버 | MIT |
 | [React](https://react.dev/), [React Router](https://reactrouter.com/), [Vite](https://vite.dev/) | 웹 | MIT |
 | [토스페이먼츠 결제위젯 SDK v2](https://docs.tosspayments.com/) | 테스트 결제 | 토스페이먼츠 이용약관 |
+| [Vitest](https://vitest.dev/) | API 통합·웹 단위 테스트 | MIT |
 | [Playwright](https://playwright.dev/) (playwright-core) | 브라우저 E2E | Apache-2.0 |
 
 - WHIP·WHEP 클라이언트는 표준(RFC 9725, draft-ietf-wish-whep)을 보고 직접 구현했습니다(`apps/web/src/lib/webrtc/whip.ts`).
