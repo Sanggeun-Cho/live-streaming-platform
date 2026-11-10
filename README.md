@@ -130,9 +130,9 @@ npm run typecheck # 타입·빌드·CSS 검사
 ### 테스트
 | 계층 | 건수 | 명령 |
 |---|---|---|
-| API 통합 (vitest + Fastify inject, SQLite) | 408 | `npm test -w @live/api` |
+| API 통합 (vitest + Fastify inject, SQLite) | 409 | `npm test -w @live/api` |
 | 웹 단위 (vitest: 송출 상태 전이·WHIP·캡처·다시보기 구간) | 53 | `npm test -w @live/web` |
-| 둘 다 (CI와 같음) | 461 | `npm test` |
+| 둘 다 (CI와 같음) | 462 | `npm test` |
 
 명세 항목별로 어떤 테스트가 검증하는지, 테스트로 증명하지 못해 실기기로 확인할 항목은 [docs/TEST_SPEC.md](docs/TEST_SPEC.md)에 정리했습니다.
 

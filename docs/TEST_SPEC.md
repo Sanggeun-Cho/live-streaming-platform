@@ -9,18 +9,18 @@
 
 | 계층 | 도구 | 위치 | 건수 | 무엇을 보나 |
 |---|---|---|---|---|
-| API 통합 | vitest + Fastify `inject` (SSE는 임시 포트로 실제 연결) | `apps/api/test/*.test.ts` 13개 파일 | **408** | 라우트 → 서비스 → SQLite(메모리 또는 임시 파일)까지 실제 코드. MediaMTX Control API와 토스 API만 대역 |
+| API 통합 | vitest + Fastify `inject` (SSE는 임시 포트로 실제 연결) | `apps/api/test/*.test.ts` 13개 파일 | **409** | 라우트 → 서비스 → SQLite(메모리 또는 임시 파일)까지 실제 코드. MediaMTX Control API와 토스 API만 대역 |
 | 웹 단위 | vitest (node 환경, 브라우저 API는 가짜) | `apps/web/src/lib/**/*.test.ts` 4개 파일 | **53** | 송출(Publisher) 상태 전이, 캡처, WHIP 핸드셰이크·코덱 선택, 다시보기 구간 |
 | 브라우저 E2E | playwright-core + 설치된 Chrome + 가짜 카메라·마이크·화면 | `e2e/NN-*.mjs` 9개 파일 | 시나리오 단계 93개(11을 가짜 결제로 돌릴 때 실행 기준. 테스트 키 모드면 89개) | 실제 화면·실제 MediaMTX·실제 WebRTC 송출과 시청 |
 
-- 합계: vitest 461건(API 408 + 웹 53). CI(`.github/workflows`)는 `npm run typecheck`와 `npm test`(API·웹 모두)를 돌린다. E2E는 CI에 없고 로컬에서 돌린다.
+- 합계: vitest 462건(API 409 + 웹 53). CI(`.github/workflows`)는 `npm run typecheck`와 `npm test`(API·웹 모두)를 돌린다. E2E는 CI에 없고 로컬에서 돌린다.
 - API 테스트는 테스트마다 새 앱(`makeApp`, 메모리 DB)을 만든다. 재시작 테스트만 임시 파일 DB를 두 번 연다.
 
 ### 실행 방법
 
 ```bash
 npm ci
-npm test                      # API 408 + 웹 53 (루트: 두 워크스페이스를 차례로)
+npm test                      # API 409 + 웹 53 (루트: 두 워크스페이스를 차례로)
 npm test -w @live/api         # API 통합 테스트만
 npm test -w @live/web         # 웹 단위 테스트만
 npm run typecheck             # api tsc + web tsc·vite build + CSS 검사
@@ -62,7 +62,7 @@ ID는 [SPEC_CHECKLIST.md](SPEC_CHECKLIST.md)와 같다. "수동"은 테스트로
 | S4 | 방송 중·종료 상태 관리 | `internal-media` 상태 머신·주기 대조·SSE, `state-boundaries` 전체 | `publisher` 연결 끊김과 재연결 | 06 실시간 상태 전환·유예 만료 자동 종료 | — |
 | S5 | 종료 시 송출 중단 | `internal-media` "소유자가 종료하면 ENDED가 되고 송출을 강제로 끊는다", "종료 후 늦게 도착한 online은 끊는다", `state-boundaries` 경합 | `publisher` "끊긴 사이 방송이 종료됐으면 ended" | 06 종료 후 시청 중단·다른 탭 종료 시 장치 정지, 07 종료 후 캡처 트랙 0개 | — |
 | S6 | 영구 저장·재시작 후 조회 | `broadcasts` "서버를 재시작해도 방송 정보가 유지된다", `auth` 세션 영속성, `recordings` 영구 저장 | — | 13 `restart api`·`down`→`up` | 운영 서버 재시작 #9 |
-| A1 | 가입·로그인·로그아웃·인증 상태 | `auth`(24), `auth-service`(5) | — | 05·10 세션 만료 유도, 14 바로 로그인 | — |
+| A1 | 가입·로그인·로그아웃·인증 상태 | `auth`(24), `auth-service`(6) | — | 05·10 세션 만료 유도, 14 바로 로그인 | — |
 | A2 | 비로그인 목록·시청 | `authz-matrix` 공개 조회 12종 × 3, 시청(read) 비로그인 허용 | — | 05 비로그인 상세, 06 비로그인 시청자, 12 | — |
 | A3 | 등록·송출은 로그인만 | `authz-matrix` 방송 등록·publish 토큰 anon 401, `internal-media` 토큰 발급 | — | 06 "토큰 없이 WHIP로 송출하면 401" | — |
 | A4 | 소유자 권한 서버 검증 | `broadcasts` 수정·삭제 403, 검증 순서, `internal-media` 토큰·종료 403, `authz-matrix` 쓰기 | — | 05 "API로 직접 수정·삭제하면 403", 07 다른 사용자 스튜디오 | — |
@@ -87,11 +87,11 @@ ID는 [SPEC_CHECKLIST.md](SPEC_CHECKLIST.md)와 같다. "수동"은 테스트로
 
 ## 3. 파일별 테스트 목록
 
-### API 통합 (`apps/api/test`, 408건)
+### API 통합 (`apps/api/test`, 409건)
 
 | 파일 | 건수 | describe (건수) |
 |---|---|---|
-| `auth-service.test.ts` | 5 | 로그인 시간 균등화(2), 테스트 계정 시드(3) |
+| `auth-service.test.ts` | 6 | 로그인 시간 균등화(2), 테스트 계정 시드(3), 만료 세션 정리(1) |
 | `auth.test.ts` | 24 | 인증 API(20), 리버스 프록시 신뢰(1), 세션 영속성(3) |
 | `authz-matrix.test.ts` | 151 | 쓰기(78), 공개 조회(36), 삭제된 방송(33), 독립(4) |
 | `broadcasts.test.ts` | 21 | 등록(6), 조회(4), 수정(3), 삭제(3), 그 밖(5) |
@@ -105,9 +105,10 @@ ID는 [SPEC_CHECKLIST.md](SPEC_CHECKLIST.md)와 같다. "수동"은 테스트로
 | `state-boundaries.test.ts` | 10 | 종료·삭제와 훅의 경합(5), 유예 시간(2), 삭제된 방송의 후원·녹화(3) |
 | `toss-client.test.ts` | 10 | 토스 API 클라이언트(8), 가짜 토스 멱등키(2) |
 
-#### `auth-service.test.ts` (5)
+#### `auth-service.test.ts` (6)
 - 로그인 시간 균등화: 없는 이메일도 더미 해시로 argon2 검증을 한 번 수행하고 401 / 있는 이메일·틀린 비밀번호도 한 번 수행(두 경로 비용 동일).
 - 테스트 계정 시드: 확인과 생성 사이 경합(`EMAIL_TAKEN`)은 건너뜀 / 그 밖의 오류는 기동 실패 / 없는 계정만 만들고 만든 이메일을 반환.
+- 만료 세션 정리: 만료된 세션만 지우고(1건 반환) 유효한 세션은 남긴다.
 
 #### `auth.test.ts` (24)
 - 인증 API(20): 가입 201·채널 생성·보안 쿠키 / DB에는 세션 토큰 해시만 / 같은 이메일(대소문자 무관) 409 / 잘못된 입력 400 ×4 / 로그인 200·새 세션 / 틀린 비밀번호와 없는 이메일은 같은 401 / 로그인 시 요청의 이전 세션 폐기 / 다른 기기 세션은 유지 / 로그아웃 시 세션 삭제·쿠키 제거 / 쿠키 없음·위조 `/me` 401 / JSON 아닌 본문 415 / 로그인·가입 IP당 분당 10회 초과 429 (각 1) / 신뢰하지 않는 `X-Forwarded-For`로 제한 우회 불가 / 가입도 이전 세션 폐기 / 만료 세션 거부 / 남은 기간 절반 이하면 연장.
@@ -265,4 +266,53 @@ DB 정상이면 200 ok / 없는 경로 404 형식 / 로그에서 `secret`·`toke
 
 ## 변이 테스트 결과
 
-(최종 점검 결과로 채움)
+"테스트가 의미 있는가"를 확인하려고 코드에 일부러 버그(변이)를 넣고 테스트가 실패하는지 봤다. 살아남은 변이 = 그 동작을 지키는 테스트가 없다는 뜻이다.
+
+### 1차 (2026-11-10, 전체 리뷰)
+
+| 영역 | 검출 / 시도 | 살아남은 주요 변이 |
+|---|---|---|
+| 인증·방송·권한 매트릭스·오류 형식 | 27 / 35 | 가입 레이트리밋, 더미 해시, 만료 세션 정리, 시청자 수 방송자 제외, PATCH 필드 유지, 로그인 시 다른 기기 세션 폐기 |
+| 송출 제어·상태 머신·SSE | 10 / 11 | 시청자 수 방송자 제외(위와 같음) |
+| 댓글·후원 | 19 / 30 | 승인 응답 status·orderId·paymentKey·currency 대조, 방송별 합계, FAILED→DONE 웹훅, 웹훅 503 등 |
+| 녹화 | 18 / 23 | 커서 동률, mvhd v1, canServe 형식 검사, 삭제 후 늦은 세그먼트, recording SSE |
+
+→ #29(PR #32)·#31(PR #33)·#30(PR #34)에서 테스트를 추가하고 드러난 버그를 고쳤다.
+
+### 2차 (최종 점검, dev `bdacc6f` 새 클론)
+
+1차에서 살아남은 변이와 후속 수정의 핵심 동작에 변이 32개를 하나씩 넣고 전체 테스트를 돌렸다.
+
+| 영역 | 변이 | 결과 | 잡은 테스트 |
+|---|---|---|---|
+| 인증 | 가입 레이트리밋 제거 | 검출 | `auth` |
+| 인증 | 없는 이메일 더미 해시 검증 제거 | 검출 | `auth-service` |
+| 인증 | 로그인 시 사용자의 모든 세션 폐기 | 검출 | `auth` |
+| 인증 | 시드가 모든 오류를 삼킴 | 검출 | `auth-service` |
+| 인증 | 만료 세션 정리가 아무것도 안 지움 / 호출 안 됨 | 생존 → **테스트 추가 후 검출** | `auth-service` 만료 세션 정리 |
+| 방송 | 시청자 수에 방송자 포함 | 검출 | `broadcasts` |
+| 방송 | PATCH가 보내지 않은 설명을 지움 | 검출 | `broadcasts` |
+| 후원 | 승인 응답 status≠DONE 허용 | 검출 | `donations` |
+| 후원 | orderId / paymentKey / currency 대조 생략 (3개) | 검출 | `donations` |
+| 후원 | 합계가 방송을 구분하지 않음 | 검출 | `donations` |
+| 후원 | 웹훅이 FAILED→DONE 못 함 / 일시 오류에 200 | 검출 | `donations` |
+| 후원 | 원장 행 없이 SSE 전송 | 검출 | `donations` |
+| 후원 | 처리 중 409를 거절로 분류 | 검출 | `donations`, `toss-client` |
+| 후원 | markFailed가 PENDING 조건 없이 덮어씀 | 검출 | `donations` |
+| 후원 | 멱등키 고정(시도 번호 없음) | 검출 | `donations` |
+| 후원 | 조회 결과 IN_PROGRESS를 FAILED로 확정 | 검출 | `donations` |
+| 녹화 | 종료 시각 동률 커서 / mvhd v1 하위 워드만 읽음 | 검출 | `recordings`, `recordings-scan` |
+| 녹화 | canServe 형식 검사 제거 / 삭제된 방송 세그먼트 제공 | 검출 | `recordings`, `state-boundaries` |
+| 녹화 | recording SSE 미전송 / 훅 재등록이 크기 갱신 안 함 | 검출 | `recordings`, `recordings-scan` |
+| 웹 | 선택 창 중 연결 끊김 무시 | 검출 | `publisher` |
+| 웹 | 카메라 종료 시 다시 열지 않고 바로 sourceEnded | 검출 | `publisher` |
+| 웹 | 45초 자동 종료 제거 | 검출 | `publisher` |
+| 웹 | H.264 선호 순서 뒤집기 / 다음 구간 off-by-one | 검출 | `whip`, `recordings` |
+
+- 결과: 32개 중 29개 검출. 살아남은 3개 중 2개(만료 세션 정리)는 테스트를 추가해 검출을 확인했다. 정리 주기(`app.ts`의 setInterval) 자체는 테스트하지 않는다.
+- 나머지 1개(`paymentMismatches` 안의 status 항목만 제거)는 **동등 변이**다. 승인·웹훅 두 경로 모두 그보다 앞에서 `status !== 'DONE'`을 먼저 걸러, 지워도 동작이 같다.
+- 의심스러운 테스트 검사: `.skip`·`.only`·`.todo`·`expect(true)` 없음. 단언 없는 테스트 1건(`internal-media` "방송이 삭제되면 서버가 연결을 닫는다")은 연결이 닫히지 않으면 시간 초과로 실패하므로 의미가 있다.
+
+### 실행 가능성 (같은 새 클론)
+
+`npm ci`, `npm run typecheck`(웹 빌드 포함), `npm test`(API 409 + 웹 53) 통과. `npm audit`: moderate 4건, high 0건 — 모두 개발 도구 drizzle-kit이 끌어오는 esbuild ≤0.24.2이며 운영 이미지에는 들어가지 않는다(해결하려면 drizzle-kit 호환성 깨지는 업그레이드가 필요해 보류).
