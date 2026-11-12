@@ -132,8 +132,10 @@ export async function buildApp({ config, db, mediaControl, toss }: AppDeps) {
   if (config.TOSS_FAKE_PAYMENTS) {
     app.log.warn('TOSS_FAKE_PAYMENTS=true: 결제창 없이 모든 후원을 승인 처리합니다. 개발·E2E 전용입니다')
   }
+  const comments = createCommentService(db)
   const donations = createDonationService({
     db,
+    comments,
     hub,
     log: app.log,
     toss:
@@ -155,7 +157,7 @@ export async function buildApp({ config, db, mediaControl, toss }: AppDeps) {
     }),
     { prefix: '/api' },
   )
-  await app.register(commentRoutes({ comments: createCommentService(db), hub }), { prefix: '/api' })
+  await app.register(commentRoutes({ comments, hub }), { prefix: '/api' })
   const recordings = createRecordingService(db, { recordingsDir: config.RECORDINGS_DIR })
   app.decorate('recordings', recordings)
   await app.register(recordingRoutes(recordings), { prefix: '/api' })

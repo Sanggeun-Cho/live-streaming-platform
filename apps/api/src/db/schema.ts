@@ -176,6 +176,11 @@ export const comments = sqliteTable(
     // 마지막으로 수정한 시각. 화면의 "(수정됨)" 표시에 쓴다
     editedAt: integer('edited_at', { mode: 'timestamp_ms' }),
     deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),
+    // 후원 채팅 (#40): 후원이 적립될 때 함께 생기는 채팅이면 그 후원. 후원 1건당 채팅 1개(유니크)이고 수정·삭제할 수 없다.
+    // content에는 후원 메시지가 들어간다 (메시지 없이 후원하면 빈 문자열)
+    donationId: integer('donation_id')
+      .unique()
+      .references(() => donations.id),
   },
   // 목록 조회: 방송별 최신 N개 (id 역순 + 커서)
   (t) => [index('comments_broadcast_id_id_idx').on(t.broadcastId, t.id)],

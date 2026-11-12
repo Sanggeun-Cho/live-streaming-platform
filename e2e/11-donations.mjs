@@ -105,6 +105,17 @@ if (config.fake) {
     await watcher.getByTestId('donation-total').getByText('5,000원').waitFor()
   })
 
+  await step('채팅에도 후원 내역(닉네임·금액·메시지)이 실시간으로 남고, 수정·삭제 버튼이 없다 (#40)', async () => {
+    const item = watcher.getByTestId('chat-list').locator('.chat-donation')
+    await item.waitFor()
+    const text = await item.innerText()
+    for (const s of ['후원자', '5,000원 후원', 'E2E 응원합니다']) if (!text.includes(s)) throw new Error(`채팅에 ${s} 없음: ${text}`)
+    await viewer.reload()
+    const mine = viewer.getByTestId('chat-list').locator('.chat-donation')
+    await mine.getByText('E2E 응원합니다').waitFor()
+    expectEqual(await mine.getByRole('button').count(), 0, '후원 채팅 버튼 수')
+  })
+
   await step('같은 성공 주소를 다시 열어도(중복 승인 통지) 1번만 적립된다', async () => {
     await viewer.goto(successUrl)
     await viewer.getByTestId('donation-done').waitFor()
@@ -115,6 +126,8 @@ if (config.fake) {
     expectEqual(again.body.alreadyConfirmed, true, '재요청 결과')
     const { body } = await apiFetch(viewer, `/broadcasts/${id}/donations`)
     expectEqual(body.total, { amount: 5000, count: 1 }, '합계')
+    const chat = await apiFetch(viewer, `/broadcasts/${id}/comments`)
+    expectEqual(chat.body.items.filter((c) => c.donation).length, 1, '후원 채팅 수')
   })
 
   await step('결제창에서 돌아온 금액이 주문과 다르면 적립하지 않고 안내한다', async () => {
