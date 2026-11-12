@@ -720,10 +720,14 @@ describe('도네이션 API', () => {
       expect((await chat()).json().items).toHaveLength(1)
     })
 
-    it('후원 채팅은 후원자도 수정·삭제할 수 없다 (403)', async () => {
+    it('후원 채팅은 후원자도 수정·삭제할 수 없다 (후원자·다른 사용자·방송자 403, 비로그인 401)', async () => {
       const order = await newOrder()
       await confirm(viewer, { orderId: order.orderId, paymentKey: 'pk_1', amount: 5000 })
       const [item] = (await chat()).json().items
+      for (const [u, code] of [[viewer2, 403], [streamer, 403], [undefined, 401]] as const) {
+        const res = await app.inject({ method: 'DELETE', url: `/api/comments/${item.id}`, ...as(u) })
+        expect(res.statusCode).toBe(code)
+      }
       const patch = await app.inject({ method: 'PATCH', url: `/api/comments/${item.id}`, payload: { content: '바꿈' }, ...as(viewer) })
       expect(patch.statusCode).toBe(403)
       expect(patch.json().message).toContain('후원 채팅은 수정할 수 없습니다')

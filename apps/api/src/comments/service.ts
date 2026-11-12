@@ -85,7 +85,13 @@ export function createCommentService(db: Db) {
       .where(and(eq(comments.id, id), isNull(broadcasts.deletedAt)))
       .get()
 
-  const findView = (id: number) => toView(findRow(id)!)
+  /** 응답·SSE용 댓글 (방송이 삭제됐으면 undefined) */
+  function view(id: number): CommentView | undefined {
+    const row = findRow(id)
+    return row ? toView(row) : undefined
+  }
+  // 방금 만들거나 바꾼 댓글처럼 있는 것이 확실할 때
+  const findView = (id: number) => view(id)!
 
   function assertBroadcastExists(broadcastId: number) {
     const row = orm
@@ -107,10 +113,27 @@ export function createCommentService(db: Db) {
   }
 
   return {
-    /** 응답·SSE용 댓글 하나 (방송이 삭제됐으면 undefined). 후원 채팅을 만든 뒤 이벤트로 보낼 때 쓴다 */
-    get(id: number): CommentView | undefined {
-      const row = findRow(id)
-      return row ? toView(row) : undefined
+    /** 후원 채팅을 만든 뒤 이벤트로 보낼 때 쓴다 */
+    get: view,
+
+    /**
+     * 후원 채팅 (#40). 후원 원장을 적립하는 트랜잭션(tx) 안에서 불러, 원장과 채팅이 함께 생기게 한다.
+     * 작성자는 후원자, 본문은 후원 메시지(없으면 빈 문자열)다. 만든 댓글 ID를 돌려준다
+     */
+    insertDonationChat(
+      tx: Pick<typeof orm, 'insert'>,
+      donation: { id: number; broadcastId: number; donorId: number; message: string },
+    ): number {
+      return tx
+        .insert(comments)
+        .values({
+          broadcastId: donation.broadcastId,
+          userId: donation.donorId,
+          content: donation.message,
+          donationId: donation.id,
+        })
+        .returning({ id: comments.id })
+        .get().id
     },
 
     /**

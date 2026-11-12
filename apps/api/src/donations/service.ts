@@ -22,7 +22,7 @@ import type { AuthUser } from '../auth/service.js'
 import { broadcastNotFound } from '../broadcasts/service.js'
 import type { Db } from '../db/client.js'
 import type { CommentEvent, CommentService } from '../comments/service.js'
-import { broadcasts, comments, type DonationOrder, donationOrders, donations, users } from '../db/schema.js'
+import { broadcasts, type DonationOrder, donationOrders, donations, users } from '../db/schema.js'
 import { AppError, forbidden } from '../errors.js'
 import { type TossClient, TossApiError, type TossPayment } from '../payments/toss.js'
 import type { EventHub } from '../realtime/hub.js'
@@ -113,7 +113,7 @@ export function createDonationService(deps: {
   log: FastifyBaseLogger
   comments: CommentService
 }) {
-  const { db, toss, hub, log } = deps
+  const { db, toss, hub, log, comments } = deps
   const { orm } = db
 
   /** 삭제되지 않은 방송 (없으면 404) */
@@ -164,7 +164,7 @@ export function createDonationService(deps: {
    * FAILED 주문도 DONE으로 바꿀 수 있다: 토스에서 실제로 승인된 결제(예: 동시 요청 중 한쪽이 실패로 기록)는 돈이 빠져 나갔으므로 적립이 맞다.
    */
   function record(order: DonationOrder, paymentKey: string): { donation: DonationView; created: boolean } {
-    const result = orm.transaction((tx) => {
+    const chatId = orm.transaction((tx) => {
       const { changes } = tx
         .update(donationOrders)
         .set({ status: 'DONE', paymentKey, failureCode: null, updatedAt: new Date() })
@@ -183,20 +183,20 @@ export function createDonationService(deps: {
         })
         .returning({ id: donations.id })
         .get()
-      const { id: commentId } = tx
-        .insert(comments)
-        .values({ broadcastId: order.broadcastId, userId: order.donorId, content: order.message, donationId })
-        .returning({ id: comments.id })
-        .get()
-      return { commentId }
+      return comments.insertDonationChat(tx, {
+        id: donationId,
+        broadcastId: order.broadcastId,
+        donorId: order.donorId,
+        message: order.message,
+      })
     })
 
     const donation = findDonationByOrder(order.id)!
-    const created = result !== null
-    if (result) {
+    const created = chatId !== null
+    if (created) {
       hub.publish(order.broadcastId, 'donation', { donation, total: totalOf(order.broadcastId) })
       // 방송이 삭제됐으면(결제 도중 삭제) 채팅도 보이지 않으므로 보내지 않는다
-      const comment = deps.comments.get(result.commentId)
+      const comment = comments.get(chatId)
       if (comment) hub.publish(order.broadcastId, 'comment', { type: 'created', comment } satisfies CommentEvent)
     }
     return { donation, created }
