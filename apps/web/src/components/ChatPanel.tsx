@@ -5,6 +5,7 @@ import { useAuthErrorRedirect } from '../auth/useAuthErrorRedirect'
 import type { CommentsState } from '../hooks/useComments'
 import { errorMessage } from '../lib/api'
 import { type Comment, COMMENT_MAX_LENGTH, createComment, deleteComment, updateComment } from '../lib/comments'
+import { formatWon } from '../lib/donations'
 
 // 맨 아래에서 이만큼(px) 이내면 "맨 아래를 보는 중"으로 보고 새 채팅이 오면 따라 내려간다
 const STICK_THRESHOLD_PX = 40
@@ -228,6 +229,18 @@ function ChatItem({ comment, mine, editing, onStartEdit, onCancelEdit, onSave, o
     return (
       <li className="chat-item chat-deleted" data-testid="comment" data-comment-id={comment.id}>
         <span className="muted">삭제된 댓글입니다</span>
+      </li>
+    )
+  }
+  if (comment.donation) {
+    // 후원 채팅: 후원 원장과 같은 기록이라 수정·삭제 버튼을 두지 않는다
+    return (
+      <li className="chat-item chat-donation" data-testid="comment" data-comment-id={comment.id}>
+        <span className="chat-donation-head">
+          <strong className="chat-author">{comment.author?.nickname}</strong>
+          <span className="chat-donation-amount">{formatWon(comment.donation.amount)} 후원</span>
+        </span>
+        {comment.content && <span className="chat-content">{comment.content}</span>}
       </li>
     )
   }

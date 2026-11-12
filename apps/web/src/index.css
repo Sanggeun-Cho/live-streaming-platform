@@ -1069,6 +1069,32 @@ input[type='range'] {
   color: var(--accent-ink);
 }
 
+.chat-donation {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 4px 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.chat-donation-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+
+.chat-donation .chat-author {
+  color: var(--text);
+}
+
+.chat-donation-amount {
+  font-weight: 700;
+  color: var(--accent);
+}
+
 .chat-deleted {
   color: var(--text-dim);
   font-style: italic;

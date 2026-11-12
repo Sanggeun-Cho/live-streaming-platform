@@ -2,7 +2,7 @@ import { and, desc, eq, isNull, lt, type SQL } from 'drizzle-orm'
 import type { AuthUser } from '../auth/service.js'
 import { broadcastNotFound } from '../broadcasts/service.js'
 import type { Db } from '../db/client.js'
-import { broadcasts, channels, comments, users } from '../db/schema.js'
+import { broadcasts, channels, comments, donations, users } from '../db/schema.js'
 import { AppError, forbidden } from '../errors.js'
 
 /**
@@ -19,7 +19,12 @@ export type CommentView = {
   author: { id: number; nickname: string } | null
   /** 방송자 본인이 쓴 댓글 (채팅에서 강조한다). 삭제된 댓글은 false */
   isStreamer: boolean
+  /** 후원 채팅이면 후원 금액 (#40). content는 후원 메시지(없으면 빈 문자열)이고, 수정·삭제할 수 없다 */
+  donation: { id: number; amount: number } | null
 }
+
+/** SSE `comment` 이벤트 데이터. 이벤트 이름 하나로 두고 type으로 구분해 클라이언트 구독을 단순하게 한다 */
+export type CommentEvent = { type: 'created' | 'updated' | 'deleted'; comment: CommentView }
 
 export type CommentListQuery = {
   /** 이 ID보다 오래된(작은) 댓글부터 */
@@ -39,11 +44,14 @@ type Row = {
   deletedAt: Date | null
   author: { id: number; nickname: string }
   streamerUserId: number
+  donationId: number | null
+  donationAmount: number | null
 }
 
-function toView({ streamerUserId, ...row }: Row): CommentView {
-  if (row.deletedAt) return { ...row, content: null, author: null, isStreamer: false }
-  return { ...row, isStreamer: row.author.id === streamerUserId }
+function toView({ streamerUserId, donationId, donationAmount, ...row }: Row): CommentView {
+  if (row.deletedAt) return { ...row, content: null, author: null, isStreamer: false, donation: null }
+  const donation = donationId !== null && donationAmount !== null ? { id: donationId, amount: donationAmount } : null
+  return { ...row, isStreamer: row.author.id === streamerUserId, donation }
 }
 
 // better-sqlite3는 동기라 한 요청 안의 "확인 → 변경"이 다른 요청이 끼어들지 않는다.
@@ -63,9 +71,12 @@ export function createCommentService(db: Db) {
         deletedAt: comments.deletedAt,
         author: { id: users.id, nickname: users.nickname },
         streamerUserId: channels.userId,
+        donationId: comments.donationId,
+        donationAmount: donations.amount,
       })
       .from(comments)
       .innerJoin(users, eq(users.id, comments.userId))
+      .leftJoin(donations, eq(donations.id, comments.donationId))
       .innerJoin(broadcasts, eq(broadcasts.id, comments.broadcastId))
       .innerJoin(channels, eq(channels.id, broadcasts.channelId))
 
@@ -74,7 +85,13 @@ export function createCommentService(db: Db) {
       .where(and(eq(comments.id, id), isNull(broadcasts.deletedAt)))
       .get()
 
-  const findView = (id: number) => toView(findRow(id)!)
+  /** 응답·SSE용 댓글 (방송이 삭제됐으면 undefined) */
+  function view(id: number): CommentView | undefined {
+    const row = findRow(id)
+    return row ? toView(row) : undefined
+  }
+  // 방금 만들거나 바꾼 댓글처럼 있는 것이 확실할 때
+  const findView = (id: number) => view(id)!
 
   function assertBroadcastExists(broadcastId: number) {
     const row = orm
@@ -90,10 +107,35 @@ export function createCommentService(db: Db) {
     const row = findRow(id)
     if (!row || row.deletedAt) throw commentNotFound()
     if (row.author.id !== user.id) throw forbidden(`본인이 작성한 댓글만 ${action}할 수 있습니다`)
+    // 후원 채팅은 후원 원장과 같은 기록이라 후원자도 바꾸거나 지울 수 없다
+    if (row.donationId !== null) throw forbidden(`후원 채팅은 ${action}할 수 없습니다`)
     return row
   }
 
   return {
+    /** 후원 채팅을 만든 뒤 이벤트로 보낼 때 쓴다 */
+    get: view,
+
+    /**
+     * 후원 채팅 (#40). 후원 원장을 적립하는 트랜잭션(tx) 안에서 불러, 원장과 채팅이 함께 생기게 한다.
+     * 작성자는 후원자, 본문은 후원 메시지(없으면 빈 문자열)다. 만든 댓글 ID를 돌려준다
+     */
+    insertDonationChat(
+      tx: Pick<typeof orm, 'insert'>,
+      donation: { id: number; broadcastId: number; donorId: number; message: string },
+    ): number {
+      return tx
+        .insert(comments)
+        .values({
+          broadcastId: donation.broadcastId,
+          userId: donation.donorId,
+          content: donation.message,
+          donationId: donation.id,
+        })
+        .returning({ id: comments.id })
+        .get().id
+    },
+
     /**
      * 최신 댓글 limit개를 오래된 것부터(채팅 순서) 돌려준다. 더 오래된 댓글이 있으면 nextCursor로 이어 읽는다.
      * 삭제된 댓글도 "삭제된 댓글입니다" 자리로 포함한다 (대화 흐름이 끊기지 않게).

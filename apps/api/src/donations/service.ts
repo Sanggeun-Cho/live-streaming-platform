@@ -21,6 +21,7 @@ import type { FastifyBaseLogger } from 'fastify'
 import type { AuthUser } from '../auth/service.js'
 import { broadcastNotFound } from '../broadcasts/service.js'
 import type { Db } from '../db/client.js'
+import type { CommentEvent, CommentService } from '../comments/service.js'
 import { broadcasts, type DonationOrder, donationOrders, donations, users } from '../db/schema.js'
 import { AppError, forbidden } from '../errors.js'
 import { type TossClient, TossApiError, type TossPayment } from '../payments/toss.js'
@@ -105,8 +106,14 @@ const newOrderId = () => `don_${randomBytes(18).toString('base64url')}`
 export const confirmIdempotencyKey = (order: Pick<DonationOrder, 'orderId' | 'confirmAttempt'>) =>
   `confirm-${order.orderId}-${order.confirmAttempt}`
 
-export function createDonationService(deps: { db: Db; toss: TossClient; hub: EventHub; log: FastifyBaseLogger }) {
-  const { db, toss, hub, log } = deps
+export function createDonationService(deps: {
+  db: Db
+  toss: TossClient
+  hub: EventHub
+  log: FastifyBaseLogger
+  comments: CommentService
+}) {
+  const { db, toss, hub, log, comments } = deps
   const { orm } = db
 
   /** 삭제되지 않은 방송 (없으면 404) */
@@ -152,18 +159,20 @@ export function createDonationService(deps: { db: Db; toss: TossClient; hub: Eve
   }
 
   /**
-   * 대조를 통과한 결제를 원장에 1번만 적립한다.
+   * 대조를 통과한 결제를 원장에 1번만 적립하고, 같은 트랜잭션에서 후원 채팅(#40)도 1개 만든다.
+   * 원장과 채팅이 함께 생기거나 함께 생기지 않으므로, 중복 통지가 와도 채팅이 두 번 생기거나 빠지지 않는다.
    * FAILED 주문도 DONE으로 바꿀 수 있다: 토스에서 실제로 승인된 결제(예: 동시 요청 중 한쪽이 실패로 기록)는 돈이 빠져 나갔으므로 적립이 맞다.
    */
   function record(order: DonationOrder, paymentKey: string): { donation: DonationView; created: boolean } {
-    const created = orm.transaction((tx) => {
+    const chatId = orm.transaction((tx) => {
       const { changes } = tx
         .update(donationOrders)
         .set({ status: 'DONE', paymentKey, failureCode: null, updatedAt: new Date() })
         .where(and(eq(donationOrders.id, order.id), inArray(donationOrders.status, ['PENDING', 'FAILED'])))
         .run()
-      if (changes !== 1) return false
-      tx.insert(donations)
+      if (changes !== 1) return null
+      const { id: donationId } = tx
+        .insert(donations)
         .values({
           orderId: order.id,
           broadcastId: order.broadcastId,
@@ -172,13 +181,23 @@ export function createDonationService(deps: { db: Db; toss: TossClient; hub: Eve
           message: order.message,
           paymentKey,
         })
-        .run()
-      return true
+        .returning({ id: donations.id })
+        .get()
+      return comments.insertDonationChat(tx, {
+        id: donationId,
+        broadcastId: order.broadcastId,
+        donorId: order.donorId,
+        message: order.message,
+      })
     })
 
     const donation = findDonationByOrder(order.id)!
+    const created = chatId !== null
     if (created) {
       hub.publish(order.broadcastId, 'donation', { donation, total: totalOf(order.broadcastId) })
+      // 방송이 삭제됐으면(결제 도중 삭제) 채팅도 보이지 않으므로 보내지 않는다
+      const comment = comments.get(chatId)
+      if (comment) hub.publish(order.broadcastId, 'comment', { type: 'created', comment } satisfies CommentEvent)
     }
     return { donation, created }
   }
