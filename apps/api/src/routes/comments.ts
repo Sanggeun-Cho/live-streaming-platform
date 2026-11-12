@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../auth/plugin.js'
-import type { CommentService, CommentView } from '../comments/service.js'
+import type { CommentEvent, CommentService } from '../comments/service.js'
 import { idParams, parse, positiveId } from '../lib/validate.js'
 import type { EventHub } from '../realtime/hub.js'
 
@@ -25,9 +25,6 @@ const listQuery = z.object({
     .max(100, { error: limitError })
     .default(50),
 })
-
-/** SSE `comment` 이벤트 데이터. 이벤트 이름 하나로 두고 type으로 구분해 클라이언트 구독을 단순하게 한다 */
-export type CommentEvent = { type: 'created' | 'updated' | 'deleted'; comment: CommentView }
 
 export const commentRoutes =
   ({ comments, hub }: { comments: CommentService; hub: EventHub }): FastifyPluginAsync =>

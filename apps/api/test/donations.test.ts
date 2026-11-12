@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadConfig } from '../src/config.js'
-import { broadcasts, donationOrders, donations } from '../src/db/schema.js'
+import { broadcasts, comments, donationOrders, donations } from '../src/db/schema.js'
 import { confirmIdempotencyKey } from '../src/donations/service.js'
 import { type ConfirmInput, type TossClient, TossApiError, type TossPayment, withFakeIdempotency } from '../src/payments/toss.js'
 import { idleMediaControl, makeApp, signupAs, type TestApp, type TestUser } from './helpers.js'
@@ -680,6 +680,67 @@ describe('도네이션 API', () => {
     })
   })
 
+  describe('후원 채팅 (#40)', () => {
+    const chat = () => app.inject({ method: 'GET', url: `/api/broadcasts/${id}/comments` })
+    const say = (u: TestUser, content: string) =>
+      app.inject({ method: 'POST', url: `/api/broadcasts/${id}/comments`, payload: { content }, ...as(u) })
+
+    it('적립되면 채팅 흐름에 후원자·금액·메시지가 남는다 (일반 채팅 사이 순서대로, 새로 읽어도 그대로)', async () => {
+      await say(viewer2, '안녕하세요')
+      const order = await newOrder()
+      const res = await confirm(viewer, { orderId: order.orderId, paymentKey: 'pk_1', amount: 5000 })
+      await say(viewer2, '감사합니다')
+      const items = (await chat()).json().items
+      expect(items.map((c: { content: string }) => c.content)).toEqual(['안녕하세요', '응원해요', '감사합니다'])
+      expect(items[1]).toMatchObject({
+        author: { id: viewer.user.id, nickname: 'viewer님' },
+        isStreamer: false,
+        donation: { id: res.json().donation.id, amount: 5000 },
+      })
+      // 일반 채팅은 후원 표시가 없다
+      expect(items[0].donation).toBeNull()
+    })
+
+    it('메시지 없이 후원해도 채팅에 금액이 남는다 (본문은 빈 문자열)', async () => {
+      const res = await createOrder(viewer, { amount: 1000 })
+      const order = res.json().order
+      await confirm(viewer, { orderId: order.orderId, paymentKey: 'pk_1', amount: 1000 })
+      expect((await chat()).json().items).toMatchObject([{ content: '', donation: { amount: 1000 } }])
+    })
+
+    it('같은 후원이 confirm·웹훅으로 여러 번 통지돼도 채팅은 1개, 실패한 결제는 채팅을 남기지 않는다', async () => {
+      const order = await newOrder()
+      const body = { orderId: order.orderId, paymentKey: 'pk_1', amount: 5000 }
+      await confirm(viewer, body)
+      await confirm(viewer, body)
+      await webhook({ orderId: order.orderId, paymentKey: 'pk_1' })
+      const rejected = await newOrder(viewer2, 2000)
+      toss.state.next = 'reject'
+      await confirm(viewer2, { orderId: rejected.orderId, paymentKey: 'pk_2', amount: 2000 })
+      expect((await chat()).json().items).toHaveLength(1)
+    })
+
+    it('후원 채팅은 후원자도 수정·삭제할 수 없다 (403)', async () => {
+      const order = await newOrder()
+      await confirm(viewer, { orderId: order.orderId, paymentKey: 'pk_1', amount: 5000 })
+      const [item] = (await chat()).json().items
+      const patch = await app.inject({ method: 'PATCH', url: `/api/comments/${item.id}`, payload: { content: '바꿈' }, ...as(viewer) })
+      expect(patch.statusCode).toBe(403)
+      expect(patch.json().message).toContain('후원 채팅은 수정할 수 없습니다')
+      const del = await app.inject({ method: 'DELETE', url: `/api/comments/${item.id}`, ...as(viewer) })
+      expect(del.statusCode).toBe(403)
+      expect((await chat()).json().items).toMatchObject([{ content: '응원해요', deletedAt: null }])
+    })
+
+    it('후원 1건당 채팅 1개는 DB 유니크 제약이 단독으로도 막는다', async () => {
+      const order = await newOrder()
+      const donationId = (await confirm(viewer, { orderId: order.orderId, paymentKey: 'pk_1', amount: 5000 })).json().donation.id
+      expect(() =>
+        db.orm.insert(comments).values({ broadcastId: id, userId: viewer.user.id, content: 'x', donationId }).run(),
+      ).toThrow(/UNIQUE/)
+    })
+  })
+
   it('적립되면 SSE donation 이벤트로 후원자 닉네임·금액·메시지와 새 합계를 보낸다 (중복 통지는 다시 보내지 않는다)', async () => {
     await app.listen({ port: 0, host: '127.0.0.1' })
     const { port } = app.server.address() as { port: number }
@@ -731,6 +792,14 @@ describe('도네이션 API', () => {
       total: { amount: 5000, count: 1 },
     })
     expect(donationEvents[1]!.data).toMatchObject({ donation: { amount: 2000 }, total: { amount: 7000, count: 2 } })
+    // 채팅에도 후원 1건당 1번만 알린다 (#40)
+    const chatEvents = events.filter((e) => e.event === 'comment')
+    expect(chatEvents).toHaveLength(2)
+    expect(chatEvents[0]!.data).toMatchObject({
+      type: 'created',
+      comment: { content: '응원해요', author: { nickname: 'viewer님' }, donation: { amount: 5000 } },
+    })
+    expect(chatEvents[1]!.data).toMatchObject({ type: 'created', comment: { donation: { amount: 2000 } } })
     controller.abort()
   })
 })

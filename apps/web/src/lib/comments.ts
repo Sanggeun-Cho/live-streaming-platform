@@ -15,6 +15,8 @@ export type Comment = {
   author: { id: number; nickname: string } | null
   /** 방송자 본인이 쓴 댓글 */
   isStreamer: boolean
+  /** 후원 채팅이면 후원 금액 (#40). content는 후원 메시지(없으면 빈 문자열)이고 수정·삭제할 수 없다 */
+  donation: { id: number; amount: number } | null
 }
 
 /** SSE `comment` 이벤트 데이터 */
