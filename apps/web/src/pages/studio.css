@@ -346,7 +346,39 @@
 }
 
 .stats-limited {
+  flex-wrap: wrap;
   color: var(--warn);
+}
+
+.stats-hint {
+  flex-basis: 100%;
+  padding-left: 14px;
+  color: var(--text-dim);
+}
+
+.stage-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 420px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--text);
+  text-align: left;
+}
+
+.stage-error svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--danger);
+}
+
+/* 미리보기 위 상태 칩: 헤더가 숨는 휴대폰 가로 모드에서만 */
+.stage-status {
+  display: none;
 }
 
 .stats-limited .quality-dot {
@@ -554,6 +586,17 @@
 
   .studio-layout.on-air .toolbar-group {
     flex-direction: column;
+  }
+
+  .studio-layout.on-air .studio-toolbar button {
+    width: 100%;
+  }
+
+  .studio-layout.on-air .stage-status {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    display: block;
   }
 
   .studio-layout.on-air .studio-toolbar button {

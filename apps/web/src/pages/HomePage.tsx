@@ -10,6 +10,9 @@ import { listReplays } from '../lib/recordings'
 // 송출을 시험하다 바로 끈 5초도 안 되는 녹화는 볼거리가 없어 홈 다시보기에서 뺀다 (채널·상세에서는 그대로 보인다)
 const MIN_REPLAY_MS = 5_000
 const isWatchableReplay = (item: Item) => (item.totalDurationMs ?? 0) >= MIN_REPLAY_MS
+// 만들어 두고 하루 넘게 시작하지 않은 방송은 "예정"이라 보기 어렵다: 홈에서는 빼고 채널 화면에만 둔다
+const UPCOMING_WINDOW_MS = 24 * 60 * 60 * 1000
+const isUpcoming = (item: Item) => Date.now() - Date.parse(item.createdAt) < UPCOMING_WINDOW_MS
 
 type LiveCount = { count: number; hasMore: boolean }
 
@@ -75,11 +78,12 @@ export function HomePage() {
               inline
               as="p"
               icon={Radio}
-              title="지금 진행 중인 방송이 없습니다"
-              description="방송을 시작하면 이곳에 가장 먼저 보입니다."
+              title="지금은 방송 중인 채널이 없습니다"
+              description="방송이 시작되면 이곳에 가장 먼저 보입니다. 아래에서 최근 다시보기를 볼 수 있습니다."
               action={
-                <Link to="/broadcasts/new" className="button primary">
-                  <Radio size={16} aria-hidden="true" />첫 방송 시작하기
+                <Link to="/broadcasts/new" className="button">
+                  <Radio size={16} aria-hidden="true" />
+                  방송하기
                 </Link>
               }
             />
@@ -94,6 +98,7 @@ export function HomePage() {
         <BroadcastList
           listKey="replays"
           filter={isWatchableReplay}
+          fullRows={4}
           fetchPage={(cursor, signal) => listReplays({ cursor, limit: 8 }, signal)}
           empty={
             <EmptyState
@@ -114,6 +119,8 @@ export function HomePage() {
         </h2>
         <BroadcastList
           listKey="ready"
+          filter={isUpcoming}
+          fullRows={4}
           fetchPage={(cursor, signal) => listBroadcasts({ status: 'READY', cursor, limit: 8 }, signal)}
           empty={<EmptyState inline as="p" icon={CalendarClock} title="예정된 방송이 없습니다" />}
         />

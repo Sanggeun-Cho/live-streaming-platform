@@ -498,7 +498,8 @@
   border-top: 1px solid var(--border);
 }
 
-.chat-login a {
+.chat-login-button {
+  width: 100%;
+  min-height: 44px;
   color: var(--accent);
-  font-weight: 700;
 }

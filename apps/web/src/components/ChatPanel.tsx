@@ -352,7 +352,9 @@ export function ChatPanel({
       )}
       {status === 'anonymous' && (
         <p className="chat-login">
-          <Link to={loginPath}>{ended ? '로그인하고 감상 남기기' : '로그인하고 채팅하기'}</Link>
+          <Link to={loginPath} className="button chat-login-button">
+            {ended ? '로그인하고 감상 남기기' : '로그인하고 채팅하기'}
+          </Link>
         </p>
       )}
       {status === 'error' && (

@@ -40,6 +40,13 @@ const PHASE_LABEL: Record<Phase, string> = {
 }
 
 const ON_AIR: Phase[] = ['connecting', 'live', 'reconnecting', 'sourceEnded']
+/** 서버의 방송 상태와 비교한 이 화면의 송출: 여기서 송출 중(또는 준비) / 끊겨서 이어 보낼 수 있음 / 다른 기기가 송출 중 */
+type AirState = 'here' | 'resumable' | 'elsewhere'
+const AIR_LABEL: Record<Exclude<AirState, 'here'>, string> = { resumable: '송출 끊김', elsewhere: 'LIVE · 다른 기기' }
+const START_LABEL: Record<AirState, string> = { here: '방송 시작', resumable: '이어서 송출', elsewhere: '이 기기로 가져오기' }
+
+// 송출 시작 뒤 화질이 자리 잡을 때까지 기다리는 시간
+const QUALITY_WARMUP_MS = 15_000
 
 /** 화면이 살아 있는 동안 송출 컨트롤러 하나를 유지하고, 상태를 React 상태로 내보낸다 */
 function usePublisher(broadcastId: number) {
@@ -177,14 +184,22 @@ function Studio({ broadcast, patch }: { broadcast: Broadcast; patch: (changes: P
     if (state.errorCode === 'UNAUTHORIZED') redirectIfUnauthorized(new ApiError(401, 'UNAUTHORIZED', ''))
   }, [state.errorCode, redirectIfUnauthorized])
 
-  // 송출 품질 표시 (2초마다)
+  // 송출 품질 표시 (2초마다). WebRTC는 낮은 화질로 시작해 몇 초에 걸쳐 올리므로
+  // 연결 직후는 "맞추는 중"으로 두고, 낮은 화질이 연속으로 관측될 때만 경고한다
+  const [qualitySettled, setQualitySettled] = useState(false)
   useEffect(() => {
     if (phase !== 'live') return
+    const settle = setTimeout(() => setQualitySettled(true), QUALITY_WARMUP_MS)
     const timer = setInterval(() => {
       const pc = publisher.peerConnection
       if (pc) void summarize(pc).then(setStats)
     }, 2000)
-    return () => clearInterval(timer)
+    return () => {
+      clearTimeout(settle)
+      clearInterval(timer)
+      // 재연결 등으로 LIVE를 벗어나면 다음 LIVE에서 다시 맞추는 구간부터 시작한다
+      setQualitySettled(false)
+    }
   }, [phase, publisher])
 
   // 송출이 (다시) 시작된 순간을 알린다
@@ -217,6 +232,18 @@ function Studio({ broadcast, patch }: { broadcast: Broadcast; patch: (changes: P
       danger: true,
     }).then((ok) => (ok ? blocker.proceed() : blocker.reset()))
   }, [blocker, confirm])
+
+  async function onStart() {
+    if (elsewhere) {
+      const ok = await confirm({
+        title: '이 기기로 송출을 가져올까요?',
+        message: '지금 송출 중인 다른 기기의 송출이 끊기고 이 화면으로 바뀝니다. 시청자 연결은 이어집니다.',
+        confirmLabel: '가져오기',
+      })
+      if (!ok) return
+    }
+    void publisher.start()
+  }
 
   async function copyWatchLink() {
     const url = `${window.location.origin}/broadcasts/${broadcastId}`
@@ -254,7 +281,11 @@ function Studio({ broadcast, patch }: { broadcast: Broadcast; patch: (changes: P
 
   // 서버가 송출 끊김을 기록했고 이 화면도 송출하지 않는다: 스튜디오를 떠났다가 돌아온 경우다.
   // (다른 탭이 송출 중이면 끊긴 것이 아니므로 여기서 시작하면 그 탭에서 가져온다)
-  const resumable = broadcast.status === 'LIVE' && broadcast.disconnectedAt !== null && !onAir && phase !== 'takenOver'
+  const idleHere = broadcast.status === 'LIVE' && !onAir && phase !== 'takenOver'
+  const resumable = idleHere && broadcast.disconnectedAt !== null
+  // 서버에는 송출이 붙어 있는데 이 화면은 보내지 않는다: 다른 기기·탭이 송출 중이다
+  const elsewhere = idleHere && broadcast.disconnectedAt === null
+  const air: AirState = resumable ? 'resumable' : elsewhere ? 'elsewhere' : 'here'
 
   return (
     <div className={`studio-layout${onAir ? ' on-air' : ''}`}>
@@ -271,13 +302,26 @@ function Studio({ broadcast, patch }: { broadcast: Broadcast; patch: (changes: P
               </Link>
             </div>
           </div>
-          <OnAirStatus phase={phase} state={state} broadcast={broadcast} viewers={viewers} resumable={resumable} />
+          <OnAirStatus phase={phase} state={state} broadcast={broadcast} viewers={viewers} air={air} />
         </div>
 
         <Stage publisher={publisher} state={state} videoRef={previewRef}>
           {onAir && <ReactionOverlay chat={chat.items} donation={latestDonation} />}
+          {onAir && (
+            <div className="stage-status" aria-hidden="true">
+              <OnAirStatus phase={phase} state={state} broadcast={broadcast} viewers={viewers} air={air} compact />
+            </div>
+          )}
         </Stage>
 
+        {elsewhere && (
+          <div className="notice" role="status">
+            <p>
+              <strong>다른 기기에서 송출 중입니다.</strong> 이 화면에서는 채팅과 후원을 확인할 수 있습니다. 이 기기로
+              송출하려면 화면이나 카메라를 고른 뒤 "이 기기로 가져오기"를 눌러 주세요.
+            </p>
+          </div>
+        )}
         {resumable && (
           <div className="notice" role="alert">
             <p>
@@ -286,7 +330,7 @@ function Studio({ broadcast, patch }: { broadcast: Broadcast; patch: (changes: P
             </p>
           </div>
         )}
-        {state.error && phase !== 'sourceEnded' && (
+        {state.error && phase !== 'sourceEnded' && state.stream && (
           <p className="error" role="alert">
             {state.error}
           </p>
@@ -295,7 +339,7 @@ function Studio({ broadcast, patch }: { broadcast: Broadcast; patch: (changes: P
           <div className="notice" role="alert">
             <p>
               {state.source === 'camera' ? '카메라가 꺼져' : '화면 공유가 중지되어'} 송출을 멈췄습니다(마이크 포함).{' '}
-              {state.error && `${state.error}. `}
+              {state.error && `${state.error} `}
               <SourceEndedCountdown /> 안에 다시 선택하면 방송이 이어지고, 그렇지 않으면 방송이 자동으로 종료됩니다.
             </p>
             <div className="row">
@@ -322,15 +366,16 @@ function Studio({ broadcast, patch }: { broadcast: Broadcast; patch: (changes: P
         <Toolbar
           publisher={publisher}
           state={state}
-          resumable={resumable}
+          air={air}
           canEnd={onAir || phase === 'takenOver' || resumable}
+          onStart={() => void onStart()}
           ending={ending}
           onEnd={() => void onEnd()}
         />
 
         {state.source === 'screen' && <AudioMixer publisher={publisher} state={state} />}
 
-        {phase === 'live' && stats?.height && <QualityLine stats={stats} />}
+        {phase === 'live' && stats?.height && <QualityLine stats={stats} settled={qualitySettled} />}
         {state.source === 'camera' && onAir && (
           <p className="muted studio-hint">송출 중에는 화면을 켜 두세요. 다른 앱으로 전환하면 송출이 멈출 수 있습니다.</p>
         )}
@@ -354,13 +399,16 @@ function OnAirStatus({
   state,
   broadcast,
   viewers,
-  resumable,
+  air,
+  compact = false,
 }: {
   phase: Phase
   state: PublisherState
   broadcast: Broadcast
   viewers: number
-  resumable: boolean
+  air: AirState
+  /** 미리보기 위 칩(휴대폰 가로): 같은 정보를 한 번 더 그리므로 테스트용 id를 붙이지 않는다 */
+  compact?: boolean
 }) {
   const live = phase === 'live'
   // 경과 시간은 초 단위로 갱신한다
@@ -368,9 +416,12 @@ function OnAirStatus({
   const elapsed = live && broadcast.startedAt ? formatDuration(now - Date.parse(broadcast.startedAt)) : null
   return (
     <div className="studio-status">
-      <span className={`studio-phase phase-${resumable ? 'reconnecting' : phase}`} data-testid="studio-phase">
-        {live && <span className="live-dot" aria-hidden="true" />}
-        {resumable && phase !== 'requesting' ? '송출 끊김' : PHASE_LABEL[phase]}
+      <span
+        className={`studio-phase phase-${air === 'here' ? phase : air === 'resumable' ? 'reconnecting' : 'live'}`}
+        data-testid={compact ? undefined : 'studio-phase'}
+      >
+        {(live || air === 'elsewhere') && <span className="live-dot" aria-hidden="true" />}
+        {air === 'here' || phase === 'requesting' ? PHASE_LABEL[phase] : AIR_LABEL[air]}
         {phase === 'reconnecting' && ` (${state.reconnectAttempt}/${MAX_RECONNECT})`}
       </span>
       {elapsed && (
@@ -430,7 +481,9 @@ function Stage({
           <MicOff size={14} aria-hidden="true" /> 마이크 꺼짐
         </span>
       )}
-      {!stream && phase !== 'sourceEnded' && <EmptyStage publisher={publisher} requesting={phase === 'requesting'} />}
+      {!stream && phase !== 'sourceEnded' && (
+        <EmptyStage publisher={publisher} requesting={phase === 'requesting'} error={state.error} />
+      )}
       {!stream && phase === 'sourceEnded' && <p className="stage-paused">영상이 멈췄습니다</p>}
       {children}
     </div>
@@ -461,7 +514,7 @@ function SourceEndedCountdown() {
   return <strong className="countdown">{formatDuration(Math.max(0, deadline - now))}</strong>
 }
 
-function EmptyStage({ publisher, requesting }: { publisher: Publisher; requesting: boolean }) {
+function EmptyStage({ publisher, requesting, error }: { publisher: Publisher; requesting: boolean; error: string | null }) {
   const screenOk = isScreenShareSupported()
   const cameraOk = isCameraSupported()
   if (!screenOk && !cameraOk) {
@@ -496,6 +549,11 @@ function EmptyStage({ publisher, requesting }: { publisher: Publisher; requestin
           </button>
         )}
       </div>
+      {error && (
+        <p className="stage-error" role="alert">
+          <CircleAlert size={16} aria-hidden="true" /> {error}
+        </p>
+      )}
       {!screenOk && <p className="dim stage-note">이 브라우저는 화면 공유를 지원하지 않아 카메라로 송출합니다.</p>}
     </div>
   )
@@ -504,17 +562,19 @@ function EmptyStage({ publisher, requesting }: { publisher: Publisher; requestin
 function Toolbar({
   publisher,
   state,
-  resumable,
+  air,
   canEnd,
   ending,
   onEnd,
+  onStart,
 }: {
   publisher: Publisher
   state: PublisherState
-  resumable: boolean
+  air: AirState
   canEnd: boolean
   ending: boolean
   onEnd: () => void
+  onStart: () => void
 }) {
   const { phase, source } = state
   const busy = phase === 'requesting'
@@ -563,8 +623,8 @@ function Toolbar({
       </div>
       <div className="toolbar-group toolbar-main">
         {phase === 'preview' && (
-          <button type="button" className="primary go-live" onClick={() => void publisher.start()}>
-            {resumable ? '이어서 송출' : '방송 시작'}
+          <button type="button" className="primary go-live" onClick={onStart}>
+            {START_LABEL[air]}
           </button>
         )}
         {canEnd && (
@@ -666,10 +726,18 @@ function AudioMixer({ publisher, state }: { publisher: Publisher; state: Publish
 }
 
 /** 방송자에게는 수치보다 "괜찮은지"가 중요하다. 세부 수치는 툴팁으로 둔다 */
-function QualityLine({ stats }: { stats: RtcSummary }) {
-  // 브라우저가 대역폭·CPU 때문에 화질을 낮췄거나 360p 미만이면 "안정"이라고 하지 않는다
-  const limited =
-    (stats.height ?? 0) < 360 || stats.qualityLimitation === 'bandwidth' || stats.qualityLimitation === 'cpu'
+function QualityLine({ stats, settled }: { stats: RtcSummary; settled: boolean }) {
+  // 브라우저가 대역폭·CPU 때문에 화질을 낮췄으면 "안정"이라고 하지 않는다
+  // 해상도만 낮은 것은 장치(카메라) 특성일 수 있어 경고하지 않는다
+  const low = stats.qualityLimitation === 'bandwidth' || stats.qualityLimitation === 'cpu'
+  // 낮은 화질이 연속 3번(약 6초) 관측될 때만 경고한다 (잠깐 내려갔다 회복되는 것은 정상)
+  const [lowStreak, setLowStreak] = useState(0)
+  const [prevStats, setPrevStats] = useState(stats)
+  if (prevStats !== stats) {
+    setPrevStats(stats)
+    setLowStreak(low ? lowStreak + 1 : 0)
+  }
+  const limited = settled && lowStreak >= 3
   const detail = [
     stats.width && stats.height && `${stats.width}x${stats.height}`,
     stats.fps !== undefined && `${stats.fps}fps`,
@@ -681,9 +749,18 @@ function QualityLine({ stats }: { stats: RtcSummary }) {
   return (
     <p className={`muted stats${limited ? ' stats-limited' : ''}`} data-testid="studio-stats" title={detail}>
       <span className="quality-dot" aria-hidden="true" />
-      {limited
-        ? `화질 낮아짐 · ${stats.height}p — ${stats.qualityLimitation === 'cpu' ? '기기 부하가 높습니다' : '네트워크가 약합니다(Wi-Fi 권장)'}`
-        : `송출 안정 · ${stats.height}p`}
+      {!settled ? (
+        '송출 시작 · 화질을 맞추는 중'
+      ) : limited ? (
+        <>
+          화질 낮아짐 · {stats.height}p
+          <span className="stats-hint">
+            {stats.qualityLimitation === 'cpu' ? '기기 부하가 높습니다.' : '네트워크가 약합니다. Wi-Fi를 권장합니다.'}
+          </span>
+        </>
+      ) : (
+        `송출 안정 · ${stats.height}p`
+      )}
     </p>
   )
 }

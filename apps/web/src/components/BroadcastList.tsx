@@ -61,6 +61,8 @@ type Props = {
   skeletons?: number
   /** 받은 항목 중 카드로 보여줄 것 (예: 너무 짧은 다시보기 제외) */
   filter?: (item: Item) => boolean
+  /** 한 줄 카드 수. 주면 마지막 줄이 덜 찬 카드를 숨겨 그리드에 빈칸이 생기지 않게 한다 (홈 미리보기용) */
+  fullRows?: number
 }
 
 /** 방송 목록 + 더 보기. 방송 목록·채널 방송·다시보기(#12)가 조회 함수만 바꿔 같이 쓴다 */
@@ -68,7 +70,7 @@ export function BroadcastList(props: Props) {
   return <BroadcastListInner key={props.listKey} {...props} />
 }
 
-function BroadcastListInner({ fetchPage: initialFetch, onLoad, empty, featured, skeletons = 4, filter }: Props) {
+function BroadcastListInner({ fetchPage: initialFetch, onLoad, empty, featured, skeletons = 4, filter, fullRows }: Props) {
   const [fetchList] = useState(() => initialFetch)
   const [notify] = useState(() => onLoad)
   const [items, setItems] = useState<Item[]>([])
@@ -125,7 +127,11 @@ function BroadcastListInner({ fetchPage: initialFetch, onLoad, empty, featured, 
     )
   }
 
-  const visible = filter ? items.filter(filter) : items
+  const filtered = filter ? items.filter(filter) : items
+  const visible =
+    fullRows && filtered.length > fullRows
+      ? filtered.slice(0, filtered.length - (filtered.length % fullRows))
+      : filtered
   const loading = state === 'loading'
   if (!loading && visible.length === 0 && !nextCursor) return <>{empty}</>
 

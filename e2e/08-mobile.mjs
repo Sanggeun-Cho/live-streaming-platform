@@ -78,7 +78,7 @@ await step('스튜디오: 화면 공유 버튼 대신 안내가 보이고 카메
 
 await step('카메라와 마이크가 함께 송출되고, PC 시청 화면에 영상 프레임과 오디오 RTP가 계속 들어온다', async () => {
   await phone.getByRole('button', { name: '방송 시작' }).tap()
-  await phase(phone).getByText('LIVE').waitFor({ timeout: 20_000 })
+  await phase(phone).getByText('LIVE', { exact: true }).waitFor({ timeout: 20_000 })
   await pc.goto(`${BASE}/broadcasts/${id}`)
   await pc.getByTestId('live-video').waitFor({ timeout: 20_000 })
   return await expectMediaFlowing(pc)
@@ -86,7 +86,7 @@ await step('카메라와 마이크가 함께 송출되고, PC 시청 화면에 �
 
 await step('방송 중 전면/후면 카메라를 바꿔도 송출이 끊기지 않는다', async () => {
   await phone.getByRole('button', { name: /전면\/후면/ }).tap()
-  await phase(phone).getByText('LIVE').waitFor({ timeout: 15_000 })
+  await phase(phone).getByText('LIVE', { exact: true }).waitFor({ timeout: 15_000 })
   return await expectMediaFlowing(pc, { timeout: 15_000 })
 })
 
@@ -106,7 +106,7 @@ await step('카메라 영상 트랙이 예기치 않게 끝나도(다른 앱·OS
     before,
     { timeout: 15_000 },
   )
-  await phase(phone).getByText('LIVE').waitFor({ timeout: 15_000 })
+  await phase(phone).getByText('LIVE', { exact: true }).waitFor({ timeout: 15_000 })
   const sent0 = await sentVideoFrames(phone)
   const flowing = await expectMediaFlowing(pc, { timeout: 15_000 })
   const sent1 = await sentVideoFrames(phone)

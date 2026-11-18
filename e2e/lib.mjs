@@ -145,9 +145,12 @@ export const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 export async function startCameraBroadcast(page, broadcastId) {
   await page.goto(`${BASE}/broadcasts/${broadcastId}/studio`)
   await page.getByRole('button', { name: /카메라/ }).first().click()
-  // 끊긴 방송에 다시 들어오면 버튼이 "이어서 송출"이다
-  await page.getByRole('button', { name: /^(방송 시작|이어서 송출)$/ }).click()
-  await page.getByTestId('studio-phase').getByText('LIVE').waitFor({ timeout: 20_000 })
+  // 끊긴 방송에 다시 들어오면 "이어서 송출", 서버가 아직 끊김을 모르면 "이 기기로 가져오기"(확인 창)다
+  const start = page.getByRole('button', { name: /^(방송 시작|이어서 송출|이 기기로 가져오기)$/ })
+  const label = await start.innerText()
+  await start.click()
+  if (label.includes('가져오기')) await confirmDialog(page, '가져오기')
+  await page.getByTestId('studio-phase').getByText('LIVE', { exact: true }).waitFor({ timeout: 20_000 })
   // 종료 후 장치가 꺼졌는지 확인할 수 있게 캡처 트랙을 보관한다
   await page.evaluate(() => {
     window.__studioTracks = document.querySelector('[data-testid=studio-preview]').srcObject.getTracks()
