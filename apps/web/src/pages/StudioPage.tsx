@@ -227,8 +227,9 @@ function Studio({ broadcast, patch }: { broadcast: Broadcast; patch: (changes: P
     )
   }
 
-  // 서버는 아직 LIVE인데 이 화면은 송출하지 않는다: 앱 밖으로 나갔다가 돌아온 경우다
-  const resumable = broadcast.status === 'LIVE' && !onAir && phase !== 'takenOver'
+  // 서버가 송출 끊김을 기록했고 이 화면도 송출하지 않는다: 스튜디오를 떠났다가 돌아온 경우다.
+  // (다른 탭이 송출 중이면 끊긴 것이 아니므로 여기서 시작하면 그 탭에서 가져온다)
+  const resumable = broadcast.status === 'LIVE' && broadcast.disconnectedAt !== null && !onAir && phase !== 'takenOver'
 
   return (
     <div className="studio-layout">
