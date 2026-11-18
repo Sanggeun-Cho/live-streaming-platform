@@ -20,6 +20,7 @@ import type { Broadcast } from '../lib/broadcasts'
 import type { Comment } from '../lib/comments'
 import { type Donation, formatWon } from '../lib/donations'
 import { formatDuration } from '../lib/recordings'
+import { formatDurationText } from '../lib/time'
 import { captureFrame, uploadThumbnail } from '../lib/thumbnails'
 import { isCameraSupported, isScreenShareSupported } from '../lib/webrtc/media'
 import { MAX_RECONNECT, type Phase, Publisher, type PublisherState, SOURCE_ENDED_TIMEOUT_MS } from '../lib/webrtc/publisher'
@@ -700,7 +701,7 @@ function EndedSummary({
 }) {
   // 종료 시각은 이벤트로 바로 오지 않을 수 있어 지금을 기준으로 잰다
   const [endedAt] = useState(() => Date.now())
-  const duration = broadcast.startedAt ? formatDuration(endedAt - Date.parse(broadcast.startedAt)) : '-'
+  const duration = broadcast.startedAt ? formatDurationText(endedAt - Date.parse(broadcast.startedAt)) : '-'
   return (
     <section className="center-card studio-ended">
       <h1>방송이 종료되었습니다</h1>

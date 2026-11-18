@@ -182,7 +182,7 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 
 ### 댓글 (실시간)
 - REST CRUD가 기준이다. 작성·수정·삭제 이벤트는 SSE `/api/broadcasts/:id/events`로 전파한다.
-- 삭제는 Soft Delete이며 "삭제된 댓글입니다"로 표시한다.
+- 삭제는 Soft Delete이며 "삭제된 채팅입니다"로 표시한다.
 - API
   - `GET /api/broadcasts/:id/comments?cursor&limit`(공개): 최신 `limit`개(기본 50, 최대 100)를 **오래된 것부터**(채팅 순서) 돌려주고, 더 오래된 댓글은 `nextCursor`로 읽는다. 삭제된 댓글은 `content`·`author`를 모두 null로 숨기고 자리만 남는다(본문은 DB에 보관).
   - `POST /api/broadcasts/:id/comments`(로그인), `PATCH /api/comments/:id`·`DELETE /api/comments/:id`(작성자만, 아니면 403. 방송자도 남의 댓글은 403). 삭제 응답은 본문을 숨긴 댓글(200).

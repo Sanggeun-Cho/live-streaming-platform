@@ -10,17 +10,17 @@
 | 계층 | 도구 | 위치 | 건수 | 무엇을 보나 |
 |---|---|---|---|---|
 | API 통합 | vitest + Fastify `inject` (SSE는 임시 포트로 실제 연결) | `apps/api/test/*.test.ts` 14개 파일 | **435** | 라우트 → 서비스 → SQLite(메모리 또는 임시 파일)까지 실제 코드. MediaMTX Control API와 토스 API만 대역 |
-| 웹 단위 | vitest (node 환경, 브라우저 API는 가짜) | `apps/web/src/lib/**/*.test.ts` 6개 파일 | **60** | 송출(Publisher) 상태 전이, 캡처, WHIP 핸드셰이크·코덱 선택, 다시보기 구간 |
+| 웹 단위 | vitest (node 환경, 브라우저 API는 가짜) | `apps/web/src/lib/**/*.test.ts` 7개 파일 | **62** | 송출(Publisher) 상태 전이, 캡처, WHIP 핸드셰이크·코덱 선택, 다시보기 구간 |
 | 브라우저 E2E | playwright-core + 설치된 Chrome + 가짜 카메라·마이크·화면 | `e2e/NN-*.mjs` 9개 파일 | 시나리오 단계 99개(11을 가짜 결제로 돌릴 때 실행 기준. 테스트 키 모드면 92개) | 실제 화면·실제 MediaMTX·실제 WebRTC 송출과 시청 |
 
-- 합계: vitest 495건(API 435 + 웹 60). CI(`.github/workflows`)는 `npm run typecheck`와 `npm test`(API·웹 모두)를 돌린다. E2E는 CI에 없고 로컬에서 돌린다.
+- 합계: vitest 497건(API 435 + 웹 62). CI(`.github/workflows`)는 `npm run typecheck`와 `npm test`(API·웹 모두)를 돌린다. E2E는 CI에 없고 로컬에서 돌린다.
 - API 테스트는 테스트마다 새 앱(`makeApp`, 메모리 DB)을 만든다. 재시작 테스트만 임시 파일 DB를 두 번 연다.
 
 ### 실행 방법
 
 ```bash
 npm ci
-npm test                      # API 435 + 웹 60 (루트: 두 워크스페이스를 차례로)
+npm test                      # API 435 + 웹 62 (루트: 두 워크스페이스를 차례로)
 npm test -w @live/api         # API 통합 테스트만
 npm test -w @live/web         # 웹 단위 테스트만
 npm run typecheck             # api tsc + web tsc·vite build + CSS 검사
@@ -199,13 +199,14 @@ DB 정상이면 200 ok / 없는 경로 404 형식 / 로그에서 `secret`·`toke
 - 토스 API 클라이언트(8, `fetch` 대역): Basic 인증·받은 멱등키 부착 / 성공 응답 형식 오류 ×3(빈 본문, 필드 누락, 금액 문자열)은 일시 오류 / 429·5xx는 일시 오류, 4xx 거절은 아님 / 재시도 안내 4xx ×3(409 IDEMPOTENT_REQUEST_PROCESSING, PROVIDER_ERROR, FAILED_PAYMENT_INTERNAL_SYSTEM_PROCESSING)은 일시 오류.
 - 가짜 토스 멱등키(2): 같은 키는 첫 응답(오류 포함) 재생·처리 중 409·다른 키는 새로 처리 / E2E용 가짜 결제: 같은 키 재요청은 같은 승인, 다른 키로 같은 결제는 ALREADY_PROCESSED_PAYMENT.
 
-### 웹 단위 (`apps/web/src`, 60건)
+### 웹 단위 (`apps/web/src`, 62건)
 
 | 파일 | 건수 | describe (건수) |
 |---|---|---|
 | `lib/comments.test.ts` | 4 | 도배 제한 재전송(3), 채팅 시각 표시(1) |
 | `lib/donations.test.ts` | 3 | 금액 입력 해석(1), 상황별 금액 안내(1), 상대 시간(1) |
 | `lib/recordings.test.ts` | 4 | 다시보기 구간(3), formatDuration(1) |
+| `lib/time.test.ts` | 2 | 말로 쓴 길이(1), "N분 전 시작"(1) |
 | `lib/webrtc/media.test.ts` | 5 | captureScreen(1), captureCamera(4) |
 | `lib/webrtc/publisher.test.ts` | 37 | 송출 시작·종료(4), 연결 끊김과 재연결(6), 다른 탭과 송출 경쟁(2), 영상 소스 중단(10), 소스 선택 중 연결 끊김(4), 카메라 복구 루프(9), 소스 중단 뒤 자동 종료 시한(2) |
 | `lib/webrtc/whip.test.ts` | 7 | h264Rank(1), preferH264(3), publish(3) |
