@@ -1,7 +1,7 @@
 # 테스트 명세
 
 명세 항목([SPEC_CHECKLIST.md](SPEC_CHECKLIST.md))이 어느 테스트로 검증되는지, 각 테스트가 무엇을 확인하는지, 테스트로 증명하지 못하는 것이 무엇인지 정리한다.
-모든 건수는 실제 테스트 코드에서 센 값이다(2026-11-10, dev `bdacc6f` + 리뷰 후속 문서 PR의 테스트 1건, vitest `--reporter=json`).
+모든 건수는 실제 테스트 코드에서 센 값이다(2026-11-18, `feat/ux-home` 방송 썸네일 반영, vitest 실행 결과).
 
 ## 1. 개요
 
@@ -9,11 +9,11 @@
 
 | 계층 | 도구 | 위치 | 건수 | 무엇을 보나 |
 |---|---|---|---|---|
-| API 통합 | vitest + Fastify `inject` (SSE는 임시 포트로 실제 연결) | `apps/api/test/*.test.ts` 13개 파일 | **414** | 라우트 → 서비스 → SQLite(메모리 또는 임시 파일)까지 실제 코드. MediaMTX Control API와 토스 API만 대역 |
+| API 통합 | vitest + Fastify `inject` (SSE는 임시 포트로 실제 연결) | `apps/api/test/*.test.ts` 14개 파일 | **435** | 라우트 → 서비스 → SQLite(메모리 또는 임시 파일)까지 실제 코드. MediaMTX Control API와 토스 API만 대역 |
 | 웹 단위 | vitest (node 환경, 브라우저 API는 가짜) | `apps/web/src/lib/**/*.test.ts` 4개 파일 | **53** | 송출(Publisher) 상태 전이, 캡처, WHIP 핸드셰이크·코덱 선택, 다시보기 구간 |
 | 브라우저 E2E | playwright-core + 설치된 Chrome + 가짜 카메라·마이크·화면 | `e2e/NN-*.mjs` 9개 파일 | 시나리오 단계 94개(11을 가짜 결제로 돌릴 때 실행 기준. 테스트 키 모드면 89개) | 실제 화면·실제 MediaMTX·실제 WebRTC 송출과 시청 |
 
-- 합계: vitest 467건(API 414 + 웹 53). CI(`.github/workflows`)는 `npm run typecheck`와 `npm test`(API·웹 모두)를 돌린다. E2E는 CI에 없고 로컬에서 돌린다.
+- 합계: vitest 488건(API 435 + 웹 53). CI(`.github/workflows`)는 `npm run typecheck`와 `npm test`(API·웹 모두)를 돌린다. E2E는 CI에 없고 로컬에서 돌린다.
 - API 테스트는 테스트마다 새 앱(`makeApp`, 메모리 DB)을 만든다. 재시작 테스트만 임시 파일 DB를 두 번 연다.
 
 ### 실행 방법
@@ -66,7 +66,7 @@ ID는 [SPEC_CHECKLIST.md](SPEC_CHECKLIST.md)와 같다. "수동"은 테스트로
 | A2 | 비로그인 목록·시청 | `authz-matrix` 공개 조회 12종 × 3, 시청(read) 비로그인 허용 | — | 05 비로그인 상세, 06 비로그인 시청자, 12 | — |
 | A3 | 등록·송출은 로그인만 | `authz-matrix` 방송 등록·publish 토큰 anon 401, `internal-media` 토큰 발급 | — | 06 "토큰 없이 WHIP로 송출하면 401" | — |
 | A4 | 소유자 권한 서버 검증 | `broadcasts` 수정·삭제 403, 검증 순서, `internal-media` 토큰·종료 403, `authz-matrix` 쓰기 | — | 05 "API로 직접 수정·삭제하면 403", 07 다른 사용자 스튜디오 | — |
-| A5 | 사용자 유형별 허용·거절 | `authz-matrix` 151건(147칸 + 독립 4건) | — | — | — |
+| A5 | 사용자 유형별 허용·거절 | `authz-matrix` 166건(162칸 + 독립 4건) | — | — | — |
 | C1 | 댓글 CRUD | `comments`(22) | — | 10 전체 | — |
 | C2 | 댓글 작성자 권한 | `comments` 수정·삭제 403(방송자라도), `authz-matrix` 댓글 행 | — | 10 "C가 API로 직접 수정·삭제하면 403" | — |
 | D1 | 후원 대상·금액 선택, 테스트 결제 요청 | `donations` 설정·주문 생성, `error-format` 후원 금액 | — | 11 금액 규칙·결제창(테스트 키 모드) | 실제 카드 승인 |
@@ -87,13 +87,13 @@ ID는 [SPEC_CHECKLIST.md](SPEC_CHECKLIST.md)와 같다. "수동"은 테스트로
 
 ## 3. 파일별 테스트 목록
 
-### API 통합 (`apps/api/test`, 414건)
+### API 통합 (`apps/api/test`, 435건)
 
 | 파일 | 건수 | describe (건수) |
 |---|---|---|
 | `auth-service.test.ts` | 6 | 로그인 시간 균등화(2), 테스트 계정 시드(3), 만료 세션 정리(1) |
 | `auth.test.ts` | 24 | 인증 API(20), 리버스 프록시 신뢰(1), 세션 영속성(3) |
-| `authz-matrix.test.ts` | 151 | 쓰기(78), 공개 조회(36), 삭제된 방송(33), 독립(4) |
+| `authz-matrix.test.ts` | 166 | 쓰기(87), 공개 조회(36), 삭제된 방송(39), 독립(4) |
 | `broadcasts.test.ts` | 21 | 등록(6), 조회(4), 수정(3), 삭제(3), 그 밖(5) |
 | `comments.test.ts` | 22 | 작성(10), 목록(4), 수정(4), 삭제(3), SSE(1) |
 | `donations.test.ts` | 52 | 설정(4), 주문 생성(10), 승인(26), 웹훅(7), 내역·합계(4), SSE(1) |
@@ -103,6 +103,7 @@ ID는 [SPEC_CHECKLIST.md](SPEC_CHECKLIST.md)와 같다. "수동"은 테스트로
 | `recordings-scan.test.ts` | 12 | mp4 길이 계산(4), 복구 스캔(8) |
 | `recordings.test.ts` | 32 | 등록·다시보기(21), 영구 저장(1), 경로·메타데이터 해석(10) |
 | `state-boundaries.test.ts` | 10 | 종료·삭제와 훅의 경합(5), 유예 시간(2), 삭제된 방송의 후원·녹화(3) |
+| `thumbnails.test.ts` | 6 | 방송 썸네일(6) |
 | `toss-client.test.ts` | 10 | 토스 API 클라이언트(8), 가짜 토스 멱등키(2) |
 
 #### `auth-service.test.ts` (6)
@@ -115,11 +116,11 @@ ID는 [SPEC_CHECKLIST.md](SPEC_CHECKLIST.md)와 같다. "수동"은 테스트로
 - 리버스 프록시 신뢰(1): 신뢰하는 프록시가 전달한 클라이언트 IP별로 시도 횟수를 센다.
 - 세션 영속성(3): 재시작해도 로그인 유지 / `SEED_TEST_ACCOUNTS` 켜짐: 기동 시 계정 생성(재기동해도 중복 없음)·목록 공개 / 꺼짐: 목록 비어 있음.
 
-#### `authz-matrix.test.ts` (151)
+#### `authz-matrix.test.ts` (166)
 DESIGN §5 권한 매트릭스를 행 그대로 옮겨, 행마다 비로그인(anon)·다른 사용자(other)·소유자(owner) 칸을 각각 새 앱에서 실행한다. 거절 칸은 상태 코드와 `{code, message}` 형식까지, 대표 성공 칸은 본문까지 확인한다.
-- 쓰기(78 = 25행): 방송 등록·수정(READY·ENDED)·삭제(READY·LIVE), publish 토큰(READY·LIVE·ENDED), 송출 인가, 종료(READY·LIVE·ENDED), 댓글 작성(일반·종료된 방송)·수정·삭제, 후원 주문(LIVE·READY·ENDED)·승인 확인, 웹훅, 로그인·로그아웃·가입, 내부 훅. 댓글 수정·삭제와 승인 확인은 "방송자" 칸을 더해 4칸.
+- 쓰기(87 = 28행): 방송 등록·수정(READY·ENDED)·삭제(READY·LIVE), publish 토큰(READY·LIVE·ENDED), 송출 인가, 종료(READY·LIVE·ENDED), 썸네일 업로드(LIVE·READY·ENDED), 댓글 작성(일반·종료된 방송)·수정·삭제, 후원 주문(LIVE·READY·ENDED)·승인 확인, 웹훅, 로그인·로그아웃·가입, 내부 훅. 댓글 수정·삭제와 승인 확인은 "방송자" 칸을 더해 4칸.
 - 공개 조회(36 = 12종 × 3): 방송 목록·채널별 목록·상세, 채널 정보, 댓글 목록, 후원 내역·합계, 후원 설정, 다시보기 목록, 녹화 목록, 시청(read) 인가 LIVE / READY·ENDED, `/auth/me`.
-- 삭제된 방송(33 = 11종 × 3): 상세·수정·삭제·토큰·종료·SSE·댓글 목록·댓글 작성·후원 주문·후원 내역·녹화 목록이 모두 404.
+- 삭제된 방송(39 = 13종 × 3): 상세·수정·삭제·토큰·종료·SSE·댓글 목록·댓글 작성·후원 주문·후원 내역·녹화 목록·썸네일 조회·썸네일 업로드가 모두 404.
 - 독립(4): 거절된 수정·삭제·종료는 방송을 바꾸지 않는다 / 남의 채널을 지정해 등록할 수 없다 / 다른 방송의 토큰으로 송출 불가 / 위조·로그아웃한 쿠키는 비로그인과 같다(401).
 
 #### `broadcasts.test.ts` (21)
@@ -185,6 +186,14 @@ DB 정상이면 200 ok / 없는 경로 404 형식 / 로그에서 `secret`·`toke
 - 종료·삭제와 훅의 경합(5): 재송출 online 확인 중 종료 → ENDED 유지·kick / 삭제된 READY 방송에 붙은 송출은 끊고 LIVE 안 됨 / online이 먼저면 삭제 409 / 동시 종료 2회 → 하나만 성공 / 동시 삭제 2회 → 204 하나, 404 하나.
 - 유예 시간(2): 유예 중 새 토큰으로 재송출 가능 / 유예 확정 대기 중 재송출 후 다시 끊기면 새 기준으로 다시 셈.
 - 삭제된 방송의 후원·녹화(3): 결제창 연 사이 종료·삭제 → 승인 요청 없이 404·FAILED / 이미 승인된 결제는 삭제 후 웹훅으로도 적립 / 삭제 뒤 늦은 세그먼트는 등록하되 노출 안 함.
+
+#### `thumbnails.test.ts` (6)
+- 소유자가 방송 중에 올리면 `THUMBNAILS_DIR/<id>.jpg`로 저장, 목록·상세에 `thumbnailUrl`(`?v=` 갱신 시각), 공개 조회는 `image/jpeg`·`Cache-Control: public, max-age=60`.
+- 다시 올리면 덮어쓰고 주소가 바뀜 / 종료 후에도 마지막 썸네일이 남음.
+- 권한: 비로그인 401·다른 사용자 403·없는 방송 404, 거절되면 파일을 만들지 않음.
+- 상태: READY·ENDED는 409 `BROADCAST_NOT_LIVE`.
+- 형식: JPEG 아닌 본문 400 `INVALID_IMAGE`·빈 본문 400 / 다른 Content-Type 415 / 상한(300KB) 경계 허용·초과 413.
+- 조회: 올린 적 없으면 404 `THUMBNAIL_NOT_FOUND` / 삭제된 방송 404.
 
 #### `toss-client.test.ts` (10)
 - 토스 API 클라이언트(8, `fetch` 대역): Basic 인증·받은 멱등키 부착 / 성공 응답 형식 오류 ×3(빈 본문, 필드 누락, 금액 문자열)은 일시 오류 / 429·5xx는 일시 오류, 4xx 거절은 아님 / 재시도 안내 4xx ×3(409 IDEMPOTENT_REQUEST_PROCESSING, PROVIDER_ERROR, FAILED_PAYMENT_INTERNAL_SYSTEM_PROCESSING)은 일시 오류.

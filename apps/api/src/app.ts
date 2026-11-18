@@ -7,6 +7,7 @@ import { createAuthService } from './auth/service.js'
 import { ensureTestAccounts } from './db/test-accounts.js'
 import { type BroadcastLifecycle, createBroadcastLifecycle } from './broadcasts/lifecycle.js'
 import { createBroadcastService } from './broadcasts/service.js'
+import { createThumbnailService } from './broadcasts/thumbnails.js'
 import { createDonationService } from './donations/service.js'
 import { createCommentService } from './comments/service.js'
 import { createMediaControl, type MediaControl } from './media/control.js'
@@ -22,6 +23,7 @@ import { commentRoutes } from './routes/comments.js'
 import { healthRoutes } from './routes/health.js'
 import { internalMediaRoutes } from './routes/internal-media.js'
 import { recordingRoutes } from './routes/recordings.js'
+import { thumbnailRoutes } from './routes/thumbnails.js'
 import { createRecordingService, type RecordingService } from './recordings/service.js'
 
 export type AppDeps = {
@@ -124,6 +126,7 @@ export async function buildApp({ config, db, mediaControl, toss }: AppDeps) {
   app.decorate('lifecycle', lifecycle)
 
   await app.register(broadcastRoutes({ broadcasts, lifecycle, hub }), { prefix: '/api' })
+  await app.register(thumbnailRoutes(createThumbnailService(db, { dir: config.THUMBNAILS_DIR })), { prefix: '/api' })
   await app.register(channelRoutes(db), { prefix: '/api' })
 
   // 후원: 토스 키가 있으면 실제(테스트) 결제, 가짜 결제 모드면 토스를 거치지 않는다. 둘 다 아니면 꺼진다

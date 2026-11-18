@@ -1,6 +1,6 @@
 import { Camera, CircleAlert, ExternalLink, Lock, Mic, MicOff, Monitor, SearchX, ShieldAlert, SwitchCamera } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { type CSSProperties, type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { type CSSProperties, type ReactNode, type RefObject, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Link, useBlocker, useParams } from 'react-router'
 import { useAuth } from '../auth/context'
 import { useAuthErrorRedirect } from '../auth/useAuthErrorRedirect'
@@ -18,6 +18,7 @@ import { ApiError } from '../lib/api'
 import type { Broadcast } from '../lib/broadcasts'
 import { type Donation, formatWon } from '../lib/donations'
 import { formatDuration } from '../lib/recordings'
+import { captureFrame, uploadThumbnail } from '../lib/thumbnails'
 import { isCameraSupported, isScreenShareSupported } from '../lib/webrtc/media'
 import { MAX_RECONNECT, type Phase, Publisher, type PublisherState, SOURCE_ENDED_TIMEOUT_MS } from '../lib/webrtc/publisher'
 import { type RtcSummary, summarize } from '../lib/webrtc/stats'
@@ -53,6 +54,28 @@ function usePublisher(broadcastId: number) {
     return () => window.removeEventListener('pagehide', onPageHide)
   }, [publisher])
   return { publisher, state }
+}
+
+// 홈·채널 카드의 썸네일: 송출이 안정된 뒤 한 장, 이후 주기적으로 갱신한다
+const THUMBNAIL_FIRST_MS = 5_000
+const THUMBNAIL_EVERY_MS = 60_000
+
+/** 방송 중 미리보기 화면을 캡처해 썸네일로 올린다. 실패해도 방송에는 영향이 없으므로 조용히 넘긴다 */
+function useLiveThumbnail(broadcastId: number, live: boolean, videoRef: RefObject<HTMLVideoElement | null>) {
+  useEffect(() => {
+    if (!live) return
+    const upload = async () => {
+      const video = videoRef.current
+      const blob = video ? await captureFrame(video) : null
+      if (blob) await uploadThumbnail(broadcastId, blob).catch(() => undefined)
+    }
+    const first = setTimeout(() => void upload(), THUMBNAIL_FIRST_MS)
+    const timer = setInterval(() => void upload(), THUMBNAIL_EVERY_MS)
+    return () => {
+      clearTimeout(first)
+      clearInterval(timer)
+    }
+  }, [broadcastId, live, videoRef])
 }
 
 export function StudioPage() {
@@ -123,6 +146,8 @@ function Studio({ broadcast, patch }: { broadcast: Broadcast; patch: (changes: P
   const donations = useDonations(broadcastId)
   const { phase } = state
   const onAir = ON_AIR.includes(phase)
+  const previewRef = useRef<HTMLVideoElement>(null)
+  useLiveThumbnail(broadcastId, phase === 'live', previewRef)
 
   const { connected } = useBroadcastEvents(broadcastId, {
     status: (s) => {
@@ -218,7 +243,7 @@ function Studio({ broadcast, patch }: { broadcast: Broadcast; patch: (changes: P
           <OnAirStatus phase={phase} state={state} broadcast={broadcast} viewers={viewers} />
         </div>
 
-        <Stage publisher={publisher} state={state} />
+        <Stage publisher={publisher} state={state} videoRef={previewRef} />
 
         {resumable && (
           <div className="notice" role="alert">
@@ -324,8 +349,15 @@ function OnAirStatus({
 }
 
 /** 미리보기. 캡처가 없으면 무엇을 해야 하는지 단계로 안내한다 */
-function Stage({ publisher, state }: { publisher: Publisher; state: PublisherState }) {
-  const videoRef = useRef<HTMLVideoElement>(null)
+function Stage({
+  publisher,
+  state,
+  videoRef,
+}: {
+  publisher: Publisher
+  state: PublisherState
+  videoRef: RefObject<HTMLVideoElement | null>
+}) {
   // 세로 카메라(휴대폰)도 작게 보이지 않도록 미리보기 틀을 영상 비율에 맞춘다
   const [ratio, setRatio] = useState(16 / 9)
   const { stream, phase } = state
@@ -333,7 +365,7 @@ function Stage({ publisher, state }: { publisher: Publisher; state: PublisherSta
   useEffect(() => {
     const video = videoRef.current
     if (video && video.srcObject !== stream) video.srcObject = stream
-  }, [stream])
+  }, [stream, videoRef])
 
   const onResize = () => {
     const v = videoRef.current

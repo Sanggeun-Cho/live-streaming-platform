@@ -70,6 +70,18 @@ const mediaAuth = (w: World, body: object) =>
     payload: { protocol: 'webrtc', ip: '1.2.3.4', ...body },
   })
 
+/** 방송 썸네일 업로드 (JPEG 본문) */
+const putThumbnail =
+  (id: (w: World) => number): Send =>
+  (w, cookies) =>
+    w.app.inject({
+      method: 'PUT',
+      url: `/api/broadcasts/${id(w)}/thumbnail`,
+      headers: { 'content-type': 'image/jpeg' },
+      payload: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0xff, 0xd9]),
+      ...(cookies ? { cookies } : {}),
+    })
+
 const U401: Expected = [401, 'UNAUTHORIZED']
 const F403: Expected = [403, 'FORBIDDEN']
 
@@ -168,6 +180,29 @@ const writeRows: Row[] = [
     other: 'viewer',
     send: (w, c) => json('POST', `/api/broadcasts/${w.ended}/end`)(w, c, undefined),
     expect: { anon: U401, other: F403, owner: [409, 'BROADCAST_ENDED'] },
+  },
+  {
+    action: '썸네일 업로드 (PUT /broadcasts/:id/thumbnail, LIVE)',
+    owner: 'streamer',
+    other: 'viewer',
+    send: putThumbnail((w) => w.live),
+    expect: { anon: U401, other: F403, owner: 200 },
+    verify: (res, w) => expect(res.json().thumbnailUrl).toMatch(new RegExp(String.raw`^/api/broadcasts/${w.live}/thumbnail\?v=\d+$`)),
+  },
+  {
+    // 방송 중 화면이므로 방송 전·종료 후에는 소유자도 올릴 수 없다
+    action: '썸네일 업로드 (READY)',
+    owner: 'streamer',
+    other: 'viewer',
+    send: putThumbnail((w) => w.ready),
+    expect: { anon: U401, other: F403, owner: [409, 'BROADCAST_NOT_LIVE'] },
+  },
+  {
+    action: '썸네일 업로드 (ENDED)',
+    owner: 'streamer',
+    other: 'viewer',
+    send: putThumbnail((w) => w.ended),
+    expect: { anon: U401, other: F403, owner: [409, 'BROADCAST_NOT_LIVE'] },
   },
   {
     // 댓글 작성은 "소유자"가 따로 없다: 방송자와 다른 사용자 모두 쓴다
@@ -357,6 +392,7 @@ const deletedRows: Row[] = (
     ['후원 주문', 'POST', (w: World) => `/api/broadcasts/${w.deleted}/donation-orders`, { amount: 5000 }, true],
     ['후원 내역', 'GET', (w: World) => `/api/broadcasts/${w.deleted}/donations`, undefined, false],
     ['녹화 목록', 'GET', (w: World) => `/api/broadcasts/${w.deleted}/recordings`, undefined, false],
+    ['썸네일 조회', 'GET', (w: World) => `/api/broadcasts/${w.deleted}/thumbnail`, undefined, false],
   ] as const
 ).map(([name, method, url, payload, needsAuth]) => ({
   action: `삭제된 방송 — ${name}`,
@@ -369,6 +405,14 @@ const deletedRows: Row[] = (
     owner: [404, 'BROADCAST_NOT_FOUND'] as Expected,
   },
 }))
+
+deletedRows.push({
+  action: '삭제된 방송 — 썸네일 업로드',
+  owner: 'streamer',
+  other: 'viewer',
+  send: putThumbnail((w) => w.deleted),
+  expect: { anon: U401, other: [404, 'BROADCAST_NOT_FOUND'], owner: [404, 'BROADCAST_NOT_FOUND'] },
+})
 
 /** 행 × 행위자 → it.each 케이스 */
 function cases(rows: Row[]) {

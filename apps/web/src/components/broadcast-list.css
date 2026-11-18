@@ -1,0 +1,606 @@
+/* 방송 카드 목록(BroadcastList)과 이를 쓰는 홈·채널 화면. 색·반경은 index.css 토큰을 쓴다 */
+
+/* ---- 목록 ---- */
+.broadcast-grid {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 24px 16px;
+}
+
+/* 홈 라이브의 첫 카드: 넓은 화면에서 2×2칸, 휴대폰에서는 한 줄을 다 쓴다 */
+.broadcast-grid.has-featured {
+  grid-auto-flow: dense;
+}
+
+.broadcast-grid > .featured {
+  grid-column: span 2;
+}
+
+@media (min-width: 900px) {
+  .broadcast-grid > .featured {
+    grid-row: span 2;
+  }
+
+  .featured .card-text .title {
+    font-size: 1.1rem;
+  }
+}
+
+/* ---- 카드 ---- */
+.broadcast-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  color: inherit;
+  text-decoration: none;
+  border-radius: var(--radius);
+}
+
+.broadcast-card:focus-visible {
+  outline-offset: 4px;
+}
+
+.thumb {
+  --thumb-color: #4f8cff;
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bg-elev-2);
+  /* 표지 글자 크기를 카드 폭에 맞춘다 (2×2 카드와 휴대폰 2열 카드가 같은 규칙을 쓴다) */
+  container-type: inline-size;
+  transition: box-shadow 0.2s;
+}
+
+/* 2×2 카드는 위아래 카드 두 장 높이를 채우도록 늘린다 */
+.featured .broadcast-card .thumb {
+  flex: 1;
+}
+
+.thumb-media {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition:
+    transform 0.25s ease,
+    filter 0.25s ease;
+}
+
+.broadcast-card:hover .thumb,
+.broadcast-card:focus-visible .thumb {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.broadcast-card:hover .thumb-media {
+  transform: scale(1.04);
+  filter: brightness(1.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thumb-media {
+    transition: filter 0.2s;
+  }
+
+  .broadcast-card:hover .thumb-media {
+    transform: none;
+  }
+}
+
+/* 화면이 없을 때의 표지: 방송자 색 그라디언트 + 제목 */
+.thumb-cover {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  /* 위아래는 배지와 시청자 수·시간 칩 자리로 비워 둔다 */
+  padding: 38px 6cqi 34px;
+  background:
+    radial-gradient(110% 90% at 100% 0%, color-mix(in srgb, var(--thumb-color) 70%, #fff 0%) 0%, transparent 60%),
+    radial-gradient(80% 80% at 0% 100%, rgb(0 0 0 / 0.45), transparent 70%),
+    linear-gradient(140deg, color-mix(in srgb, var(--thumb-color) 55%, #101116), #0b0c10 85%);
+}
+
+.thumb-cover-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: max(0.95rem, 7.5cqi);
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: #fff;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  text-shadow: 0 2px 12px rgb(0 0 0 / 0.35);
+}
+
+.thumb-cover-by {
+  font-size: max(0.72rem, 4cqi);
+  font-weight: 600;
+  color: rgb(255 255 255 / 0.75);
+}
+
+/* 휴대폰 2열처럼 좁은 카드: 배지·칩 사이에 제목 두 줄만 남긴다 (방송자는 카드 아래에 있다) */
+@container (max-width: 260px) {
+  .thumb-cover {
+    padding: 30px 10px 30px;
+  }
+
+  .thumb-cover-title {
+    font-size: 0.9rem;
+  }
+
+  .thumb-cover-by {
+    display: none;
+  }
+}
+
+/* 배지·칩: 휴대폰에서도 12px 이상 */
+.thumb-top {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: flex;
+  gap: 6px;
+}
+
+.thumb .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.78rem;
+  padding: 3px 8px;
+  box-shadow: 0 1px 6px rgb(0 0 0 / 0.3);
+}
+
+.badge-ended {
+  background: rgb(20 21 26 / 0.85);
+}
+
+.badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.thumb-chip {
+  position: absolute;
+  bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: rgb(0 0 0 / 0.72);
+  color: #fff;
+}
+
+.thumb-left {
+  left: 8px;
+}
+
+.thumb-right {
+  right: 8px;
+}
+
+.card-meta {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+
+.card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 0.9rem;
+}
+
+.card-text .title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  line-height: 1.35;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.card-sub {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 6px;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+
+.card-when::before {
+  content: '·';
+  margin-right: 6px;
+}
+
+/* ---- 로딩 자리 ---- */
+.card-skeleton .thumb,
+.skeleton-line {
+  background: linear-gradient(90deg, var(--bg-elev) 0%, var(--bg-elev-2) 40%, var(--bg-elev) 80%) 0 0 / 300% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.card-skeleton .card-meta {
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.skeleton-line {
+  display: block;
+  height: 12px;
+  width: 85%;
+  border-radius: 4px;
+}
+
+.skeleton-line.short {
+  width: 45%;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-skeleton .thumb,
+  .skeleton-line {
+    animation: none;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---- 빈 상태 ---- */
+.list-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--text-dim);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+
+.list-empty > svg {
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+
+.list-empty p {
+  margin: 0;
+}
+
+.list-empty-title {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.list-empty .button,
+.list-empty button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+/* ---- 홈 ---- */
+.home-intro {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 24px;
+  padding: 24px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background:
+    radial-gradient(80% 160% at 0% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%),
+    radial-gradient(60% 140% at 100% 100%, color-mix(in srgb, var(--live) 14%, transparent), transparent 60%),
+    var(--bg-elev);
+}
+
+.home-intro-text {
+  flex: 1 1 420px;
+  min-width: 0;
+}
+
+.home-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--accent);
+  word-break: keep-all;
+}
+
+.home-kicker.is-live {
+  color: #ff6b85;
+}
+
+.home-intro h1 {
+  margin: 0 0 6px;
+  font-size: clamp(1.3rem, 2.4vw, 1.75rem);
+  letter-spacing: -0.02em;
+}
+
+.home-intro-desc {
+  margin: 0;
+  max-width: 620px;
+  color: var(--text-dim);
+}
+
+.home-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.home-actions .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 10px 20px;
+}
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.section-head .section-title {
+  margin: 0;
+}
+
+.section-count {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.home-guide {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.home-guide li {
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+}
+
+.home-guide svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.home-guide strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.home-guide p {
+  margin: 0;
+  word-break: keep-all;
+  font-size: 0.88rem;
+  color: var(--text-dim);
+}
+
+/* ---- 채널 ---- */
+.channel-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px 20px;
+  padding: 24px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background:
+    radial-gradient(70% 160% at 0% 0%, color-mix(in srgb, var(--channel-color) 30%, transparent), transparent 65%),
+    var(--bg-elev);
+}
+
+.channel-header[aria-busy='true'] {
+  min-height: 126px;
+}
+
+.channel-mine {
+  margin-left: 10px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  font-size: 0.75rem;
+  vertical-align: 0.25em;
+}
+
+.channel-avatar {
+  position: relative;
+  flex: none;
+}
+
+.channel-avatar.is-live .avatar {
+  box-shadow:
+    0 0 0 3px var(--bg-elev),
+    0 0 0 5px var(--live);
+}
+
+.channel-avatar .badge {
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  transform: translateX(-50%);
+  font-size: 0.72rem;
+}
+
+.channel-info {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.channel-info h1 {
+  margin: 0 0 4px;
+  font-size: clamp(1.35rem, 2.6vw, 1.8rem);
+  overflow-wrap: anywhere;
+}
+
+.channel-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+.channel-stats strong {
+  color: var(--text);
+}
+
+.channel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.channel-actions .button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+}
+
+.button.live {
+  background: var(--live);
+  border-color: var(--live);
+  color: #fff;
+}
+
+.button.live:hover {
+  background: color-mix(in srgb, var(--live) 85%, #fff);
+}
+
+/* ---- 휴대폰 ---- */
+@media (max-width: 599px) {
+  .broadcast-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px 10px;
+  }
+
+  .card-meta .avatar {
+    display: none;
+  }
+
+  .featured .card-meta .avatar {
+    display: inline-flex;
+  }
+
+  .card-text {
+    font-size: 0.88rem;
+  }
+
+  .thumb .badge {
+    padding: 2px 6px;
+  }
+
+  .thumb-chip,
+  .thumb .badge {
+    font-size: 0.75rem;
+  }
+
+  /* 첫 화면을 시청에 쓰도록 소개를 한 줄로 줄인다. 방송 안내는 아래 "방송하는 방법"이 맡는다 */
+  .home-intro {
+    padding: 12px 14px;
+    gap: 10px;
+    flex-wrap: nowrap;
+  }
+
+  .home-intro-desc {
+    display: none;
+  }
+
+  /* 제목은 화면 읽기 프로그램에는 남긴다 (.sr-only와 같은 방식) */
+  .home-intro h1 {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .home-kicker {
+    margin: 0;
+    font-size: 0.9rem;
+  }
+
+  .home-intro-text {
+    flex: 1 1 auto;
+  }
+
+  /* 헤더에 "방송하기"가 있으므로 휴대폰에서는 버튼을 빼고 한 줄 안내만 남긴다 */
+  .home-actions {
+    display: none;
+  }
+
+  .channel-header {
+    padding: 18px 16px;
+  }
+
+  /* 아바타 옆에 이름을 두고, 버튼은 아래 한 줄을 나눠 쓴다 */
+  .channel-info {
+    flex-basis: 0;
+  }
+
+  .channel-actions {
+    width: 100%;
+  }
+
+  .channel-actions .button {
+    flex: 1;
+    padding: 8px 10px;
+    white-space: nowrap;
+  }
+}

@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { buildApp } from '../src/app.js'
 import { loadConfig } from '../src/config.js'
 import { createDb } from '../src/db/client.js'
@@ -19,7 +22,9 @@ export async function makeApp(
   mediaControl: MediaControl = idleMediaControl,
   toss?: TossClient,
 ) {
-  const config = loadConfig({ NODE_ENV: 'test', DATABASE_PATH: path, ...env })
+  // 메모리 DB면 기본 썸네일 경로가 현재 디렉터리가 된다. 앱마다 다른 임시 경로를 준다 (첫 저장 때 만들어진다)
+  const thumbnails = path === ':memory:' ? { THUMBNAILS_DIR: join(tmpdir(), 'live-test-thumbnails', randomUUID()) } : {}
+  const config = loadConfig({ NODE_ENV: 'test', DATABASE_PATH: path, ...thumbnails, ...env })
   const db = createDb(path)
   const app = await buildApp({ config, db, mediaControl, toss })
   return { app, db, config }
