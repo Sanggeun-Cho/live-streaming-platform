@@ -167,7 +167,7 @@ export function BroadcastPage() {
 
           {latestDonation && <DonationAlert key={latestDonation.id} donation={latestDonation} />}
           <DonationPanel broadcast={broadcast} isOwner={isOwner} />
-          <DonationBoard donations={donations} />
+          <DonationBoard donations={donations} isOwner={isOwner} />
 
           {isOwner && (
             <div className="row owner-actions">
