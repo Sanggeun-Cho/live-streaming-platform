@@ -13,6 +13,8 @@ export type Broadcast = {
   disconnectedAt: string | null
   createdAt: string
   updatedAt: string
+  /** 방송 중 마지막 화면 (lib/thumbnails.ts). 올린 적이 없으면 null */
+  thumbnailUrl: string | null
   channel: { id: number; name: string }
   streamer: { id: number; nickname: string }
   /** 목록에서만: 방송 중이면 지금 시청자 수 */
