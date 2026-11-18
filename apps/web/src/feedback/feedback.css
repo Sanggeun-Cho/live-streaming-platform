@@ -74,8 +74,9 @@
 }
 
 button.danger.solid {
-  background: var(--danger);
-  color: #fff;
+  background: var(--danger-fill);
+  border-color: var(--danger-fill);
+  color: var(--on-fill);
 }
 
 @media (prefers-reduced-motion: reduce) {

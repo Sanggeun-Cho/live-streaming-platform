@@ -1,4 +1,5 @@
-import { Radio } from 'lucide-react'
+import { CircleAlert, Radio, SearchX, Trash2 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { useAuth } from '../auth/context'
@@ -11,6 +12,8 @@ import { LivePlayer } from '../components/LivePlayer'
 import { ReplayPlayer } from '../components/ReplayPlayer'
 import { useFeedback } from '../feedback/context'
 import { useBroadcastEvents } from '../hooks/useBroadcastEvents'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
+import { EmptyState } from '../components/EmptyState'
 import { useBroadcast } from '../hooks/useBroadcast'
 import { useComments } from '../hooks/useComments'
 import { useDonations } from '../hooks/useDonations'
@@ -56,6 +59,7 @@ export function BroadcastPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const { broadcast, error, patch } = useBroadcast(id)
+  useDocumentTitle(broadcast && `${broadcast.title} · ${broadcast.streamer.nickname}`)
   const [actionError, setActionError] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [viewers, setViewers] = useState<number | null>(null)
@@ -102,9 +106,9 @@ export function BroadcastPage() {
 
   if (error) {
     return error.status === 404 ? (
-      <PageMessage title="방송을 찾을 수 없습니다" text="삭제되었거나 주소가 바뀌었을 수 있습니다." />
+      <PageMessage icon={SearchX} title="방송을 찾을 수 없습니다" text="삭제되었거나 주소가 바뀌었을 수 있습니다." />
     ) : (
-      <PageMessage title="방송을 불러오지 못했습니다" text={error.message}>
+      <PageMessage icon={CircleAlert} title="방송을 불러오지 못했습니다" text={error.message}>
         <button type="button" onClick={() => window.location.reload()}>
           다시 시도
         </button>
@@ -112,7 +116,7 @@ export function BroadcastPage() {
     )
   }
   if (!broadcast) return <p className="muted">불러오는 중…</p>
-  if (deleted) return <PageMessage title="방송자가 이 방송을 삭제했습니다" text="다른 라이브를 둘러보세요." />
+  if (deleted) return <PageMessage icon={Trash2} title="방송자가 이 방송을 삭제했습니다" text="다른 라이브를 둘러보세요." />
 
   const isOwner = user?.channelId === broadcast.channel.id
 
@@ -143,7 +147,7 @@ export function BroadcastPage() {
           <EndedPlayer replay={replay} everLive={broadcast.startedAt !== null} />
         ) : broadcast.status === 'LIVE' && !broadcast.disconnectedAt ? (
           // 방송자 본인도 시청할 수 있다 (예: 휴대폰으로 송출하고 PC에서 확인). 음소거로 시작하므로 하울링이 없다
-          <LivePlayer key={playerKey} broadcastId={id} />
+          <LivePlayer key={playerKey} broadcastId={id} viewers={viewers ?? undefined} startedAt={broadcast.startedAt} />
         ) : (
           <div className="player-placeholder" data-testid="player-placeholder">
             <StatusBadge status={broadcast.status} />
@@ -235,17 +239,21 @@ export function BroadcastPage() {
 }
 
 /** 방송을 볼 수 없을 때(없음·삭제·오류) 다음에 갈 곳을 함께 보여 준다 */
-function PageMessage({ title, text, children }: { title: string; text: string; children?: ReactNode }) {
+function PageMessage({ icon, title, text, children }: { icon: LucideIcon; title: string; text: string; children?: ReactNode }) {
   return (
-    <section className="center-card">
-      <h1>{title}</h1>
-      <p className="dim">{text}</p>
-      <div className="row center-actions">
-        {children}
-        <Link to="/" className="button primary">
-          지금 방송 중인 라이브 보기
-        </Link>
-      </div>
-    </section>
+    <EmptyState
+      icon={icon}
+      as="h1"
+      title={title}
+      description={text}
+      action={
+        <>
+          {children}
+          <Link to="/" className="button primary">
+            지금 방송 중인 라이브 보기
+          </Link>
+        </>
+      }
+    />
   )
 }

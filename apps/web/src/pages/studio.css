@@ -65,17 +65,17 @@
 }
 
 .studio-phase .live-dot {
-  background: #fff;
+  background: var(--on-fill);
 }
 
 .studio-phase.phase-live {
   background: var(--live);
-  color: #fff;
+  color: var(--on-fill);
 }
 
 .studio-phase.phase-preview {
   background: var(--info);
-  color: #fff;
+  color: var(--on-fill);
 }
 
 .studio-phase.phase-reconnecting,
@@ -104,7 +104,7 @@
   margin-inline: auto;
   border-radius: var(--radius);
   overflow: hidden;
-  background: #000;
+  background: var(--player-bg);
 }
 
 .preview {
@@ -130,7 +130,7 @@
   font-size: 0.78rem;
   font-weight: 700;
   background: rgb(0 0 0 / 0.65);
-  color: #fff;
+  color: var(--on-fill);
 }
 
 .stage-mic-off {

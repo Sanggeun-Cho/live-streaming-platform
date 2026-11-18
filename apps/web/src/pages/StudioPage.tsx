@@ -1,4 +1,5 @@
-import { Camera, ExternalLink, Mic, MicOff, Monitor, SwitchCamera } from 'lucide-react'
+import { Camera, CircleAlert, ExternalLink, Lock, Mic, MicOff, Monitor, SearchX, ShieldAlert, SwitchCamera } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Link, useBlocker, useParams } from 'react-router'
 import { useAuth } from '../auth/context'
@@ -11,6 +12,8 @@ import { useBroadcastEvents } from '../hooks/useBroadcastEvents'
 import { useComments } from '../hooks/useComments'
 import { useDonations } from '../hooks/useDonations'
 import { useNow } from '../hooks/useNow'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
+import { EmptyState } from '../components/EmptyState'
 import { ApiError } from '../lib/api'
 import type { Broadcast } from '../lib/broadcasts'
 import { type Donation, formatWon } from '../lib/donations'
@@ -56,10 +59,15 @@ export function StudioPage() {
   const id = Number(useParams().id)
   const { user } = useAuth()
   const { broadcast, error, patch } = useBroadcast(id)
+  useDocumentTitle(broadcast && `스튜디오 · ${broadcast.title}`)
 
   if (error) {
     return (
-      <StudioMessage title={error.status === 404 ? '방송을 찾을 수 없습니다' : '방송을 불러오지 못했습니다'} text={error.message}>
+      <StudioMessage
+        icon={error.status === 404 ? SearchX : CircleAlert}
+        title={error.status === 404 ? '방송을 찾을 수 없습니다' : '방송을 불러오지 못했습니다'}
+        text={error.message}
+      >
         <Link to="/" className="button primary">
           홈으로
         </Link>
@@ -69,7 +77,7 @@ export function StudioPage() {
   if (!broadcast) return <p className="muted">불러오는 중…</p>
   if (user?.channelId !== broadcast.channel.id) {
     return (
-      <StudioMessage title="본인 방송만 송출할 수 있습니다" text="이 방송의 방송자로 로그인했는지 확인하세요.">
+      <StudioMessage icon={Lock} title="본인 방송만 송출할 수 있습니다" text="이 방송의 방송자로 로그인했는지 확인하세요.">
         <Link to={`/broadcasts/${id}`} className="button primary">
           방송 보러 가기
         </Link>
@@ -78,7 +86,7 @@ export function StudioPage() {
   }
   if (broadcast.status === 'ENDED') {
     return (
-      <StudioMessage title="이미 종료된 방송입니다" text="종료한 방송은 다시 시작할 수 없습니다. 새 방송을 만들어 주세요.">
+      <StudioMessage icon={CircleAlert} title="이미 종료된 방송입니다" text="종료한 방송은 다시 시작할 수 없습니다. 새 방송을 만들어 주세요.">
         <Link to="/broadcasts/new" className="button primary">
           새 방송 만들기
         </Link>
@@ -88,6 +96,7 @@ export function StudioPage() {
   if (!window.isSecureContext) {
     return (
       <StudioMessage
+        icon={ShieldAlert}
         title="HTTPS 주소에서만 방송할 수 있습니다"
         text="카메라·마이크·화면 공유는 보안 연결에서만 쓸 수 있습니다. https:// 로 접속하세요."
       />
@@ -97,14 +106,8 @@ export function StudioPage() {
   return <Studio key={id} broadcast={broadcast} patch={patch} />
 }
 
-function StudioMessage({ title, text, children }: { title: string; text: string; children?: ReactNode }) {
-  return (
-    <section className="center-card">
-      <h1>{title}</h1>
-      <p className="dim">{text}</p>
-      {children}
-    </section>
-  )
+function StudioMessage({ icon, title, text, children }: { icon: LucideIcon; title: string; text: string; children?: ReactNode }) {
+  return <EmptyState icon={icon} as="h1" title={title} description={text} action={children} />
 }
 
 function Studio({ broadcast, patch }: { broadcast: Broadcast; patch: (changes: Partial<Broadcast>) => void }) {
