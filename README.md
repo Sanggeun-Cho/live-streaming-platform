@@ -182,6 +182,8 @@ flowchart LR
 | [FFmpeg](https://ffmpeg.org/) (MediaMTX 이미지 포함) | 녹화 파일 오디오 변환(AAC) | LGPL/GPL |
 | [Fastify](https://fastify.dev/), [Drizzle ORM](https://orm.drizzle.team/), [zod](https://zod.dev/), [better-sqlite3](https://github.com/WiseLibs/better-sqlite3), [@node-rs/argon2](https://github.com/napi-rs/node-rs) | API 서버 | MIT |
 | [React](https://react.dev/), [React Router](https://reactrouter.com/), [Vite](https://vite.dev/) | 웹 | MIT |
+| [Pretendard](https://github.com/orioncactus/pretendard) (jsDelivr CDN) | 웹 글꼴 | OFL-1.1 |
+| [Lucide](https://lucide.dev/) (lucide-react) | 아이콘 | ISC |
 | [토스페이먼츠 결제위젯 SDK v2](https://docs.tosspayments.com/) | 테스트 결제 | 토스페이먼츠 이용약관 |
 | [Vitest](https://vitest.dev/) | API 통합·웹 단위 테스트 | MIT |
 | [Playwright](https://playwright.dev/) (playwright-core) | 브라우저 E2E | Apache-2.0 |

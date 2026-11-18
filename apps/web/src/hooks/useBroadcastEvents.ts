@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Broadcast, StatusPayload } from '../lib/broadcasts'
+import { emitLiveSignal } from '../lib/liveSignals'
 import type { DonationEvent } from '../lib/donations'
 import type { Recording } from '../lib/recordings'
 import type { CommentEvent } from '../lib/comments'
@@ -48,8 +49,13 @@ export function useBroadcastEvents(id: number | null, handlers: BroadcastEventHa
     const source = new EventSource(`/api/broadcasts/${id}/events`)
     const listeners = EVENT_NAMES.map((name) => {
       const listener = (e: MessageEvent<string>) => {
+        const data: unknown = JSON.parse(e.data)
         const handler = handlersRef.current[name] as ((data: unknown) => void) | undefined
-        handler?.(JSON.parse(e.data))
+        handler?.(data)
+        // 사이드바 "지금 라이브"가 이 방송의 시청자 수·종료를 본문과 같은 순간에 반영하게 알린다
+        if (name === 'viewers') emitLiveSignal({ broadcastId: id, viewers: (data as BroadcastEventMap['viewers']).count })
+        if (name === 'status') emitLiveSignal({ broadcastId: id, live: (data as BroadcastEventMap['status']).status === 'LIVE' })
+        if (name === 'deleted') emitLiveSignal({ broadcastId: id, live: false })
       }
       source.addEventListener(name, listener)
       return [name, listener] as const
