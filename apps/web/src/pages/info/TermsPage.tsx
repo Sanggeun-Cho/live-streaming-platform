@@ -1,5 +1,6 @@
 import { useDocumentTitle } from '../../hooks/useDocumentTitle'
-import { EFFECTIVE_DATE, ExternalAnchor, InfoLayout, ISSUES_URL } from './InfoLayout'
+import { EFFECTIVE_DATE, ExternalAnchor, InfoLayout } from './InfoLayout'
+import { ISSUES_URL } from '../../lib/site'
 
 export function TermsPage() {
   useDocumentTitle('이용약관')

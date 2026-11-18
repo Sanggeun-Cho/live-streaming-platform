@@ -53,9 +53,7 @@ type Props = {
   listKey: string
   fetchPage: PageFetcher
   empty: ReactNode
-  /** 첫 카드를 크게 보여준다 (홈의 라이브) */
-  featured?: boolean
-  /** 첫 페이지를 받으면 알린다 (화면 위쪽의 개수·바로가기용) */
+  /** 첫 페이지를 받으면 알린다 (채널 화면이 섹션 제목·개수를 정할 때) */
   onLoad?: (page: { items: Item[]; hasMore: boolean }) => void
   /** 첫 로딩 동안 자리를 잡아 둘 카드 수 */
   skeletons?: number
@@ -76,7 +74,6 @@ function BroadcastListInner({
   fetchPage: initialFetch,
   onLoad,
   empty,
-  featured,
   skeletons = 4,
   filter,
   fullRows,
@@ -148,9 +145,9 @@ function BroadcastListInner({
 
   return (
     <>
-      <ul className={`broadcast-grid${featured ? ' has-featured' : ''}`} aria-busy={loading}>
-        {visible.map((b, i) => (
-          <li key={b.id} className={featured && i === 0 ? 'featured' : undefined}>
+      <ul className="broadcast-grid" aria-busy={loading}>
+        {visible.map((b) => (
+          <li key={b.id}>
             <BroadcastCard b={b} now={now} />
           </li>
         ))}

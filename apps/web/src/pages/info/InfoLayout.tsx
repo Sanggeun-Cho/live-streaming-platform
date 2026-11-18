@@ -4,7 +4,6 @@ import { NavLink } from 'react-router'
 import './info.css'
 
 export const EFFECTIVE_DATE = '2026년 11월 19일'
-export const ISSUES_URL = 'https://github.com/Sanggeun-Cho/live-streaming-platform/issues'
 
 const LINKS = [
   { to: '/help', label: '고객센터' },
@@ -51,7 +50,7 @@ export function ExternalAnchor({ href, children }: { href: string; children: Rea
     <a className="info-ext" href={href} target="_blank" rel="noreferrer">
       {children}
       <ExternalLink className="info-ext-icon" size={14} aria-hidden="true" />
-      <span className="info-sr">(새 탭에서 열림)</span>
+      <span className="sr-only">(새 탭에서 열림)</span>
     </a>
   )
 }

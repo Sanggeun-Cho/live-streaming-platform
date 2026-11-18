@@ -181,7 +181,7 @@
   border-radius: var(--radius-sm);
   background: var(--bg-elev-2);
   border: 1px solid var(--border);
-  box-shadow: 0 2px 8px rgb(0 0 0 / 0.35);
+  box-shadow: 0 2px 8px var(--shadow-color);
   opacity: 0;
   transition: opacity 0.12s;
 }
@@ -366,7 +366,7 @@
   pointer-events: auto;
   font-weight: 700;
   white-space: nowrap;
-  box-shadow: 0 4px 14px rgb(0 0 0 / 0.45);
+  box-shadow: 0 4px 14px var(--shadow-color);
 }
 
 .chat-jump:hover:not(:disabled) {

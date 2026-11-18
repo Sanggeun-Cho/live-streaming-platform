@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { useDocumentTitle } from '../../hooks/useDocumentTitle'
-import { ExternalAnchor, InfoLayout, ISSUES_URL } from './InfoLayout'
+import { ExternalAnchor, InfoLayout } from './InfoLayout'
+import { ISSUES_URL } from '../../lib/site'
 
 type Faq = { q: string; a: ReactNode }
 type FaqGroup = { id: string; title: string; items: Faq[] }

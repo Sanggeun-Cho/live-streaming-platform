@@ -18,7 +18,7 @@
   border-radius: 999px;
   background: var(--bg-elev-2);
   border: 1px solid var(--border);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.45);
+  box-shadow: 0 8px 24px var(--shadow-color);
   font-weight: 600;
   font-size: 0.92rem;
   animation: toast-in 0.2s ease-out;
@@ -47,11 +47,11 @@
   border-radius: 16px;
   background: var(--bg-elev);
   color: var(--text);
-  box-shadow: 0 20px 60px rgb(0 0 0 / 0.6);
+  box-shadow: 0 20px 60px var(--shadow-color);
 }
 
 .confirm-dialog::backdrop {
-  background: rgb(0 0 0 / 0.6);
+  background: var(--scrim);
 }
 
 .confirm-dialog h2 {

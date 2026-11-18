@@ -1,5 +1,6 @@
 import { useDocumentTitle } from '../../hooks/useDocumentTitle'
-import { EFFECTIVE_DATE, ExternalAnchor, InfoLayout, ISSUES_URL } from './InfoLayout'
+import { EFFECTIVE_DATE, ExternalAnchor, InfoLayout } from './InfoLayout'
+import { ISSUES_URL } from '../../lib/site'
 
 export function PrivacyPage() {
   useDocumentTitle('개인정보처리방침')
@@ -45,9 +46,9 @@ export function PrivacyPage() {
               </tr>
               <tr>
                 <th scope="row">채팅</th>
-                <td>채팅 내용, 작성 시각</td>
+                <td>채팅 내용, 작성·수정 시각</td>
                 <td>실시간 채팅 제공</td>
-                <td>탈퇴 요청 시까지</td>
+                <td>탈퇴 요청 시까지 (삭제한 채팅은 화면에서 숨기고 기록은 남김)</td>
               </tr>
               <tr>
                 <th scope="row">후원</th>
@@ -59,7 +60,13 @@ export function PrivacyPage() {
                 <th scope="row">로그인 유지</th>
                 <td>세션 쿠키</td>
                 <td>로그인 상태 유지</td>
-                <td>30일 (사용할 때마다 연장), 로그아웃 시 삭제</td>
+                <td>30일 (남은 기간이 절반 이하일 때 이용하면 다시 30일로 연장), 로그아웃 시 삭제</td>
+              </tr>
+              <tr>
+                <th scope="row">접속 기록</th>
+                <td>접속 IP 주소, 요청 시각과 주소</td>
+                <td>과도한 요청 차단 등 보안, 장애 원인 확인</td>
+                <td>서버 로그를 정리하거나 서버를 다시 설치할 때까지</td>
               </tr>
             </tbody>
           </table>
@@ -71,7 +78,7 @@ export function PrivacyPage() {
           </li>
           <li>
             세션 쿠키는 HttpOnly로 설정되어 브라우저의 스크립트에서 읽을 수 없습니다. 30일 동안
-            유지되며, 서비스를 이용하면 기간이 다시 연장됩니다.
+            유지되며, 남은 기간이 절반 이하일 때 서비스를 이용하면 다시 30일로 연장됩니다.
           </li>
           <li>
             화면 테마(라이트·다크) 설정은 이용자 브라우저의 localStorage에만 저장되며 서버로

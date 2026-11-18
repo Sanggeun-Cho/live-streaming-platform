@@ -10,25 +10,6 @@
   gap: 24px 16px;
 }
 
-/* 홈 라이브의 첫 카드: 넓은 화면에서 2×2칸, 휴대폰에서는 한 줄을 다 쓴다 */
-.broadcast-grid.has-featured {
-  grid-auto-flow: dense;
-}
-
-.broadcast-grid > .featured {
-  grid-column: span 2;
-}
-
-@media (min-width: 900px) {
-  .broadcast-grid > .featured {
-    grid-row: span 2;
-  }
-
-  .featured .card-text .title {
-    font-size: 1.1rem;
-  }
-}
-
 /* ---- 카드 ---- */
 .broadcast-card {
   display: flex;
@@ -54,11 +35,6 @@
   /* 표지 글자 크기를 카드 폭에 맞춘다 (2×2 카드와 휴대폰 2열 카드가 같은 규칙을 쓴다) */
   container-type: inline-size;
   transition: box-shadow 0.2s;
-}
-
-/* 2×2 카드는 위아래 카드 두 장 높이를 채우도록 늘린다 */
-.featured .broadcast-card .thumb {
-  flex: 1;
 }
 
 .thumb-media {
@@ -587,10 +563,6 @@
 
   .card-meta .avatar {
     display: none;
-  }
-
-  .featured .card-meta .avatar {
-    display: inline-flex;
   }
 
   .card-text {

@@ -1,9 +1,9 @@
-import { ChevronDown, LogOut, Monitor, Moon, Plus, Sun, UserRound, Video, WifiOff } from 'lucide-react'
+import { ChevronDown, LogOut, Plus, UserRound, Video, WifiOff } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, NavLink, useLocation } from 'react-router'
 import { useAuth } from '../auth/context'
-import { useThemePreference } from '../theme/theme'
+import { THEME_OPTIONS, useThemePreference } from '../theme/theme'
 import { ThemeSwitcher } from '../theme/ThemeSwitcher'
 import { Avatar } from './Avatar'
 import { BrandMark } from './BrandMark'
@@ -110,11 +110,10 @@ function AccountMenu() {
   )
 }
 
-const THEME_ICON = { system: Monitor, light: Sun, dark: Moon } as const
-
 /** 비로그인 사용자용 테마 버튼: 계정 메뉴가 없으므로 따로 둔다 */
 function ThemeMenu() {
-  const Icon = THEME_ICON[useThemePreference()]
+  const current = useThemePreference()
+  const Icon = THEME_OPTIONS.find((o) => o.value === current)!.icon
   return (
     <Dropdown label="화면 테마" buttonClassName="ghost icon-only" button={<Icon size={18} aria-hidden="true" />}>
       <div className="menu-section">
@@ -188,7 +187,16 @@ function Dropdown({
       >
         {button}
       </button>
-      <div id={menuId} className="dropdown-panel" hidden={!open}>
+      {/* 메뉴 안의 링크·버튼을 누르면 닫는다. 테마 선택은 바뀐 화면을 보며 고르도록 열어 둔다 */}
+      <div
+        id={menuId}
+        className="dropdown-panel"
+        hidden={!open}
+        onClick={(e) => {
+          const target = e.target as Element
+          if (target.closest('a, button') && !target.closest('.theme-switcher')) setOpen(false)
+        }}
+      >
         {children}
       </div>
     </div>

@@ -40,7 +40,8 @@
   --scrim: rgb(0 0 0 / 0.6);
   --scrim-strong: rgb(0 0 0 / 0.78);
   --hover-on-media: rgb(255 255 255 / 0.15);
-  --shadow: 0 12px 32px rgb(19 22 28 / 0.14);
+  --shadow-color: rgb(19 22 28 / 0.16);
+  --shadow: 0 12px 32px var(--shadow-color);
   --header-bg: rgb(255 255 255 / 0.9);
   color-scheme: light;
 }
@@ -68,7 +69,7 @@
   --info: #3d4558;
   --neutral: #3a3f4b;
   --thumb-default: #5b6cff;
-  --shadow: 0 12px 32px rgb(0 0 0 / 0.5);
+  --shadow-color: rgb(0 0 0 / 0.5);
   --header-bg: rgb(14 17 23 / 0.9);
   color-scheme: dark;
 }
@@ -626,7 +627,7 @@ button.ghost:hover:not(:disabled),
 }
 
 .nav-cta {
-  gap: 4px;
+  gap: var(--space-1);
   color: var(--accent);
 }
 
@@ -1570,7 +1571,7 @@ input[type='range'] {
   align-items: center;
   justify-content: center;
   gap: 2px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   color: var(--text-dim);
   text-decoration: none;
@@ -1646,7 +1647,7 @@ input[type='range'] {
 .footer-columns a {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   min-height: 32px;
   color: var(--text-dim);
   text-decoration: none;

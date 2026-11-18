@@ -31,7 +31,7 @@
 .info-nav-link {
   display: flex;
   align-items: center;
-  min-height: 44px;
+  min-height: var(--tap);
   padding: 0 var(--space-3);
   color: var(--text-dim);
   font-size: var(--fs-sm);
@@ -147,18 +147,6 @@
   align-self: center;
 }
 
-.info-sr {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
-}
-
 /* 표: 좁은 화면에서는 가로 스크롤 */
 .info-table-wrap {
   overflow-x: auto;
@@ -213,7 +201,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  min-height: 44px;
+  min-height: var(--tap);
   padding: var(--space-2) 0;
   cursor: pointer;
   list-style: none;

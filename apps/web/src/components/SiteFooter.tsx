@@ -1,9 +1,8 @@
 import { ExternalLink } from 'lucide-react'
 import { Link } from 'react-router'
+import { ISSUES_URL } from '../lib/site'
 import { ThemeSwitcher } from '../theme/ThemeSwitcher'
 import { BrandMark } from './BrandMark'
-
-const REPO_URL = 'https://github.com/Sanggeun-Cho/live-streaming-platform'
 
 const COLUMNS = [
   {
@@ -18,7 +17,7 @@ const COLUMNS = [
     title: '고객지원',
     links: [
       { to: '/help', label: '고객센터' },
-      { href: `${REPO_URL}/issues`, label: '문의하기' },
+      { href: ISSUES_URL, label: '문의하기' },
     ],
   },
   {
@@ -77,7 +76,7 @@ export function SiteFooter() {
           </p>
           <p>© 2026 galle LIVE</p>
         </div>
-        <ThemeSwitcher className="footer-theme" />
+        <ThemeSwitcher />
       </div>
     </footer>
   )
