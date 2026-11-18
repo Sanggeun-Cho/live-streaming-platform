@@ -80,12 +80,6 @@ export function HomePage() {
               icon={Radio}
               title="지금은 방송 중인 채널이 없습니다"
               description="방송이 시작되면 이곳에 가장 먼저 보입니다. 아래에서 최근 다시보기를 볼 수 있습니다."
-              action={
-                <Link to="/broadcasts/new" className="button">
-                  <Radio size={16} aria-hidden="true" />
-                  방송하기
-                </Link>
-              }
             />
           }
         />

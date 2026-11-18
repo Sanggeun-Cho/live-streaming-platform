@@ -15,7 +15,7 @@ await step('비로그인이 새 방송 화면에 가면 로그인 화면으로 �
 })
 
 await step('소유자: 빈 제목은 화면에서 막는다', async () => {
-  await owner.getByRole('link', { name: '방송하기' }).click()
+  await owner.getByRole('banner').getByRole('link', { name: '방송하기' }).click()
   await owner.getByRole('button', { name: '만들기' }).click()
   await owner.getByRole('alert').getByText('제목을 입력해 주세요.').waitFor()
 })
@@ -69,7 +69,7 @@ await step('소유자: 정보를 수정하면 상세에 반영된다', async () 
 })
 
 await step('소유자: 내 채널에서 내 방송이 보인다', async () => {
-  await owner.getByRole('link', { name: '내 채널' }).click()
+  await owner.getByRole('banner').getByRole('link', { name: /내 채널/ }).click()
   await owner.getByRole('heading', { name: '내 채널' }).waitFor()
   await owner.getByRole('link', { name: new RegExp(escapeRe(`${title} (수정)`)) }).waitFor()
 })
