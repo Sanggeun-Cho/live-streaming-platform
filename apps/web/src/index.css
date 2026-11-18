@@ -1348,8 +1348,6 @@ input[type='range'] {
   opacity: 1;
 }
 
-}
-
 @media (max-width: 599px) {
   /* 휴대폰: 카드를 2열로 줄여 홈 스크롤을 짧게 한다 */
   .broadcast-grid {
