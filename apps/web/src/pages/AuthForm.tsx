@@ -40,15 +40,15 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 function validate(input: { email: string; password: string; nickname: string }, isSignup: boolean): FieldErrors {
   const errors: FieldErrors = {}
-  if (!input.email.trim()) errors.email = '이메일을 입력하세요'
-  else if (!EMAIL_PATTERN.test(input.email.trim())) errors.email = '이메일 형식이 올바르지 않습니다'
+  if (!input.email.trim()) errors.email = '이메일을 입력해 주세요.'
+  else if (!EMAIL_PATTERN.test(input.email.trim())) errors.email = '이메일 형식이 올바르지 않습니다.'
   if (isSignup) {
     const nickname = input.nickname.trim()
-    if (!nickname) errors.nickname = '닉네임을 입력하세요'
-    else if (nickname.length < 2 || nickname.length > 20) errors.nickname = '닉네임은 2~20자로 입력하세요'
+    if (!nickname) errors.nickname = '닉네임을 입력해 주세요.'
+    else if (nickname.length < 2 || nickname.length > 20) errors.nickname = '닉네임은 2~20자로 입력해 주세요.'
   }
-  if (!input.password) errors.password = '비밀번호를 입력하세요'
-  else if (isSignup && input.password.length < 8) errors.password = '비밀번호는 8자 이상이어야 합니다'
+  if (!input.password) errors.password = '비밀번호를 입력해 주세요.'
+  else if (isSignup && input.password.length < 8) errors.password = '비밀번호는 8자 이상이어야 합니다.'
   return errors
 }
 
@@ -128,7 +128,7 @@ export function AuthForm({ mode }: { mode: 'login' | 'signup' }) {
           )}
         </FormField>
         {isSignup && (
-          <FormField label="닉네임" hint="2~20자, 채팅과 채널에 보이는 이름입니다" error={fieldErrors.nickname}>
+          <FormField label="닉네임" hint="2~20자, 채팅과 채널에 보이는 이름입니다." error={fieldErrors.nickname}>
             {(control) => (
               <input
                 {...control}

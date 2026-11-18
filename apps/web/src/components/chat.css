@@ -11,9 +11,17 @@
   border: 1px solid var(--border);
 }
 
-/* 시청 화면에서의 높이. 모바일은 영상 아래에서 제목·후원 버튼이 첫 화면에 보이도록 낮게, 넓은 화면은 옆에 붙여 둔다 */
+/* 시청 화면에서의 높이. 휴대폰(≤768px)은 index.css의 .broadcast-layout이 영상 아래 남은 높이를 채운다 */
 .broadcast-layout > .chat-panel {
   height: clamp(260px, 40dvh, 420px);
+}
+
+@media (max-width: 768px) {
+  .broadcast-layout > .chat-panel {
+    height: max(280px, calc(100dvh - var(--header-h) - var(--player-h) - var(--head-h)));
+    border-radius: 0;
+    border-inline: none;
+  }
 }
 
 @media (min-width: 1000px) {
@@ -146,7 +154,6 @@
 }
 
 .chat-edited {
-  margin-left: 4px;
   font-size: 0.72rem;
   color: var(--text-dim);
   white-space: nowrap;
@@ -157,7 +164,13 @@
   font-style: italic;
 }
 
-/* 내 채팅의 수정·삭제: 평소엔 숨기고 마우스를 올리거나 포커스(키보드·탭)하면 오른쪽 위에 띄운다 */
+/* 내 채팅의 수정·삭제: 평소엔 숨기고 마우스를 올리거나 포커스(키보드·탭)하면 오른쪽 위에 띄운다.
+   이때 오른쪽에 자리를 비워 메뉴가 본문 글자를 가리지 않게 한다 */
+.chat-mine:hover,
+.chat-mine:focus-within {
+  padding-right: 68px;
+}
+
 .chat-actions {
   position: absolute;
   top: 2px;
@@ -201,19 +214,19 @@
   color: var(--text);
 }
 
-.chat-icon-button[aria-label='댓글 삭제']:hover:not(:disabled) {
+.chat-icon-button[aria-label='채팅 삭제']:hover:not(:disabled) {
   color: var(--danger);
 }
 
-/* 후원 채팅: 일반 채팅 사이에서 한눈에 띄게 카드로 */
+/* 후원 채팅: 일반 채팅 사이에서 눈에 띄게 강조색 띠로. 시각·글자의 왼쪽 시작은 일반 채팅(여백 6px)과 맞춘다 */
 .chat-donation {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin: 6px 0;
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  border-radius: var(--radius);
+  gap: 2px;
+  margin: 4px 0;
+  padding: 6px 6px 7px 3px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   background: linear-gradient(
     135deg,
     color-mix(in srgb, var(--accent) 22%, transparent),
@@ -233,7 +246,11 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 2px 6px;
+  gap: 2px 5px;
+}
+
+.chat-donation-head .chat-time {
+  margin: 0;
 }
 
 .chat-donation-icon {
@@ -249,10 +266,6 @@
 .chat-donation-amount {
   font-weight: 800;
   color: var(--accent);
-}
-
-.chat-donation .chat-time {
-  margin: 0 0 0 auto;
 }
 
 .chat-donation .chat-content {
@@ -326,19 +339,31 @@
   white-space: nowrap;
 }
 
-/* 위로 스크롤해 읽는 중 새 채팅이 오면 목록 아래에 띄운다 */
-.chat-jump {
+/* 보내는 중인 채팅: 응답이 오기 전(도배 제한으로 기다리는 동안 포함) 흐리게 먼저 보여 준다 */
+.chat-pending {
+  opacity: 0.55;
+}
+
+/* 위로 스크롤해 읽는 중 새 채팅이 오면 목록 아래 그라데이션 띠 위에 띄워 채팅 글자와 겹쳐 보이지 않게 한다 */
+.chat-jump-band {
   position: absolute;
-  left: 50%;
-  bottom: 10px;
-  transform: translateX(-50%);
-  min-height: 32px;
-  padding: 4px 14px;
+  inset: auto 0 0;
+  display: flex;
+  justify-content: center;
+  padding: 28px 0 10px;
+  background: linear-gradient(transparent, var(--bg-elev) 60%);
+  pointer-events: none;
+}
+
+.chat-jump {
+  min-height: 38px;
+  padding: 6px 18px;
   border-radius: 999px;
   border: none;
   background: var(--accent);
   color: var(--accent-ink);
-  font-size: 0.82rem;
+  font-size: 0.92rem;
+  pointer-events: auto;
   font-weight: 700;
   white-space: nowrap;
   box-shadow: 0 4px 14px rgb(0 0 0 / 0.45);

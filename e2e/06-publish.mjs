@@ -38,10 +38,10 @@ const videoPlaying = (page) =>
 
 const statusLine = (page) => page.getByTestId('status-line')
 
-await step('소유자가 방송을 만들고, 비로그인 시청자가 상세 화면을 연다 (방송 준비)', async () => {
+await step('소유자가 방송을 만들고, 비로그인 시청자가 상세 화면을 연다 (방송 예정)', async () => {
   id = await createBroadcast(owner, `송출 E2E ${Date.now()}`)
   await viewer.goto(`${BASE}/broadcasts/${id}`)
-  await statusLine(viewer).getByText('방송 준비').waitFor()
+  await statusLine(viewer).getByText('방송 예정').waitFor()
   return `id=${id}`
 })
 

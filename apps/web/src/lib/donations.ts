@@ -40,10 +40,10 @@ export const formatWon = (amount: number) => `${amount.toLocaleString('ko-KR')}�
 
 /** 서버(routes/donations.ts)와 같은 금액 규칙. 서버가 최종 검증한다. 통과하면 null */
 export function amountError(amount: number | null, { min, max, unit }: DonationLimits): string | null {
-  if (amount === null) return '후원 금액을 입력해 주세요'
-  if (amount < min) return `최소 ${formatWon(min)}부터 후원할 수 있습니다`
-  if (amount > max) return `최대 ${formatWon(max)}까지 후원할 수 있습니다`
-  if (!Number.isInteger(amount) || amount % unit !== 0) return `${formatWon(unit)} 단위로 입력해 주세요`
+  if (amount === null) return '후원 금액을 입력해 주세요.'
+  if (amount < min) return `최소 ${formatWon(min)}부터 후원할 수 있습니다.`
+  if (amount > max) return `최대 ${formatWon(max)}까지 후원할 수 있습니다.`
+  if (!Number.isInteger(amount) || amount % unit !== 0) return `${formatWon(unit)} 단위로 입력해 주세요.`
   return null
 }
 
@@ -80,6 +80,30 @@ export const REOPEN_DONATION_STATE = { openDonation: true } as const
 
 export const wantsDonationForm = (state: unknown) =>
   typeof state === 'object' && state !== null && 'openDonation' in state && state.openDonation === true
+
+/** 결제창으로 떠나기 전의 주문. 실패·취소 주소에는 금액이 오지 않아 결과 화면이 여기서 읽는다 */
+export type PendingOrder = { orderId: string; amount: number; broadcastId: number }
+
+const PENDING_ORDER_KEY = 'donation:pending-order'
+
+export function rememberOrder(order: PendingOrder) {
+  try {
+    sessionStorage.setItem(PENDING_ORDER_KEY, JSON.stringify(order))
+  } catch {
+    // 저장소를 못 쓰면 결과 화면이 금액 없이 안내한다
+  }
+}
+
+/** 결제창이 돌려준 orderId와 같은 주문일 때만 돌려준다 (이미 끝난 다른 주문의 금액을 보이지 않게) */
+export function recallOrder(broadcastId: number, orderId: string | null): PendingOrder | null {
+  if (!orderId) return null
+  try {
+    const order = JSON.parse(sessionStorage.getItem(PENDING_ORDER_KEY) ?? 'null') as PendingOrder | null
+    return order?.broadcastId === broadcastId && order.orderId === orderId ? order : null
+  } catch {
+    return null
+  }
+}
 
 /** 결제창에서 돌아올 주소. 결제 실패·취소 때 orderId가 없을 수 있어 방송 ID를 경로에 넣는다 */
 export const donationReturnUrl = (broadcastId: number, result: 'success' | 'fail') =>

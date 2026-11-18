@@ -118,6 +118,9 @@ export function DonationSheet({ broadcast, config, draft, onDraftChange, onPay, 
                   autoComplete="off"
                   placeholder="금액"
                   value={formatAmountInput(amount)}
+                  // 음수 기호·글자는 입력 자체를 막는다 (걸러서 받으면 "-1000"이 말없이 1,000원이 된다)
+                  onBeforeInput={(e) => /[^\d,]/.test(e.data) && e.preventDefault()}
+                  onPaste={(e) => /[^\d,\s원]/.test(e.clipboardData.getData('text')) && e.preventDefault()}
                   onChange={(e) => onDraftChange({ ...draft, amount: parseAmountInput(e.target.value) })}
                   aria-invalid={Boolean(invalid)}
                   aria-describedby="donation-amount-hint"
@@ -202,7 +205,7 @@ function PaymentModeNote({ config }: { config: DonationConfig }) {
     return (
       <p className="pay-note">
         <Lock size={14} aria-hidden />
-        토스페이먼츠로 안전하게 결제합니다
+        토스페이먼츠로 안전하게 결제합니다.
       </p>
     )
   }
@@ -213,8 +216,8 @@ function PaymentModeNote({ config }: { config: DonationConfig }) {
         테스트 결제
       </span>
       {config.fake
-        ? '결제창 없이 바로 승인되며 실제로 돈이 빠져나가지 않습니다'
-        : '토스페이먼츠 테스트 결제 · 실제로 돈이 빠져나가지 않습니다'}
+        ? '결제창 없이 바로 승인되며 실제로 돈이 빠져나가지 않습니다.'
+        : '토스페이먼츠 테스트 결제로, 실제로 돈이 빠져나가지 않습니다.'}
     </p>
   )
 }

@@ -4,6 +4,7 @@ import { errorMessage } from '../lib/api'
 import { view, type ViewSession } from '../lib/webrtc/whip'
 import { useNow } from '../hooks/useNow'
 import { formatDuration } from '../lib/recordings'
+import { StatusBadge } from './BroadcastList'
 import { Spinner } from './Spinner'
 
 // 시청 연결 실패·끊김 시 다시 시도하는 간격과 연속 실패 상한 (약 10초).
@@ -11,22 +12,45 @@ import { Spinner } from './Spinner'
 const RETRY_DELAY_MS = 2000
 const MAX_RETRIES = 5
 
+// "소리 켜기"를 한 번 누른 사용자는 이 탭에서 다음 재생부터(가입·로그인 후 돌아온 경우 등) 소리를 켜고 시작해 본다
+const SOUND_KEY = 'player:sound-on'
+
+function wantsSound() {
+  try {
+    return sessionStorage.getItem(SOUND_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function rememberSound(on: boolean) {
+  try {
+    if (on) sessionStorage.setItem(SOUND_KEY, '1')
+    else sessionStorage.removeItem(SOUND_KEY)
+  } catch {
+    // 저장소를 못 쓰면 매번 음소거로 시작한다
+  }
+}
+
 type Props = {
   broadcastId: number
   /** 지금 시청자 수 (SSE). 없으면 표시하지 않는다 */
   viewers?: number | null
   /** 방송 시작 시각. 있으면 경과 시간을 보여준다 */
   startedAt?: string | null
+  /** 전에 소리를 켰어도 음소거로 시작한다 (방송자 본인: 송출 중인 소리가 되돌아와 울리지 않게) */
+  alwaysMuted?: boolean
 }
 
 /**
  * WHEP 시청 플레이어.
  * - 자동재생 정책 때문에 음소거로 시작하고, 눈에 띄는 "소리 켜기" 버튼으로 사용자가 소리를 켠다.
+ *   전에 소리를 켠 사용자는 소리를 켠 채 시작해 보고, 브라우저가 막으면 음소거로 돌아간다.
  * - 첫 프레임이 나오기 전에는 스피너를 보여주고 조작 버튼을 숨긴다 (검은 화면에서 누를 게 없다).
  * - 연결에 실패하거나 도중에 끊기면 몇 번 자동으로 다시 연결한다.
  * 방송자가 다시 연결되면 부모가 key를 바꿔 플레이어를 새로 만든다.
  */
-export function LivePlayer({ broadcastId, viewers, startedAt }: Props) {
+export function LivePlayer({ broadcastId, viewers, startedAt, alwaysMuted = false }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
   // 첫 프레임이 화면에 나왔는지. 연결을 다시 맺으면 다시 false
@@ -34,7 +58,7 @@ export function LivePlayer({ broadcastId, viewers, startedAt }: Props) {
   // 브라우저가 자동재생을 막으면(저전력 모드 등) 사용자가 눌러서 재생한다
   const [blocked, setBlocked] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [muted, setMuted] = useState(true)
+  const [muted, setMuted] = useState(() => alwaysMuted || !wantsSound())
   const fullscreen = useFullscreen(boxRef)
   // 바뀔 때마다 연결을 처음부터 다시 맺는다 (자동 재시도, "다시 연결" 버튼)
   const [retryKey, setRetryKey] = useState(0)
@@ -70,11 +94,20 @@ export function LivePlayer({ broadcastId, viewers, startedAt }: Props) {
           video.srcObject = s.stream
           video.play().then(
             () => setBlocked(false),
-            () => setBlocked(true),
+            () => {
+              if (video.muted) return setBlocked(true)
+              // 소리 있는 자동재생이 막혔다: 음소거로 다시 재생하고 "소리 켜기" 버튼을 보인다
+              video.muted = true
+              setMuted(true)
+              video.play().then(
+                () => setBlocked(false),
+                () => setBlocked(true),
+              )
+            },
           )
         }
         s.pc.addEventListener('connectionstatechange', () => {
-          if (s.pc.connectionState === 'failed') retry('연결이 끊겼습니다')
+          if (s.pc.connectionState === 'failed') retry('연결이 끊겼습니다.')
         })
       })
       .catch((e: unknown) => retry(errorMessage(e)))
@@ -91,6 +124,11 @@ export function LivePlayer({ broadcastId, viewers, startedAt }: Props) {
       () => setBlocked(false),
       () => setBlocked(true),
     )
+
+  const toggleSound = (on: boolean) => {
+    setMuted(!on)
+    rememberSound(on)
+  }
 
   const reconnect = () => {
     setError(null)
@@ -111,10 +149,7 @@ export function LivePlayer({ broadcastId, viewers, startedAt }: Props) {
       />
 
       <div className="player-top">
-        <span className="badge badge-live">
-          <span className="live-dot" aria-hidden="true" />
-          LIVE
-        </span>
+        <StatusBadge status="LIVE" reconnecting={retryKey > 0 && !showing && !error} />
         {viewers != null && (
           <span className="player-chip">
             <Users size={13} aria-hidden="true" />
@@ -147,7 +182,7 @@ export function LivePlayer({ broadcastId, viewers, startedAt }: Props) {
       {showing && !error && (
         <div className={muted ? 'player-bar' : 'player-bar can-hide'}>
           {muted ? (
-            <button type="button" className="player-unmute" onClick={() => setMuted(false)}>
+            <button type="button" className="player-unmute" onClick={() => toggleSound(true)}>
               <VolumeX size={18} aria-hidden="true" />
               소리 켜기
             </button>
@@ -155,7 +190,7 @@ export function LivePlayer({ broadcastId, viewers, startedAt }: Props) {
             <button
               type="button"
               className="player-icon-button"
-              onClick={() => setMuted(true)}
+              onClick={() => toggleSound(false)}
               aria-label="소리 끄기"
               title="소리 끄기"
             >

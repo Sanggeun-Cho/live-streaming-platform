@@ -1,4 +1,4 @@
-import { Clock, Play, RotateCw, TriangleAlert, Users } from 'lucide-react'
+import { Play, RotateCw, TriangleAlert, Users } from 'lucide-react'
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { type Broadcast, STATUS_LABEL } from '../lib/broadcasts'
@@ -8,13 +8,34 @@ import { colorOf } from '../lib/avatar'
 import { Avatar } from './Avatar'
 import { EmptyState } from './EmptyState'
 import { useNow } from '../hooks/useNow'
-import { timeAgo } from '../lib/time'
+import { formatDurationText, timeAgoOf } from '../lib/time'
 import './broadcast-list.css'
 
-export function StatusBadge({ status }: { status: Broadcast['status'] }) {
+/**
+ * 방송 상태 배지. 카드·플레이어·상세가 같은 말과 색을 쓴다.
+ * replay: 녹화가 있는 종료 방송("다시보기"), reconnecting: 방송자 연결이 끊겨 기다리는 중
+ */
+export function StatusBadge({
+  status,
+  replay = false,
+  reconnecting = false,
+}: {
+  status: Broadcast['status']
+  replay?: boolean
+  reconnecting?: boolean
+}) {
+  if (status === 'LIVE' && reconnecting) return <span className="badge badge-warn">재연결 중</span>
+  if (status === 'LIVE') {
+    return (
+      <span className="badge badge-live">
+        <span className="live-dot" aria-hidden="true" />
+        LIVE
+      </span>
+    )
+  }
+  if (status === 'ENDED' && replay) return <span className="badge badge-ended">다시보기</span>
   return <span className={`badge badge-${status.toLowerCase()}`}>{STATUS_LABEL[status]}</span>
 }
-
 
 export type Item = Broadcast & Partial<Pick<Replay, 'recordingCount' | 'totalDurationMs'>>
 
@@ -144,31 +165,19 @@ function BroadcastCard({ b, now }: { b: Item; now: number }) {
   const live = b.status === 'LIVE'
   const replay = b.totalDurationMs !== undefined
   const viewers = live && b.viewers !== undefined ? `시청자 ${b.viewers.toLocaleString()}명` : null
-  const elapsed = live && b.startedAt ? formatElapsed(now - Date.parse(b.startedAt)) : null
   const duration = replay ? formatDuration(b.totalDurationMs!) : null
 
-  const badge = live ? (
-    <span className="badge badge-live">
-      <span className="badge-dot" />
-      LIVE
-    </span>
-  ) : b.status === 'READY' ? (
-    <span className="badge badge-ready">방송 예정</span>
-  ) : (
-    <span className="badge badge-ended">{replay ? '다시보기' : STATUS_LABEL.ENDED}</span>
-  )
-  // 방송 중이면 경과 시간이 썸네일에 있으므로 따로 적지 않는다
   const when = live
-    ? null
+    ? b.startedAt && timeAgoOf(b.startedAt, '시작', now)
     : b.status === 'READY'
-      ? `${timeAgo(b.createdAt, now)} 등록`
-      : timeAgo(b.endedAt ?? b.updatedAt, now)
+      ? timeAgoOf(b.createdAt, '등록', now)
+      : timeAgoOf(b.endedAt ?? b.updatedAt, '종료', now)
   // 카드 안의 글자(아바타 글자, 배지, 썸네일 제목)를 이어 읽지 않도록 링크 이름을 한 문장으로 정한다
   const state = live
-    ? ['방송 중', viewers, elapsed && `${elapsed} 경과`]
+    ? ['방송 중', viewers, when]
     : b.status === 'READY'
-      ? ['방송 예정']
-      : [replay ? `다시보기 ${duration}` : '방송 종료', when]
+      ? [STATUS_LABEL.READY, when]
+      : [replay ? `다시보기 ${formatDurationText(b.totalDurationMs!)}` : STATUS_LABEL.ENDED, when]
   const label = [b.title, b.streamer.nickname, ...state].filter(Boolean).join(', ')
 
   return (
@@ -190,17 +199,13 @@ function BroadcastCard({ b, now }: { b: Item; now: number }) {
             <span className="thumb-cover-by">{b.streamer.nickname}</span>
           </div>
         )}
-        <span className="thumb-top">{badge}</span>
+        <span className="thumb-top">
+          <StatusBadge status={b.status} replay={replay} />
+        </span>
         {viewers && (
           <span className="thumb-chip thumb-left">
             <Users size={13} strokeWidth={2.5} />
             {b.viewers!.toLocaleString()}
-          </span>
-        )}
-        {elapsed && (
-          <span className="thumb-chip thumb-right">
-            <Clock size={13} strokeWidth={2.5} />
-            {elapsed}
           </span>
         )}
         {duration && (
@@ -223,12 +228,3 @@ function BroadcastCard({ b, now }: { b: Item; now: number }) {
     </Link>
   )
 }
-
-/** 방송 경과: 45분 / 1시간 5분 */
-function formatElapsed(ms: number) {
-  const minutes = Math.max(0, Math.floor(ms / 60_000))
-  if (minutes < 1) return '방금'
-  if (minutes < 60) return `${minutes}분`
-  return `${Math.floor(minutes / 60)}시간${minutes % 60 ? ` ${minutes % 60}분` : ''}`
-}
-

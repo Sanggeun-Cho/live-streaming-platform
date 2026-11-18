@@ -18,3 +18,23 @@ export function timeAgo(iso: string, now = Date.now()): string {
   if (diff < 7 * DAY) return `${Math.floor(diff / DAY)}일 전`
   return monthDay.format(new Date(iso))
 }
+
+/** 무슨 일이 언제 있었는지 뜻이 분명하게: "방금 시작", "12분 전 시작", "2시간 전 종료" */
+export function timeAgoOf(iso: string, action: string, now = Date.now()): string {
+  const ago = timeAgo(iso, now)
+  return ago === '방금 전' ? `방금 ${action}` : `${ago} ${action}`
+}
+
+/**
+ * 요약에 쓰는 말로 된 길이: "48초", "12분 30초", "1시간 5분".
+ * 재생 위치·경과처럼 계속 바뀌는 값은 시계 표기(lib/recordings의 formatDuration, 1:05)를 쓴다.
+ */
+export function formatDurationText(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  if (h > 0) return m > 0 ? `${h}시간 ${m}분` : `${h}시간`
+  if (m > 0) return s > 0 ? `${m}분 ${s}초` : `${m}분`
+  return `${s}초`
+}

@@ -26,7 +26,7 @@ export type BroadcastPage = { items: Broadcast[]; nextCursor: number | null }
 export type ListParams = { status?: BroadcastStatus; channelId?: number; cursor?: number; limit?: number }
 
 export const STATUS_LABEL: Record<BroadcastStatus, string> = {
-  READY: '방송 준비',
+  READY: '방송 예정',
   LIVE: 'LIVE',
   ENDED: '방송 종료',
 }

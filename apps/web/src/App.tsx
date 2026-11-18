@@ -25,9 +25,12 @@ function Header() {
       </Link>
       <nav className="nav" aria-label="계정">
         {/* 비로그인도 보인다: 누르면 로그인 후 새 방송 화면으로 돌아온다 */}
-        <Link to="/broadcasts/new" className="button icon-only nav-cta" aria-label="방송하기" title="방송하기">
+        <Link to="/broadcasts/new" className="button nav-cta" aria-label="방송하기" title="방송하기">
           <Video size={18} aria-hidden="true" />
           <span className="nav-label">방송하기</span>
+          <span className="nav-label-short" aria-hidden="true">
+            방송
+          </span>
         </Link>
         {status === 'authenticated' && user && (
           <>

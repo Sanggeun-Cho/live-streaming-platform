@@ -17,17 +17,17 @@ await step('비로그인이 새 방송 화면에 가면 로그인 화면으로 �
 await step('소유자: 빈 제목은 화면에서 막는다', async () => {
   await owner.getByRole('link', { name: '방송하기' }).click()
   await owner.getByRole('button', { name: '만들기' }).click()
-  await owner.getByRole('alert').getByText('제목을 입력하세요').waitFor()
+  await owner.getByRole('alert').getByText('제목을 입력해 주세요.').waitFor()
 })
 
-await step('소유자: 방송을 만들면 상세 화면으로 이동하고 "방송 준비" 상태다', async () => {
+await step('소유자: 방송을 만들면 상세 화면으로 이동하고 "방송 예정" 상태다', async () => {
   await owner.getByLabel('제목').fill(title)
   await owner.getByLabel('설명 (선택)').fill('첫 줄\n둘째 줄')
   await owner.getByRole('button', { name: '만들기' }).click()
   await owner.waitForURL(/\/broadcasts\/\d+$/)
   id = Number(new URL(owner.url()).pathname.split('/').pop())
   await owner.getByRole('heading', { name: title }).waitFor()
-  await owner.getByText('방송 준비').first().waitFor()
+  await owner.getByText('방송 예정').first().waitFor()
   return `id=${id}`
 })
 
