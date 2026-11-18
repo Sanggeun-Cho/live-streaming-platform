@@ -36,6 +36,12 @@
   white-space: nowrap;
 }
 
+.studio-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
 .studio-watch-link {
   display: inline-flex;
   align-items: center;
@@ -339,6 +345,33 @@
   background: var(--accent);
 }
 
+.stats-limited {
+  color: var(--warn);
+}
+
+.stats-limited .quality-dot {
+  background: var(--warn);
+}
+
+.countdown {
+  font-variant-numeric: tabular-nums;
+}
+
+.stage-paused {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: var(--text-dim);
+  font-weight: 700;
+}
+
+/* 방송 중 반응 오버레이: 휴대폰에서만 (넓은 화면은 오른쪽 패널로 충분하다) */
+.stage-overlay {
+  display: none;
+}
+
 /* ---- 시청자 반응 (후원·채팅) ---- */
 .studio-side {
   position: relative;
@@ -450,6 +483,14 @@
     padding: 14px 10px;
   }
 
+  /* 마이크 꺼짐 배지는 오버레이와 겹치지 않게 위로 */
+  .stage-mic-off {
+    top: 10px;
+    bottom: auto;
+    left: auto;
+    right: 10px;
+  }
+
   .stage-steps {
     display: none;
   }
@@ -472,5 +513,118 @@
     flex: 1;
     height: auto;
     min-height: 0;
+  }
+}
+
+/* 휴대폰 가로: 방송 중에는 헤더를 숨기고 영상을 화면 높이로, 조작은 오른쪽 세로 레일에 둔다 */
+@media (orientation: landscape) and (max-height: 500px) {
+  :root:has(.studio-layout.on-air) .header {
+    display: none;
+  }
+
+  :root:has(.studio-layout.on-air) .container {
+    padding: 8px;
+  }
+
+  .studio-layout.on-air .studio-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: calc(100dvh - 16px);
+    gap: 8px;
+  }
+
+  .studio-layout.on-air .studio-head,
+  .studio-layout.on-air .studio-main > :not(.studio-stage, .studio-toolbar) {
+    display: none;
+  }
+
+  .studio-layout.on-air .studio-stage {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+  }
+
+  .studio-layout.on-air .studio-toolbar {
+    position: static;
+    flex-direction: column;
+    justify-content: center;
+    width: 112px;
+    box-shadow: none;
+  }
+
+  .studio-layout.on-air .toolbar-group {
+    flex-direction: column;
+  }
+
+  .studio-layout.on-air .studio-toolbar button {
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 4px;
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+
+  .studio-layout.on-air .label-full {
+    display: none;
+  }
+
+  .studio-layout.on-air .label-short {
+    display: inline;
+  }
+}
+
+/* 반응 오버레이는 휴대폰 세로·가로 모두에서 보인다 */
+@media (max-width: 699px), (orientation: landscape) and (max-height: 500px) {
+  .stage-overlay {
+    position: absolute;
+    inset: auto 8px 8px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    pointer-events: none;
+  }
+
+  /* 영상을 가리지 않게 작게: 아이콘을 빼고 한 덩어리로 */
+  .stage-overlay .donation-alert {
+    position: static;
+    transform: none;
+    width: auto;
+    padding: 8px 12px;
+    font-size: 0.85rem;
+  }
+
+  .stage-overlay .donation-alert-icon {
+    display: none;
+  }
+
+  .stage-overlay .donation-alert-amount {
+    font-size: 1.05rem;
+  }
+
+  .overlay-chat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.85rem;
+  }
+
+  .overlay-chat li {
+    width: fit-content;
+    max-width: 100%;
+    padding: 3px 8px;
+    border-radius: 8px;
+    background: rgb(0 0 0 / 0.55);
+    color: var(--on-fill);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 미리보기 위에 이미 보이므로 패널 쪽 알림은 숨긴다 */
+  .studio-side .donation-alert {
+    display: none;
   }
 }

@@ -256,7 +256,7 @@ function Studio({ broadcast, patch }: { broadcast: Broadcast; patch: (changes: P
   const resumable = broadcast.status === 'LIVE' && broadcast.disconnectedAt !== null && !onAir && phase !== 'takenOver'
 
   return (
-    <div className="studio-layout">
+    <div className={`studio-layout${onAir ? ' on-air' : ''}`}>
       <section className="studio-main" aria-label="방송 스튜디오">
         <div className="studio-head">
           <div className="studio-title">
@@ -538,7 +538,8 @@ function Toolbar({
             disabled={busy}
           />
         )}
-        {source === 'camera' && (
+        {/* 전면/후면은 휴대폰에만 의미가 있다 (화면 공유를 못 하는 브라우저 = 휴대폰) */}
+        {source === 'camera' && !isScreenShareSupported() && (
           <ToolButton
             icon={<SwitchCamera size={18} aria-hidden="true" />}
             label="전면/후면 전환"
