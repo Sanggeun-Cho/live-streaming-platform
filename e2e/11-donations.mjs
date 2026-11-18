@@ -36,6 +36,8 @@ const { body: created } = await apiFetch(streamer, '/broadcasts', { method: 'POS
 const id = created.broadcast.id
 const url = `${BASE}/broadcasts/${id}`
 const reason = (page) => page.getByTestId('donation-reason')
+const donateButton = (page) => page.getByRole('button', { name: '후원하기', exact: true })
+const sheet = (page) => page.getByRole('dialog')
 
 async function goLive() {
   const res = await fetch(`${API}/internal/media/events`, {
@@ -49,13 +51,13 @@ async function goLive() {
 await step('방송 전(READY): 후원 버튼이 비활성이고 이유를 안내한다', async () => {
   await viewer.goto(url)
   await reason(viewer).getByText('방송이 시작되면 후원할 수 있습니다').waitFor()
-  expectEqual(await viewer.getByRole('button', { name: '후원하기' }).isDisabled(), true, '버튼 비활성')
+  expectEqual(await donateButton(viewer).isDisabled(), true, '버튼 비활성')
   await viewer.getByText('아직 후원이 없습니다').waitFor()
 })
 
 await step('방송이 시작되면 새로고침 없이 후원 버튼이 켜진다', async () => {
   await goLive()
-  await viewer.getByRole('button', { name: '후원하기' }).and(viewer.locator(':enabled')).waitFor()
+  await donateButton(viewer).and(viewer.locator(':enabled')).waitFor()
 })
 
 await step('비로그인: 로그인 안내 링크를 누르면 로그인 화면으로 가고 돌아올 주소를 유지한다', async () => {
@@ -65,34 +67,56 @@ await step('비로그인: 로그인 안내 링크를 누르면 로그인 화면�
   expectEqual(new URL(anon.url()).searchParams.get('next'), `/broadcasts/${id}`)
 })
 
-await step('방송자 본인: 후원 버튼이 비활성이고 "본인 방송에는 후원할 수 없습니다"', async () => {
+await step('방송자 본인: 후원 버튼 없이 "아직 받은 후원이 없습니다"만 보이고, 주문 API도 막힌다', async () => {
   await streamer.goto(url)
-  await reason(streamer).getByText('본인 방송에는 후원할 수 없습니다').waitFor()
+  await streamer.getByText('아직 받은 후원이 없습니다').waitFor()
+  expectEqual(await streamer.getByRole('region', { name: '후원', exact: true }).count(), 0, '후원 패널 수')
   const res = await apiFetch(streamer, `/broadcasts/${id}/donation-orders`, { method: 'POST', body: { amount: 1000 } })
   expectEqual(res.status, 403, '본인 방송 주문 API')
 })
 
-await step('금액 규칙: 1,000원 단위가 아니면 안내하고 제출 버튼을 막는다', async () => {
-  await viewer.getByRole('button', { name: '후원하기' }).click()
-  await viewer.getByLabel('직접 입력 (원)').fill('1500')
-  await viewer.getByText('1,000원 단위로 입력하세요').waitFor()
-  expectEqual(await viewer.locator('.donation-form button[type=submit]').isDisabled(), true, '제출 비활성')
+await step('금액 입력: 천 단위 쉼표로 보이고, 규칙에 어긋나면 상황별로 안내하며 제출을 막는다', async () => {
+  await donateButton(viewer).click()
+  await sheet(viewer).getByRole('heading', { name: '방송자님에게 후원' }).waitFor()
+  const input = viewer.getByLabel('직접 입력')
+  await input.fill('12000')
+  expectEqual(await input.inputValue(), '12,000', '쉼표 표시')
+  for (const [value, hint] of [
+    ['1500', '1,000원 단위로 입력해 주세요'],
+    ['500', '최소 1,000원부터 후원할 수 있습니다'],
+    ['2000000', '최대 1,000,000원까지 후원할 수 있습니다'],
+  ]) {
+    await input.fill(value)
+    await viewer.getByText(hint).waitFor()
+    expectEqual(await viewer.locator('.donation-form button[type=submit]').isDisabled(), true, `${value} 제출 비활성`)
+  }
   await viewer.getByRole('button', { name: '5,000원', exact: true }).click()
   await viewer.getByRole('button', { name: '5,000원 후원하기' }).waitFor()
 })
 
 if (config.fake) {
   await watcher.goto(url)
-  await watcher.getByRole('button', { name: '후원하기' }).and(watcher.locator(':enabled')).waitFor()
+  await donateButton(watcher).and(watcher.locator(':enabled')).waitFor()
   let successUrl
 
-  await step('후원 → 성공 화면에서 승인 확인 → 방송 화면으로 돌아와 합계·내역에 보인다', async () => {
+  await step('후원 → 확인 단계(받는 사람·금액·메시지) → 결제 → 영수증 → 방송으로 돌아와 합계·내역에 보인다', async () => {
     await viewer.getByLabel('메시지 (선택)').fill('E2E 응원합니다')
     await viewer.getByRole('button', { name: '5,000원 후원하기' }).click()
+    await viewer.getByRole('button', { name: '5,000원 결제하기' }).waitFor()
+    const review = await sheet(viewer).innerText()
+    for (const s of ['방송자', '5,000원', 'E2E 응원합니다', '테스트 결제']) if (!review.includes(s)) throw new Error(`확인 단계에 ${s} 없음: ${review}`)
+    await viewer.getByRole('button', { name: '5,000원 결제하기' }).click()
     await viewer.waitForURL(/\/donation\/success\?/)
     successUrl = viewer.url()
     await viewer.getByTestId('donation-done').getByText('5,000원을 후원했습니다').waitFor()
-    await viewer.waitForURL((u) => u.pathname === `/broadcasts/${id}`, { timeout: 10_000 })
+    const receipt = await viewer.locator('.donation-receipt').innerText()
+    const orderId = new URL(successUrl).searchParams.get('orderId')
+    for (const s of ['E2E 응원합니다', orderId]) if (!receipt.includes(s)) throw new Error(`영수증에 ${s} 없음: ${receipt}`)
+    // 자동으로 넘어가지 않고 사용자가 돌아갈 때까지 머문다
+    await viewer.waitForTimeout(3000)
+    expectEqual(new URL(viewer.url()).pathname.endsWith('/donation/success'), true, '완료 화면 유지')
+    await viewer.getByRole('link', { name: '방송으로 돌아가기' }).click()
+    await viewer.waitForURL((u) => u.pathname === `/broadcasts/${id}`)
     await viewer.getByTestId('donation-total').getByText('5,000원').waitFor()
     await viewer.getByTestId('donation-list').getByText('E2E 응원합니다').waitFor()
   })
@@ -139,16 +163,40 @@ if (config.fake) {
     expectEqual(list.body.total, { amount: 5000, count: 1 }, '합계 그대로')
   })
 
-  await step('결제 취소로 돌아오면 취소 안내와 방송으로 돌아가는 링크를 보여준다', async () => {
-    await viewer.goto(`${url}/donation/fail?code=PAY_PROCESS_CANCELED&message=${encodeURIComponent('취소')}`)
-    await viewer.getByRole('heading', { name: '결제를 취소했습니다' }).waitFor()
-    await viewer.getByRole('link', { name: '방송 화면으로 돌아가기' }).click()
+  await step('결제 실패로 돌아오면 결제되지 않았음을 강조하고 문의용 코드를 작게 보여준다', async () => {
+    await viewer.goto(`${url}/donation/fail?code=REJECT_CARD_COMPANY&message=${encodeURIComponent('카드사에서 거절했습니다')}`)
+    await viewer.getByRole('heading', { name: '결제에 실패했습니다' }).waitFor()
+    await viewer.getByText('결제는 이뤄지지 않았습니다').waitFor()
+    await viewer.locator('.result-code').getByText('REJECT_CARD_COMPANY').waitFor()
+    await viewer.getByRole('link', { name: '방송으로 돌아가기' }).click()
     await viewer.waitForURL((u) => u.pathname === `/broadcasts/${id}`)
+    await donateButton(viewer).waitFor()
+    expectEqual(await sheet(viewer).count(), 0, '후원 시트 닫힘')
   })
 
-  await step('모바일(390px)에서 후원 영역이 가로로 넘치지 않는다', async () => {
+  await step('결제 취소 화면의 "다시 후원하기"는 방송으로 돌아가 후원 시트를 열어 둔다', async () => {
+    await viewer.goto(`${url}/donation/fail?code=PAY_PROCESS_CANCELED&message=${encodeURIComponent('취소')}`)
+    await viewer.getByRole('heading', { name: '결제를 취소했습니다' }).waitFor()
+    await viewer.getByRole('link', { name: '다시 후원하기' }).click()
+    await viewer.waitForURL((u) => u.pathname === `/broadcasts/${id}`)
+    await sheet(viewer).getByRole('heading', { name: '방송자님에게 후원' }).waitFor()
+    await viewer.keyboard.press('Escape')
+    await sheet(viewer).waitFor({ state: 'detached' })
+    // 새로고침하면 다시 열리지 않는다
+    await viewer.reload()
+    await donateButton(viewer).waitFor()
+    expectEqual(await sheet(viewer).count(), 0, '새로고침 뒤 시트')
+  })
+
+  await step('모바일(390px)에서 후원 시트가 가로로 넘치지 않고 제출 버튼이 화면 안에 보인다', async () => {
     await viewer.setViewportSize({ width: 390, height: 844 })
-    await viewer.getByRole('button', { name: '후원하기' }).click()
+    await donateButton(viewer).click()
+    const submit = viewer.getByRole('button', { name: '5,000원 후원하기' })
+    await submit.waitFor()
+    // 올라오는 애니메이션이 끝난 뒤 위치를 잰다
+    await viewer.waitForFunction(() => document.querySelector('dialog')?.getAnimations().length === 0)
+    const box = await submit.boundingBox()
+    if (!box || box.y + box.height > 844) throw new Error(`제출 버튼이 화면 밖: ${JSON.stringify(box)}`)
     const overflow = await viewer.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
     if (process.env.E2E_SCREENSHOT) await viewer.screenshot({ path: process.env.E2E_SCREENSHOT, fullPage: true })
     if (overflow > 0) throw new Error(`가로 넘침 ${overflow}px`)
@@ -156,6 +204,7 @@ if (config.fake) {
 } else if (config.enabled) {
   await step('토스 테스트 키: 후원하면 실제 토스 결제창이 주문 금액으로 열리고, 닫으면 취소를 안내한다', async () => {
     await viewer.getByRole('button', { name: '5,000원 후원하기' }).click()
+    await viewer.getByRole('button', { name: '5,000원 결제하기' }).click()
     const frame = viewer.frameLocator('iframe[src*="tosspayments.com"]').first()
     await frame.getByText('5,000원').first().waitFor({ timeout: 20_000 })
     await frame.getByText('결제하기', { exact: true }).waitFor()

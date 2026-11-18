@@ -193,7 +193,7 @@ export function BroadcastPage() {
         </div>
         <div className="broadcast-body">
           {broadcast.description && <p className="description">{broadcast.description}</p>}
-          <DonationBoard donations={donations} />
+          <DonationBoard donations={donations} isOwner={isOwner} />
 
           {isOwner && (
             <div className="row owner-actions">

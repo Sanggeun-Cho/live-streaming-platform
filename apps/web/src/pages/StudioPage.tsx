@@ -10,6 +10,7 @@ import { useBroadcast } from '../hooks/useBroadcast'
 import { useBroadcastEvents } from '../hooks/useBroadcastEvents'
 import { useComments } from '../hooks/useComments'
 import { useDonations } from '../hooks/useDonations'
+import { useNow } from '../hooks/useNow'
 import { ApiError } from '../lib/api'
 import type { Broadcast } from '../lib/broadcasts'
 import { type Donation, formatWon } from '../lib/donations'
@@ -49,17 +50,6 @@ function usePublisher(broadcastId: number) {
     return () => window.removeEventListener('pagehide', onPageHide)
   }, [publisher])
   return { publisher, state }
-}
-
-/** 1초마다 다시 그려 경과 시간을 갱신한다 */
-function useNow(active: boolean) {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    if (!active) return
-    const timer = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(timer)
-  }, [active])
-  return now
 }
 
 export function StudioPage() {
@@ -310,7 +300,8 @@ function OnAirStatus({
   viewers: number
 }) {
   const live = phase === 'live'
-  const now = useNow(live)
+  // 경과 시간은 초 단위로 갱신한다
+  const now = useNow(1000)
   const elapsed = live && broadcast.startedAt ? formatDuration(now - Date.parse(broadcast.startedAt)) : null
   return (
     <div className="studio-status">
