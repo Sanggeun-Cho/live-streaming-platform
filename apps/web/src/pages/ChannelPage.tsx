@@ -5,7 +5,7 @@ import { useAuth } from '../auth/context'
 import { Avatar } from '../components/Avatar'
 import { EmptyState } from '../components/EmptyState'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
-import { BroadcastList, ListEmpty, type Item } from '../components/BroadcastList'
+import { BroadcastList, type Item } from '../components/BroadcastList'
 import { ApiError, api, errorMessage } from '../lib/api'
 import { colorOf } from '../lib/avatar'
 import { type BroadcastStatus, listBroadcasts } from '../lib/broadcasts'
@@ -97,16 +97,12 @@ function ChannelBody({ channel }: { channel: Channel }) {
   const nothingAtAll = othersLoaded && live.count === 0 && ready.count === 0
   const endedEmpty = !othersLoaded ? null : nothingAtAll ? (
     isMine ? (
-      <ListEmpty icon={Radio} title="아직 만든 방송이 없습니다">
-        <p>"새 방송 만들기"로 첫 방송을 준비하세요.</p>
-      </ListEmpty>
+      <EmptyState inline as="p" icon={Radio} title="아직 만든 방송이 없습니다" description={'"새 방송 만들기"로 첫 방송을 준비하세요.'} />
     ) : (
-      <ListEmpty icon={Radio} title="이 채널에는 아직 방송이 없습니다" />
+      <EmptyState inline as="p" icon={Radio} title="이 채널에는 아직 방송이 없습니다" />
     )
   ) : (
-    <ListEmpty icon={Clapperboard} title="아직 끝난 방송이 없습니다">
-      <p>방송이 끝나면 다시보기가 이곳에 쌓입니다.</p>
-    </ListEmpty>
+    <EmptyState inline as="p" icon={Clapperboard} title="아직 끝난 방송이 없습니다" description="방송이 끝나면 다시보기가 이곳에 쌓입니다." />
   )
 
   return (

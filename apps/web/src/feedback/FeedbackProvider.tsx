@@ -22,8 +22,17 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
     setTimeout(() => setToasts((list) => list.filter((t) => t.id !== id)), TOAST_MS)
   }, [])
 
+  // 대화상자가 떠 있는 동안 새 확인이 오면(예: 이동 확인과 종료 확인이 겹침) 앞의 것은 취소로 끝낸다.
+  // 그냥 덮어쓰면 앞 호출의 await가 영원히 끝나지 않는다
+  const pendingRef = useRef<PendingConfirm | null>(null)
   const confirm = useCallback(
-    (options: ConfirmOptions) => new Promise<boolean>((resolve) => setPending({ ...options, resolve })),
+    (options: ConfirmOptions) =>
+      new Promise<boolean>((resolve) => {
+        pendingRef.current?.resolve(false)
+        const next = { ...options, resolve }
+        pendingRef.current = next
+        setPending(next)
+      }),
     [],
   )
 
@@ -44,6 +53,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
           {...pending}
           onClose={(ok) => {
             pending.resolve(ok)
+            pendingRef.current = null
             setPending(null)
           }}
         />

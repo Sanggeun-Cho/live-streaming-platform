@@ -2,7 +2,8 @@ import { CalendarClock, Clapperboard, MessageCircleHeart, Monitor, Radio, Smartp
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { useAuth } from '../auth/context'
-import { BroadcastList, ListEmpty, type Item } from '../components/BroadcastList'
+import { BroadcastList, type Item } from '../components/BroadcastList'
+import { EmptyState } from '../components/EmptyState'
 import { listBroadcasts } from '../lib/broadcasts'
 import { listReplays } from '../lib/recordings'
 
@@ -70,12 +71,18 @@ export function HomePage() {
           fetchPage={(cursor, signal) => listBroadcasts({ status: 'LIVE', cursor }, signal)}
           onLoad={({ items, hasMore }) => setLive({ count: items.length, hasMore })}
           empty={
-            <ListEmpty icon={Radio} title="지금 방송 중인 채널이 없습니다">
-              <p>방송을 시작하면 이곳에 가장 먼저 보입니다.</p>
-              <Link to="/broadcasts/new" className="button primary">
-                <Radio size={16} aria-hidden="true" />첫 방송 시작하기
-              </Link>
-            </ListEmpty>
+            <EmptyState
+              inline
+              as="p"
+              icon={Radio}
+              title="지금 방송 중인 채널이 없습니다"
+              description="방송을 시작하면 이곳에 가장 먼저 보입니다."
+              action={
+                <Link to="/broadcasts/new" className="button primary">
+                  <Radio size={16} aria-hidden="true" />첫 방송 시작하기
+                </Link>
+              }
+            />
           }
         />
       </section>
@@ -89,9 +96,13 @@ export function HomePage() {
           filter={isWatchableReplay}
           fetchPage={(cursor, signal) => listReplays({ cursor, limit: 8 }, signal)}
           empty={
-            <ListEmpty icon={Clapperboard} title="아직 다시 볼 수 있는 방송이 없습니다">
-              <p>방송이 끝나면 녹화본이 이곳에 올라옵니다.</p>
-            </ListEmpty>
+            <EmptyState
+              inline
+              as="p"
+              icon={Clapperboard}
+              title="아직 다시 볼 수 있는 방송이 없습니다"
+              description="방송이 끝나면 녹화본이 이곳에 올라옵니다."
+            />
           }
         />
       </section>
@@ -104,7 +115,7 @@ export function HomePage() {
         <BroadcastList
           listKey="ready"
           fetchPage={(cursor, signal) => listBroadcasts({ status: 'READY', cursor, limit: 8 }, signal)}
-          empty={<ListEmpty icon={CalendarClock} title="예정된 방송이 없습니다" />}
+          empty={<EmptyState inline as="p" icon={CalendarClock} title="예정된 방송이 없습니다" />}
         />
       </section>
 

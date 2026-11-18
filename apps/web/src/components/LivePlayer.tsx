@@ -2,6 +2,8 @@ import { Maximize, Minimize, Play, RotateCw, Users, Volume2, VolumeX } from 'luc
 import { type RefObject, useEffect, useRef, useState } from 'react'
 import { errorMessage } from '../lib/api'
 import { view, type ViewSession } from '../lib/webrtc/whip'
+import { useNow } from '../hooks/useNow'
+import { formatDuration } from '../lib/recordings'
 import { Spinner } from './Spinner'
 
 // 시청 연결 실패·끊김 시 다시 시도하는 간격과 연속 실패 상한 (약 10초).
@@ -187,19 +189,11 @@ export function LivePlayer({ broadcastId, viewers, startedAt }: Props) {
 
 /** 방송 경과 시간 (1초마다 갱신) */
 function Elapsed({ since }: { since: string }) {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(timer)
-  }, [])
-  const seconds = Math.max(0, Math.floor((now - new Date(since).getTime()) / 1000))
-  const h = Math.floor(seconds / 3600)
-  const mm = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')
-  const ss = String(seconds % 60).padStart(2, '0')
+  const now = useNow(1000)
   return (
     <span className="player-chip">
       <span className="sr-only">방송 경과 시간</span>
-      {h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`}
+      {formatDuration(now - new Date(since).getTime())}
     </span>
   )
 }

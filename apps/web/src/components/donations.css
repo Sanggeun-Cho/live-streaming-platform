@@ -521,9 +521,9 @@ html:has(.donation-sheet[open]) {
   align-items: center;
   gap: 4px;
   max-width: 440px;
-  margin: 32px auto;
-  padding: 32px 24px 24px;
-  border-radius: 16px;
+  margin: var(--space-8) auto;
+  padding: var(--space-8) var(--space-6) var(--space-6);
+  border-radius: var(--radius-lg);
   background: var(--bg-elev);
   border: 1px solid var(--border);
   text-align: center;

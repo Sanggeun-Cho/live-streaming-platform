@@ -14,6 +14,7 @@ import { useDonations } from '../hooks/useDonations'
 import { useNow } from '../hooks/useNow'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { EmptyState } from '../components/EmptyState'
+import { Spinner } from '../components/Spinner'
 import { ApiError } from '../lib/api'
 import type { Broadcast } from '../lib/broadcasts'
 import { type Donation, formatWon } from '../lib/donations'
@@ -97,7 +98,7 @@ export function StudioPage() {
       </StudioMessage>
     )
   }
-  if (!broadcast) return <p className="muted">불러오는 중…</p>
+  if (!broadcast) return <Spinner label="방송 정보를 불러오는 중…" size="lg" />
   if (user?.channelId !== broadcast.channel.id) {
     return (
       <StudioMessage icon={Lock} title="본인 방송만 송출할 수 있습니다" text="이 방송의 방송자로 로그인했는지 확인하세요.">
@@ -340,7 +341,8 @@ function OnAirStatus({
         {phase === 'reconnecting' && ` (${state.reconnectAttempt}/${MAX_RECONNECT})`}
       </span>
       {elapsed && (
-        <span className="studio-stat" aria-label={`방송 시간 ${elapsed}`}>
+        <span className="studio-stat">
+          <span className="sr-only">방송 시간</span>
           {elapsed}
         </span>
       )}

@@ -1,4 +1,4 @@
-import { Clock, type LucideIcon, Play, RotateCw, TriangleAlert, Users } from 'lucide-react'
+import { Clock, Play, RotateCw, TriangleAlert, Users } from 'lucide-react'
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { type Broadcast, STATUS_LABEL } from '../lib/broadcasts'
@@ -6,22 +6,15 @@ import { errorMessage } from '../lib/api'
 import { formatDuration, type Replay } from '../lib/recordings'
 import { colorOf } from '../lib/avatar'
 import { Avatar } from './Avatar'
+import { EmptyState } from './EmptyState'
+import { useNow } from '../hooks/useNow'
+import { timeAgo } from '../lib/time'
 import './broadcast-list.css'
 
 export function StatusBadge({ status }: { status: Broadcast['status'] }) {
   return <span className={`badge badge-${status.toLowerCase()}`}>{STATUS_LABEL[status]}</span>
 }
 
-/** 아이콘 + 안내 문구 (+ 다음 행동 버튼). 목록이 비었을 때 쓴다 */
-export function ListEmpty({ icon: Icon, title, children }: { icon: LucideIcon; title: string; children?: ReactNode }) {
-  return (
-    <div className="list-empty">
-      <Icon size={28} strokeWidth={1.75} aria-hidden="true" />
-      <p className="list-empty-title">{title}</p>
-      {children}
-    </div>
-  )
-}
 
 export type Item = Broadcast & Partial<Pick<Replay, 'recordingCount' | 'totalDurationMs'>>
 
@@ -94,12 +87,19 @@ function BroadcastListInner({ fetchPage: initialFetch, onLoad, empty, featured, 
   if (state === 'error' && items.length === 0) {
     return (
       <div role="alert">
-        <ListEmpty icon={TriangleAlert} title="목록을 불러오지 못했습니다">
-          <p className="dim">{error}</p>
-          <button type="button" onClick={() => load(undefined)}>
-            <RotateCw size={16} aria-hidden="true" /> 다시 시도
-          </button>
-        </ListEmpty>
+        <EmptyState
+          inline
+          as="p"
+          tone="error"
+          icon={TriangleAlert}
+          title="목록을 불러오지 못했습니다"
+          description={error}
+          action={
+            <button type="button" onClick={() => load(undefined)}>
+              <RotateCw size={16} aria-hidden="true" /> 다시 시도
+            </button>
+          }
+        />
       </div>
     )
   }
@@ -224,16 +224,6 @@ function BroadcastCard({ b, now }: { b: Item; now: number }) {
   )
 }
 
-/** 카드의 경과 시간·"N분 전"을 맞추는 시계. 분 단위면 충분하다 */
-function useNow(intervalMs = 30_000) {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), intervalMs)
-    return () => clearInterval(timer)
-  }, [intervalMs])
-  return now
-}
-
 /** 방송 경과: 45분 / 1시간 5분 */
 function formatElapsed(ms: number) {
   const minutes = Math.max(0, Math.floor(ms / 60_000))
@@ -242,21 +232,3 @@ function formatElapsed(ms: number) {
   return `${Math.floor(minutes / 60)}시간${minutes % 60 ? ` ${minutes % 60}분` : ''}`
 }
 
-const relative = new Intl.RelativeTimeFormat('ko', { numeric: 'auto' })
-const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
-  ['year', 365 * 86_400_000],
-  ['month', 30 * 86_400_000],
-  ['week', 7 * 86_400_000],
-  ['day', 86_400_000],
-  ['hour', 3_600_000],
-  ['minute', 60_000],
-]
-
-/** 3일 전 / 어제 / 5분 전 / 방금 */
-function timeAgo(iso: string, now: number) {
-  const diff = now - Date.parse(iso)
-  for (const [unit, ms] of UNITS) {
-    if (diff >= ms) return relative.format(-Math.floor(diff / ms), unit)
-  }
-  return '방금'
-}

@@ -684,8 +684,7 @@ button.ghost:hover:not(:disabled),
 
 /* ---- 폼·카드 ---- */
 .auth-card,
-.center-card,
-.donation-result {
+.center-card {
   max-width: 440px;
   margin: var(--space-6) auto;
   padding: 28px var(--space-6);
@@ -892,11 +891,6 @@ input[type='range'] {
   min-height: 48px;
   padding: 10px 22px;
   font-size: 1rem;
-}
-
-.center-actions {
-  justify-content: center;
-  margin-top: 16px;
 }
 
 .broadcast-detail {

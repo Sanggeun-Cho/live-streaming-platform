@@ -14,6 +14,7 @@ import { useFeedback } from '../feedback/context'
 import { useBroadcastEvents } from '../hooks/useBroadcastEvents'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { EmptyState } from '../components/EmptyState'
+import { Spinner } from '../components/Spinner'
 import { useBroadcast } from '../hooks/useBroadcast'
 import { useComments } from '../hooks/useComments'
 import { useDonations } from '../hooks/useDonations'
@@ -115,7 +116,7 @@ export function BroadcastPage() {
       </PageMessage>
     )
   }
-  if (!broadcast) return <p className="muted">불러오는 중…</p>
+  if (!broadcast) return <Spinner label="방송 정보를 불러오는 중…" size="lg" />
   if (deleted) return <PageMessage icon={Trash2} title="방송자가 이 방송을 삭제했습니다" text="다른 라이브를 둘러보세요." />
 
   const isOwner = user?.channelId === broadcast.channel.id
