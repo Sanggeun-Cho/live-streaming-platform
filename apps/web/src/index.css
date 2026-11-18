@@ -1,38 +1,78 @@
 /*
  * galle LIVE 디자인 시스템
- * 어두운 배경 + 네온 그린 강조의 스트리밍 플랫폼 톤. 색·간격·반경은 아래 토큰만 쓴다.
+ * 어두운 배경 + 네온 그린 강조의 스트리밍 플랫폼 톤. 색·글자 크기·간격·반경은 아래 토큰만 쓴다.
  * 모바일 우선: 기본 규칙은 좁은 화면, 넓은 화면은 @media (min-width)로 덧붙인다.
  */
 
 :root {
+  /* 색 */
   --bg: #0e0f12;
   --bg-elev: #16171b;
   --bg-elev-2: #1e1f24;
   --bg-hover: #26282e;
   --border: #2b2d34;
+  /* 입력창 테두리는 배경 대비 3:1 이상이어야 칸이 보인다 (WCAG 1.4.11) */
+  --border-strong: #6b6f7a;
   --text: #ebecef;
   --text-dim: #9b9ea8;
   --accent: #00e59b;
   --accent-strong: #00c986;
   --accent-ink: #04120c;
+  --accent-2: #00b8ff;
   /* 흰 글자 배지에 쓰므로 대비 4.5:1 이상으로 맞춘 값 */
   --live: #d8173c;
   --warn: #ffb020;
+  --warn-ink: #1a1200;
+  /* --danger는 어두운 배경 위 글자용(6:1), 흰 글자를 올리는 채움 버튼은 --danger-fill(5:1) */
   --danger: #ff5a5a;
+  --danger-fill: #d32f2f;
   --info: #2c66d8;
+  --neutral: #3a3d45;
+  --on-fill: #fff;
+  --thumb-default: #4f8cff;
+  --player-bg: #000;
+  --scrim: rgb(0 0 0 / 0.6);
+  --scrim-strong: rgb(0 0 0 / 0.78);
+  --hover-on-media: rgb(255 255 255 / 0.15);
+  --shadow: 0 10px 30px rgb(0 0 0 / 0.45);
+
+  /* 글자 크기 */
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.875rem;
+  --fs-md: 1rem;
+  --fs-lg: 1.125rem;
+  --fs-xl: 1.375rem;
+  --fs-2xl: 1.75rem;
+
+  /* 간격 (4px 단위) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+
   --radius: 10px;
   --radius-sm: 6px;
+  --radius-lg: 14px;
+  --tap: 44px;
   --header-h: 56px;
   --sidebar-w: 240px;
   --chat-w: 340px;
 
   font-family:
-    'Pretendard', system-ui, -apple-system, 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', Roboto, sans-serif;
+    'Pretendard Variable', Pretendard, system-ui, -apple-system, 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR',
+    Roboto, sans-serif;
   line-height: 1.5;
   color: var(--text);
   background: var(--bg);
   color-scheme: dark;
   -webkit-text-size-adjust: 100%;
+  /* 한국어를 어절 단위로 줄바꿈하고("보세/요" 방지), 긴 URL·영문은 칸 안에서 끊는다 */
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 
 *,
@@ -55,20 +95,52 @@ h1,
 h2,
 h3 {
   line-height: 1.3;
-  margin: 0 0 8px;
+  margin: 0 0 var(--space-2);
 }
 
 h1 {
-  font-size: 1.35rem;
+  font-size: var(--fs-xl);
 }
 
 h2 {
-  font-size: 1.1rem;
+  font-size: var(--fs-lg);
 }
 
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* 키보드 사용자가 헤더를 건너뛰고 본문으로 바로 간다. 포커스를 받을 때만 보인다 */
+.skip-link {
+  position: fixed;
+  top: var(--space-2);
+  left: var(--space-2);
+  z-index: 100;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+
+.skip-link:focus-visible {
+  transform: none;
+}
+
+main:focus {
+  outline: none;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* ---- 공통 텍스트 ---- */
@@ -85,18 +157,9 @@ h2 {
   color: var(--warn);
 }
 
-.empty {
-  color: var(--text-dim);
-  padding: 24px 0;
-  text-align: center;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
-}
-
 .description {
   white-space: pre-wrap;
   color: var(--text-dim);
-  overflow-wrap: anywhere;
 }
 
 /* ---- 버튼 ---- */
@@ -107,9 +170,9 @@ button,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--space-2);
   min-height: 40px;
-  padding: 8px 16px;
+  padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--bg-elev-2);
@@ -118,7 +181,8 @@ button,
   text-decoration: none;
   transition:
     background 0.15s,
-    border-color 0.15s;
+    border-color 0.15s,
+    transform 0.08s;
 }
 
 button:hover:not(:disabled),
@@ -126,9 +190,19 @@ button:hover:not(:disabled),
   background: var(--bg-hover);
 }
 
+button:active:not(:disabled),
+.button:active {
+  transform: scale(0.98);
+}
+
 button:disabled {
-  opacity: 0.5;
+  opacity: 0.55;
   cursor: not-allowed;
+}
+
+button svg,
+.button svg {
+  flex: none;
 }
 
 button.primary,
@@ -145,10 +219,37 @@ button.primary:hover:not(:disabled),
   background: var(--accent-strong);
 }
 
+/* 비활성 주 버튼은 반투명 초록 대신 회색으로: 글자가 흐려져 읽기 어렵던 문제 */
+button.primary:disabled:not([aria-busy='true']),
+.form button[type='submit']:disabled:not([aria-busy='true']) {
+  background: var(--bg-elev-2);
+  border-color: var(--border);
+  color: var(--text-dim);
+  opacity: 1;
+}
+
+/* 제출 중에는 색을 유지하고 스피너로 진행을 보여준다 */
+button[aria-busy='true'] {
+  opacity: 0.85;
+  cursor: progress;
+}
+
 button.danger {
   background: transparent;
   border-color: var(--danger);
   color: var(--danger);
+}
+
+button.ghost,
+.button.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-dim);
+}
+
+button.ghost:hover:not(:disabled),
+.button.ghost:hover {
+  color: var(--text);
 }
 
 .link-button {
@@ -166,22 +267,110 @@ button.danger {
   color: var(--text);
 }
 
+.link-button:active:not(:disabled) {
+  transform: none;
+}
+
 .more {
   display: flex;
-  margin: 16px auto 0;
+  margin: var(--space-4) auto 0;
+}
+
+/* ---- 스피너 ---- */
+.spinner {
+  display: inline-block;
+  flex: none;
+  width: 1em;
+  height: 1em;
+  border: 2px solid currentcolor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.spinner-lg {
+  width: 36px;
+  height: 36px;
+  border-width: 3px;
+}
+
+.spinner-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-dim);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- 빈 상태·오류 안내 ---- */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 480px;
+  margin: var(--space-8) auto;
+  padding: var(--space-8) var(--space-6);
+  text-align: center;
+}
+
+.empty-state-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: var(--space-2);
+  border-radius: 50%;
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+}
+
+.empty-state.tone-error .empty-state-icon {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.empty-state-title {
+  margin: 0;
+  font-size: var(--fs-lg);
+}
+
+.empty-state-description {
+  margin: 0;
+  color: var(--text-dim);
+}
+
+.empty-state-action {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
 }
 
 /* ---- 배지 ---- */
 .badge {
-  display: inline-block;
-  font-size: 0.72rem;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--fs-xs);
   font-weight: 800;
   letter-spacing: 0.02em;
+  line-height: 1.5;
   padding: 2px 7px;
   border-radius: 4px;
-  background: #3a3d45;
-  color: #fff;
+  background: var(--neutral);
+  color: var(--on-fill);
   vertical-align: middle;
+  /* 전역 overflow-wrap: anywhere 때문에 좁은 자리에서 "LIV/E"처럼 끊기지 않게 한다 */
+  white-space: nowrap;
+  overflow-wrap: normal;
 }
 
 .badge-live {
@@ -192,28 +381,45 @@ button.danger {
   background: var(--info);
 }
 
+.badge-warn {
+  background: var(--warn);
+  color: var(--warn-ink);
+}
+
 .live-dot {
   display: inline-block;
+  flex: none;
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: var(--live);
-  box-shadow: 0 0 0 0 rgb(255 59 92 / 0.6);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--live) 60%, transparent);
   animation: pulse 1.6s infinite;
+}
+
+.badge-live .live-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--on-fill);
 }
 
 @keyframes pulse {
   70% {
-    box-shadow: 0 0 0 6px rgb(255 59 92 / 0);
+    box-shadow: 0 0 0 6px transparent;
   }
   100% {
-    box-shadow: 0 0 0 0 rgb(255 59 92 / 0);
+    box-shadow: 0 0 0 0 transparent;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .live-dot {
     animation: none;
+  }
+
+  /* 스피너는 진행 중임을 알리는 유일한 신호라 멈추지 않고 느리게만 돌린다 */
+  .spinner {
+    animation-duration: 1.5s;
   }
 }
 
@@ -223,7 +429,7 @@ button.danger {
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  color: #fff;
+  color: var(--on-fill);
   font-weight: 800;
   text-transform: uppercase;
   user-select: none;
@@ -238,62 +444,69 @@ button.danger {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 0 16px;
-  background: rgb(14 15 18 / 0.92);
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border);
 }
 
 .brand {
   display: inline-flex;
+  flex: none;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
+  min-height: var(--tap);
   font-weight: 900;
-  font-size: 1.2rem;
+  font-size: var(--fs-lg);
   letter-spacing: -0.02em;
   text-decoration: none;
   color: var(--text);
 }
 
 .brand-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  background: var(--accent);
-  color: var(--accent-ink);
-  font-size: 0.75rem;
+  flex: none;
+  width: 28px;
+  height: 28px;
 }
 
 .brand-live {
   color: var(--accent);
-  margin-left: 2px;
+  margin-left: -4px;
 }
 
 .nav {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
   min-width: 0;
 }
 
-.nav a:not(.button) {
-  text-decoration: none;
-  color: var(--text-dim);
+.nav .button,
+.nav button {
+  min-height: var(--tap);
+  padding: var(--space-2) var(--space-3);
+  white-space: nowrap;
 }
 
-.nav .button {
-  min-height: 34px;
-  padding: 4px 12px;
+/* 아이콘만 있는 헤더 버튼: 터치 영역 44px 정사각형 */
+.nav .icon-only {
+  width: var(--tap);
+  padding: 0;
 }
 
 .nav-user {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
+  min-height: var(--tap);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+}
+
+.nav-user:hover {
+  background: var(--bg-hover);
 }
 
 .nav-nickname {
@@ -302,12 +515,76 @@ button.danger {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text);
+  font-weight: 600;
+}
+
+.nav-error {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--danger);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+
+/* 좁은 화면: 시청 사이트로 보이게 "방송하기"는 아이콘 보조 버튼, 회원가입은 로그인 화면 링크로 대신한다 */
+.nav-label,
+.nav-signup {
+  display: none;
+}
+
+.nav-cta {
+  gap: 4px;
+  color: var(--accent);
+}
+
+/* 휴대폰: 카메라 아이콘만으로는 뜻이 약해 짧은 글자를 붙인다 */
+.nav .nav-cta {
+  padding: var(--space-2) 10px;
+  font-size: var(--fs-sm);
 }
 
 @media (min-width: 640px) {
-  .nav-nickname {
+  .nav-nickname,
+  .nav-label {
     display: inline;
+  }
+
+  .nav-label-short {
+    display: none;
+  }
+
+  .nav-signup {
+    display: inline-flex;
+  }
+
+  .nav .nav-cta {
+    width: auto;
+    padding: var(--space-2) var(--space-4);
+    font-size: var(--fs-md);
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+  }
+
+  .nav .nav-cta:hover {
+    background: var(--accent-strong);
+  }
+
+  .nav .nav-logout {
+    width: auto;
+    padding: var(--space-2) var(--space-3);
+  }
+}
+
+@media (max-width: 400px) {
+  .header {
+    padding: 0 var(--space-2) 0 var(--space-3);
+    gap: var(--space-2);
+  }
+
+  .nav {
+    gap: var(--space-1);
   }
 }
 
@@ -324,7 +601,7 @@ button.danger {
 .container {
   flex: 1;
   min-width: 0;
-  padding: 20px 16px 48px;
+  padding: var(--space-5) var(--space-4) var(--space-12);
   max-width: 1600px;
 }
 
@@ -341,21 +618,22 @@ button.danger {
     top: var(--header-h);
     height: calc(100dvh - var(--header-h));
     overflow-y: auto;
-    padding: 16px 8px;
+    padding: var(--space-4) var(--space-2);
     border-right: 1px solid var(--border);
     background: var(--bg);
   }
 
   .container {
-    padding: 24px 28px 64px;
+    padding: var(--space-6) 28px 64px;
   }
 }
 
 .sidebar-title {
-  font-size: 0.8rem;
+  font-size: var(--fs-xs);
   font-weight: 700;
+  letter-spacing: 0.04em;
   color: var(--text-dim);
-  margin: 0 8px 8px;
+  margin: 0 var(--space-2) var(--space-2);
 }
 
 .sidebar ul {
@@ -365,16 +643,16 @@ button.danger {
 }
 
 .sidebar-empty {
-  font-size: 0.85rem;
+  font-size: var(--fs-sm);
   color: var(--text-dim);
-  margin: 0 8px;
+  margin: 0 var(--space-2);
 }
 
 .sidebar-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 8px;
+  padding: 6px var(--space-2);
   border-radius: var(--radius-sm);
   text-decoration: none;
 }
@@ -389,7 +667,7 @@ button.danger {
   flex-direction: column;
   min-width: 0;
   flex: 1;
-  font-size: 0.85rem;
+  font-size: var(--fs-sm);
   line-height: 1.3;
 }
 
@@ -403,7 +681,8 @@ button.danger {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 0.78rem;
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
   color: var(--text-dim);
 }
 
@@ -416,6 +695,8 @@ button.danger {
 }
 
 .section-title {
+  /* 홈 상단 "N개 방송 진행 중"을 눌러 이동했을 때 고정 헤더에 가리지 않게 */
+  scroll-margin-top: calc(var(--header-h) + var(--space-4));
   display: flex;
   align-items: center;
   gap: 8px;
@@ -423,106 +704,13 @@ button.danger {
   margin-bottom: 14px;
 }
 
-/* ---- 방송 카드 ---- */
-.broadcast-grid {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 22px 16px;
-}
-
-.broadcast-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  color: inherit;
-  text-decoration: none;
-}
-
-.broadcast-card:hover .thumb {
-  transform: translateY(-3px);
-  box-shadow: 0 0 0 2px var(--accent);
-}
-
-.thumb {
-  --thumb-color: #4f8cff;
-  position: relative;
-  aspect-ratio: 16 / 9;
-  border-radius: var(--radius);
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background:
-    radial-gradient(120% 120% at 0% 0%, color-mix(in srgb, var(--thumb-color) 55%, transparent), transparent 60%),
-    linear-gradient(135deg, var(--bg-elev-2), #0a0b0d);
-  transition:
-    transform 0.15s,
-    box-shadow 0.15s;
-}
-
-.thumb-initial {
-  font-size: 2.6rem;
-  font-weight: 900;
-  color: rgb(255 255 255 / 0.85);
-  text-shadow: 0 4px 18px rgb(0 0 0 / 0.4);
-}
-
-.thumb .badge {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-}
-
-.thumb-viewers,
-.thumb .duration {
-  position: absolute;
-  bottom: 8px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  padding: 2px 7px;
-  border-radius: 4px;
-  background: rgb(0 0 0 / 0.7);
-  color: #fff;
-}
-
-.thumb-viewers {
-  left: 8px;
-}
-
-.thumb .duration {
-  right: 8px;
-}
-
-.card-meta {
-  display: flex;
-  gap: 10px;
-  min-width: 0;
-}
-
-.card-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  font-size: 0.9rem;
-}
-
-.card-text .title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* ---- 폼·카드 ---- */
 .auth-card,
-.center-card,
-.donation-result {
-  max-width: 420px;
-  margin: 24px auto;
-  padding: 28px 24px;
-  border-radius: 14px;
+.center-card {
+  max-width: 440px;
+  margin: var(--space-6) auto;
+  padding: 28px var(--space-6);
+  border-radius: var(--radius-lg);
   background: var(--bg-elev);
   border: 1px solid var(--border);
 }
@@ -531,22 +719,105 @@ button.danger {
   text-align: center;
 }
 
+.auth-card h1 {
+  margin-bottom: var(--space-1);
+}
+
+.auth-lead {
+  margin: 0 0 var(--space-5);
+  color: var(--text-dim);
+}
+
+.auth-switch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0 var(--space-1);
+  margin: var(--space-4) 0 0;
+  color: var(--text-dim);
+}
+
+/* 본문 속 링크도 손가락으로 누를 수 있게 높이 44px */
+.auth-switch a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap);
+  padding: 0 var(--space-2);
+  color: var(--accent);
+  font-weight: 700;
+}
+
 .form {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-4);
 }
 
-.form label {
+.field {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-weight: 600;
-  font-size: 0.9rem;
 }
 
-.form small {
-  font-weight: 400;
+.field > label {
+  font-weight: 600;
+  font-size: var(--fs-sm);
+}
+
+.field-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+
+.field-count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.field-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--danger);
+}
+
+.field-error svg {
+  flex: none;
+  margin-top: 3px;
+}
+
+.form-error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 10px var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--danger) 50%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
+  font-size: var(--fs-sm);
+}
+
+.form-error svg {
+  flex: none;
+  margin-top: 3px;
+}
+
+.form-actions {
+  display: flex;
+  flex-direction: row-reverse;
+  gap: var(--space-2);
+}
+
+.form-actions > * {
+  flex: 1;
 }
 
 input,
@@ -554,11 +825,16 @@ textarea,
 select {
   font: inherit;
   width: 100%;
-  padding: 11px 12px;
+  padding: 11px var(--space-3);
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   background: var(--bg);
   color: var(--text);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-dim);
 }
 
 input:focus,
@@ -566,6 +842,15 @@ textarea:focus {
   border-color: var(--accent);
   outline: none;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+[aria-invalid='true']:focus {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 35%, transparent);
 }
 
 textarea {
@@ -579,19 +864,32 @@ input[type='range'] {
   background: transparent;
 }
 
-.form button[type='submit'] {
+.form button[type='submit'],
+.form-actions > * {
   min-height: 46px;
 }
 
 /* ---- 방송 상세 ---- */
 .broadcast-layout {
   display: grid;
-  gap: 16px;
-  /* 모바일: 영상 → 채팅 → 정보 순으로 보여 영상 바로 아래에서 채팅한다 */
+  gap: var(--space-4);
+  /* 태블릿: 영상 → 제목·방송자·후원 → 채팅 → 설명·후원 내역 */
   grid-template-areas:
     'player'
+    'head'
     'chat'
     'info';
+}
+
+.broadcast-head {
+  grid-area: head;
+  min-width: 0;
+}
+
+.start-cta {
+  min-height: 48px;
+  padding: 10px 22px;
+  font-size: 1rem;
 }
 
 .broadcast-detail {
@@ -613,24 +911,71 @@ input[type='range'] {
   grid-area: chat;
 }
 
+/*
+ * 휴대폰: 영상을 화면 위에 붙여 두고(sticky) 그 아래 제목 한 줄과 후원 버튼, 남은 높이는 채팅이 채운다.
+ * 영상과 채팅을 한 화면에서 함께 보게 하려는 배치다. 설명·후원 내역은 채팅 아래로 내려간다.
+ * 영상은 가장자리까지 꽉 채우므로(본문 여백을 상쇄) 높이를 폭에서 계산할 수 있다.
+ */
+@media (max-width: 768px) {
+  .broadcast-layout {
+    --player-h: min(56.25vw, calc(100dvh - var(--header-h) - var(--space-12)));
+    --head-h: 60px;
+    gap: 0;
+    margin: calc(-1 * var(--space-5)) calc(-1 * var(--space-4)) 0;
+  }
+
+  .broadcast-layout .player,
+  .broadcast-layout .player-placeholder {
+    border-radius: 0;
+  }
+
+  .broadcast-layout > .broadcast-detail > .player,
+  .broadcast-layout > .broadcast-detail > .player-placeholder,
+  .broadcast-layout > .broadcast-detail > .replay {
+    position: sticky;
+    top: var(--header-h);
+    z-index: 5;
+  }
+
+  /* 제목 줄 오른쪽에 후원 버튼 (donations.css가 휴대폰에서 카드 대신 버튼만 보인다) */
+  .broadcast-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: var(--head-h);
+    padding: 0 var(--space-3);
+  }
+
+  .broadcast-body {
+    padding: var(--space-4) var(--space-4) 0;
+  }
+}
+
 @media (min-width: 1000px) {
   .broadcast-layout {
     grid-template-columns: minmax(0, 1fr) var(--chat-w);
+    /* 채팅(오른쪽)이 왼쪽보다 길어도 남는 높이는 마지막 줄이 받는다 (위쪽 줄 사이에 빈 띠가 생기지 않게) */
+    grid-template-rows: auto auto 1fr;
     grid-template-areas:
       'player chat'
+      'head chat'
       'info chat';
     align-items: start;
   }
 }
 
+/* ---- 플레이어 (라이브·다시보기 공통 프레임) ---- */
 .player,
 .player-placeholder {
   position: relative;
   aspect-ratio: 16 / 9;
   width: 100%;
+  /* 휴대폰 가로 화면에서 영상이 화면 높이를 넘어 잘리지 않게 한다 (남는 폭은 검은 여백) */
+  max-height: calc(100dvh - var(--header-h) - var(--space-12));
   border-radius: var(--radius);
   overflow: hidden;
-  background: #000;
+  background: var(--player-bg);
+  color: var(--on-fill);
 }
 
 .player-placeholder {
@@ -639,70 +984,190 @@ input[type='range'] {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  padding: 16px;
+  padding: var(--space-4);
   text-align: center;
-  background: radial-gradient(80% 80% at 50% 40%, #1b1d22, #050506);
+  color: var(--text);
+  background: radial-gradient(80% 80% at 50% 40%, var(--bg-elev-2), var(--player-bg));
 }
 
 .player-placeholder .badge {
   position: absolute;
-  top: 12px;
-  left: 12px;
+  top: var(--space-3);
+  left: var(--space-3);
 }
 
 .player video {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  background: #000;
+  background: var(--player-bg);
   display: block;
 }
 
-.player-overlay {
-  position: absolute;
-  inset: 0;
-  margin: auto;
-  width: fit-content;
-  height: fit-content;
-  padding: 8px 14px;
-  border-radius: var(--radius-sm);
-  background: rgb(0 0 0 / 0.55);
-  color: #fff;
+/* 전체 화면에서는 모서리·높이 제한을 풀어 화면을 꽉 채운다 */
+.player:fullscreen {
+  max-height: none;
+  border-radius: 0;
 }
 
-.player-overlay.play {
-  font-size: 1.1rem;
+.player-top {
+  position: absolute;
+  top: var(--space-3);
+  left: var(--space-3);
+  right: var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.player-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px var(--space-2);
+  border-radius: 4px;
+  background: var(--scrim);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
+.player-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  text-align: center;
+}
+
+.player-status {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--on-fill);
+  text-shadow: 0 1px 4px var(--player-bg);
+}
+
+.player-play {
   min-height: 52px;
+  padding: var(--space-3) var(--space-6);
+  border: none;
+  border-radius: 999px;
+  background: var(--scrim-strong);
+  color: var(--on-fill);
+  font-size: var(--fs-lg);
 }
 
 .player-bar {
   position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: 10px;
+  inset: auto 0 0;
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
+  padding: var(--space-6) 10px 10px;
+  background: linear-gradient(transparent, var(--scrim));
+  transition: opacity 0.2s;
 }
 
 .player-bar button {
-  min-height: 38px;
+  min-height: var(--tap);
   border: none;
-  background: rgb(0 0 0 / 0.6);
-  color: #fff;
+  background: transparent;
+  color: var(--on-fill);
+}
+
+.player-bar button:hover:not(:disabled) {
+  background: var(--hover-on-media);
+}
+
+.player-icon-button {
+  width: var(--tap);
+  padding: 0;
+}
+
+/* 음소거로 자동재생되면 소리를 켜야 한다는 걸 바로 알 수 있게 강조색 알약 버튼으로 */
+.player-bar .player-unmute {
+  padding: var(--space-2) var(--space-4);
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.player-bar .player-unmute:hover:not(:disabled) {
+  background: var(--accent-strong);
+}
+
+/* 마우스가 있는 화면: 보는 동안에는 조작 막대를 숨기고, 올리거나 키보드로 들어오면 보인다 (소리 켜기는 항상) */
+@media (hover: hover) {
+  .player-bar.can-hide {
+    opacity: 0;
+  }
+
+  .player:hover .player-bar,
+  .player:focus-within .player-bar {
+    opacity: 1;
+  }
 }
 
 .player-error {
   position: absolute;
-  inset: auto 12px 60px 12px;
-  padding: 10px;
-  border-radius: var(--radius-sm);
-  background: rgb(0 0 0 / 0.75);
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--scrim-strong);
   text-align: center;
 }
 
 .player-error p {
-  margin: 0 0 8px;
+  margin: 0;
+  color: var(--on-fill);
+}
+
+/* 다시보기는 브라우저 기본 컨트롤을 쓰되 라이브와 같은 틀(배지·모서리)로 맞춘다.
+   구간 이동은 영상 아래 작은 버튼으로 (휴대폰은 영상·채팅을 한 화면에 두려고 숨긴다: 구간은 자동으로 이어진다) */
+.segment-list {
+  padding: 0;
+  list-style: none;
+  display: flex;
+  gap: 6px;
+  margin: var(--space-2) 0 0;
+  overflow-x: auto;
+}
+
+.segment-list button {
+  gap: 6px;
+  min-height: 32px;
+  padding: 2px 10px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.segment-list small {
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.segment-list [aria-current='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+@media (max-width: 768px) {
+  .segment-list {
+    display: none;
+  }
 }
 
 .broadcast-info {
@@ -738,111 +1203,48 @@ input[type='range'] {
   text-decoration: none;
 }
 
+.broadcast-when {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 휴대폰: 제목은 한 줄로 줄이고(넘치면 …), 방송자 이름·시각을 그 아래 작게 */
+@media (max-width: 768px) {
+  .broadcast-info {
+    flex: 1;
+    min-width: 0;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+  }
+
+  .broadcast-info h1 {
+    margin: 0;
+    font-size: var(--fs-md);
+    line-height: 1.35;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .broadcast-meta {
+    flex-wrap: nowrap;
+    gap: 8px;
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+  }
+
+  .broadcast-meta .streamer-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
 .owner-actions {
   justify-content: flex-start;
   margin-top: 16px;
 }
 
-/* ---- 스튜디오 ---- */
-.studio {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  max-width: 1100px;
-}
-
-.studio-preview {
-  position: relative;
-}
-
-.preview {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  border-radius: var(--radius);
-  object-fit: contain;
-  background: #000;
-  display: block;
-}
-
-.studio-empty {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-dim);
-}
-
-.studio-phase {
-  font-weight: 800;
-  font-size: 0.85rem;
-  padding: 5px 12px;
-  border-radius: 999px;
-  background: #3a3d45;
-  color: #fff;
-}
-
-.studio-phase.phase-live {
-  background: var(--live);
-}
-
-.studio-phase.phase-preview {
-  background: var(--info);
-}
-
-.studio-phase.phase-reconnecting,
-.studio-phase.phase-sourceEnded,
-.studio-phase.phase-takenOver,
-.studio-phase.phase-connecting {
-  background: var(--warn);
-  color: #1a1200;
-}
-
-.studio-controls {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 16px;
-  border-radius: var(--radius);
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
-}
-
-.studio button,
-.studio .button {
-  min-height: 44px;
-}
-
-.studio-controls > button {
-  align-self: flex-start;
-}
-
-/* 넓은 화면: 미리보기는 왼쪽, 조작 패널은 오른쪽에 고정해 스크롤 없이 상태와 버튼을 함께 본다 */
-@media (min-width: 1100px) {
-  .studio {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 380px;
-    column-gap: 20px;
-    row-gap: 14px;
-    align-items: start;
-    max-width: 1500px;
-  }
-
-  .studio > * {
-    grid-column: 1;
-  }
-
-  .studio > .studio-controls {
-    grid-column: 2;
-    grid-row: 1 / -1;
-  }
-
-  /* 조작 패널이 왼쪽보다 길어도 남는 높이를 마지막 행이 받아, 제목·미리보기 사이에 빈틈이 생기지 않게 한다 */
-  .studio {
-    grid-template-rows: repeat(5, auto) 1fr;
-  }
-}
-
+/* ---- 안내 상자 ---- */
 .notice {
   padding: 14px;
   border-radius: var(--radius);
@@ -854,346 +1256,14 @@ input[type='range'] {
   margin: 0 0 10px;
 }
 
-.audio-status {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.slider {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: 12px;
-  color: var(--text-dim);
-}
-
-.slider input {
-  width: 140px;
-}
-
-.stats {
-  font-variant-numeric: tabular-nums;
-  font-size: 0.85rem;
-}
-
-/* ---- 도네이션 (#11) ---- */
-.donation-panel,
-.donation-board {
-  margin-top: 16px;
-  padding: 16px;
-  border-radius: var(--radius);
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
-}
-
-.donation-panel > button {
-  min-height: 44px;
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-ink);
-}
-
-.donation-panel > small {
-  display: block;
-  margin-top: 6px;
-}
-
-.donation-form .presets {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  border: none;
-  padding: 0;
-  margin: 0;
-}
-
-.donation-form .preset {
-  min-height: 44px;
-  padding: 8px 4px;
-}
-
-.donation-form .preset.selected {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 15%, transparent);
-  color: var(--accent);
-}
-
-.donation-board h2 {
-  font-size: 1rem;
-  margin: 0 0 8px;
-}
-
-.donation-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.donation-list li {
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border);
-  overflow-wrap: anywhere;
-}
-
-.donation-list li:last-child {
-  border-bottom: none;
-}
-
-.donation-list .amount {
-  color: var(--accent);
-  font-weight: 800;
-}
-
-.donation-message {
-  margin: 4px 0 0;
-  color: var(--text-dim);
-}
-
-.donation-alert {
-  position: fixed;
-  left: 50%;
-  top: calc(var(--header-h) + 16px);
-  transform: translateX(-50%);
-  width: min(92vw, 420px);
-  padding: 14px 18px;
-  border-radius: 14px;
-  background: linear-gradient(135deg, var(--accent), #00b8ff);
-  color: var(--accent-ink);
-  font-weight: 700;
-  box-shadow: 0 10px 30px rgb(0 0 0 / 0.45);
-  z-index: 30;
-  overflow-wrap: anywhere;
-}
-
-.donation-alert p {
-  margin: 4px 0 0;
-  font-weight: 500;
-}
-
-.donation-result {
-  text-align: center;
-}
+/* ---- 도네이션 (#11): components/donations.css ---- */
 
 /* ---- 다시보기 (#12) ---- */
 .replay {
   min-width: 0;
 }
 
-.segment-list {
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 10px;
-}
-
-.segment-list .active {
-  font-weight: 700;
-  color: var(--accent);
-}
-
-/* ---- 채팅 (#10) ---- */
-.chat-panel {
-  display: flex;
-  flex-direction: column;
-  height: 380px;
-  min-width: 0;
-  border-radius: var(--radius);
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
-}
-
-@media (min-width: 1000px) {
-  .chat-panel {
-    position: sticky;
-    top: calc(var(--header-h) + 16px);
-    height: calc(100dvh - var(--header-h) - 40px);
-    max-height: 820px;
-  }
-}
-
-.chat-title {
-  font-size: 0.95rem;
-  margin: 0;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
-}
-
-.chat-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px 14px;
-}
-
-.chat-list > p {
-  margin: 4px 0;
-}
-
-.chat-older {
-  display: flex;
-  margin: 0 auto 8px;
-  min-height: 30px;
-  font-size: 0.8rem;
-}
-
-.chat-items {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.chat-item {
-  padding: 4px 0;
-  overflow-wrap: anywhere;
-  font-size: 0.92rem;
-}
-
-.chat-author {
-  font-weight: 700;
-  color: var(--text-dim);
-  margin-right: 6px;
-}
-
-.chat-streamer .chat-author {
-  color: var(--accent);
-}
-
-.chat-badge {
-  margin: 0 4px 0 0;
-  background: var(--accent);
-  color: var(--accent-ink);
-}
-
-.chat-donation {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: 4px 0;
-  padding: 8px 10px;
-  border-left: 3px solid var(--accent);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.chat-donation-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-}
-
-.chat-donation .chat-author {
-  color: var(--text);
-}
-
-.chat-donation-amount {
-  font-weight: 700;
-  color: var(--accent);
-}
-
-.chat-deleted {
-  color: var(--text-dim);
-  font-style: italic;
-}
-
-.chat-actions {
-  margin-left: 6px;
-  font-size: 0.78rem;
-}
-
-.chat-actions button + button {
-  margin-left: 6px;
-}
-
-.chat-edit,
-.chat-form {
-  display: flex;
-  gap: 6px;
-}
-
-.chat-edit {
-  margin-top: 4px;
-}
-
-.chat-edit input,
-.chat-form input {
-  flex: 1;
-  min-width: 0;
-  padding: 9px 12px;
-}
-
-.chat-form button {
-  min-height: 40px;
-}
-
-.chat-form {
-  padding: 10px;
-  border-top: 1px solid var(--border);
-}
-
-.chat-error {
-  margin: 0;
-  padding: 6px 14px;
-}
-
-.chat-login {
-  margin: 0;
-  padding: 14px;
-  text-align: center;
-  border-top: 1px solid var(--border);
-}
-
-.chat-login a {
-  color: var(--accent);
-  font-weight: 700;
-}
-
-/* ---- 홈 소개 ---- */
-.hero {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 22px 20px;
-  border-radius: 14px;
-  border: 1px solid var(--border);
-  background:
-    radial-gradient(90% 140% at 0% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 55%),
-    var(--bg-elev);
-}
-
-.hero h1 {
-  font-size: 1.3rem;
-  margin-bottom: 6px;
-}
-
-.hero p {
-  margin: 0;
-  max-width: 640px;
-}
-
-.hero-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.hero-actions .button {
-  min-height: 46px;
-  padding: 10px 20px;
-}
-
 /* ---- 리뷰 반영: 중요한 동작은 눈에 띄게, 비활성은 분명하게, 터치 영역 확보 ---- */
-.studio button.danger {
-  background: var(--danger);
-  color: #fff;
-}
-
 .donation-panel > button:disabled {
   background: var(--bg-elev-2);
   border-color: var(--border);
@@ -1201,96 +1271,9 @@ input[type='range'] {
   opacity: 1;
 }
 
-.nav-logout {
-  min-height: 34px;
-  padding: 4px 10px;
-  background: transparent;
-  color: var(--text-dim);
-  font-weight: 500;
-}
-
-.nav-cta {
-  white-space: nowrap;
-}
-
-@media (max-width: 520px) {
-  /* 좁은 화면: 헤더에 버튼이 많아 회원가입은 로그인 화면의 링크로 대신한다 */
-  .nav-signup {
-    display: none;
-  }
-}
-
-.chat-failed {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 10px;
-  margin: 0;
-  padding: 8px 14px;
-  font-size: 0.85rem;
-  color: var(--warn);
-  border-top: 1px solid var(--border);
-}
-
-.chat-failed span {
-  overflow-wrap: anywhere;
-}
-
-.chat-failed button {
-  min-height: 32px;
-  padding: 4px 10px;
-}
-
-@media (max-width: 400px) {
-  /* 좁은 휴대폰: 헤더가 넘치지 않게 간격과 버튼을 줄인다 */
-  .header {
-    padding: 0 10px;
-    gap: 8px;
-  }
-
-  .brand {
-    font-size: 1.05rem;
-  }
-
-  .nav {
-    gap: 6px;
-  }
-
-  .nav .button,
-  .nav-logout {
-    padding: 4px 8px;
-    font-size: 0.85rem;
-  }
-}
-
-@media (max-width: 599px) {
-  /* 휴대폰: 카드를 2열로 줄여 홈 스크롤을 짧게 한다 */
-  .broadcast-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px 10px;
-  }
-
-  .thumb-initial {
-    font-size: 1.8rem;
-  }
-
-  .card-meta .avatar {
-    display: none;
-  }
-
-  .card-text {
-    font-size: 0.85rem;
-  }
-
-  .thumb-viewers,
-  .thumb .duration {
-    font-size: 0.68rem;
-  }
-}
-
 /* ---- 테스트 계정 바로 로그인 (심사·시연용) ---- */
 .test-login {
-  margin: 0 0 20px;
+  margin: 0 0 var(--space-5);
   padding: 14px;
   border-radius: var(--radius);
   border: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent);
@@ -1298,12 +1281,16 @@ input[type='range'] {
 }
 
 .test-login p {
-  margin: 0 0 8px;
-  font-size: 0.85rem;
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-sm);
 }
 
 .test-login-buttons {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  gap: var(--space-2);
+}
+
+.test-login-buttons button {
+  min-height: var(--tap);
 }

@@ -156,6 +156,8 @@ export function useComments(broadcastId: number | null, connected: boolean) {
     nextCursor,
     status: current?.status ?? 'loading',
     error: current?.error ?? null,
+    /** 실시간 연결 여부 (채팅 머리의 상태 점) */
+    connected,
     apply,
     loadOlder,
     trimToLatest,

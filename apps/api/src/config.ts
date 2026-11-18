@@ -1,4 +1,4 @@
-import { isAbsolute } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 import { z } from 'zod'
 
 const DEV_INTERNAL_SECRET = 'dev-internal-secret-change-me'
@@ -41,6 +41,8 @@ const envSchema = z
       .string()
       .refine((v) => isAbsolute(v), { error: '절대 경로여야 합니다' })
       .default('/recordings'),
+    // 방송 썸네일(JPEG) 저장 디렉터리. 비우면 DB 파일 옆 thumbnails/ (compose에서는 api_data 볼륨의 /data/thumbnails)
+    THUMBNAILS_DIR: z.string().default(''),
     // X-Forwarded-For를 믿을 프록시 주소(IP/CIDR, 쉼표 구분). 비우면 아무도 믿지 않고 소켓 주소를 쓴다.
     // compose에서는 Caddy 컨테이너의 고정 IP만 넣는다. 다른 주소가 보낸 X-Forwarded-For는 무시된다.
     TRUST_PROXY: z
@@ -114,6 +116,10 @@ const envSchema = z
       })
     }
   })
+  .transform((env) => ({
+    ...env,
+    THUMBNAILS_DIR: env.THUMBNAILS_DIR || join(dirname(env.DATABASE_PATH), 'thumbnails'),
+  }))
 
 export type Config = z.infer<typeof envSchema>
 

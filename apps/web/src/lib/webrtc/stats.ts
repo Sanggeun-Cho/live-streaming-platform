@@ -12,6 +12,8 @@ export type RtcSummary = {
   /** 시청 측 지터 버퍼 평균 지연(ms) */
   jitterBufferMs?: number
   rttMs?: number
+  /** 송출 측: 브라우저가 화질을 낮춘 이유 ('bandwidth' | 'cpu' | 'other' | 'none') */
+  qualityLimitation?: string
   /** 실제 사용 중인 후보 경로. 예) "udp host→host" */
   route?: string
 }
@@ -38,6 +40,7 @@ export async function summarize(pc: RTCPeerConnection): Promise<RtcSummary> {
       out.fps = s.framesPerSecond as number | undefined
       videoBytes = (s.bytesSent ?? s.bytesReceived) as number | undefined
       at = s.timestamp as number
+      if (s.type === 'outbound-rtp') out.qualityLimitation = s.qualityLimitationReason as string | undefined
       if (s.type === 'inbound-rtp') {
         out.framesDecoded = s.framesDecoded as number | undefined
         const emitted = s.jitterBufferEmittedCount as number | undefined

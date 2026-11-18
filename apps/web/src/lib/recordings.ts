@@ -24,9 +24,9 @@ export const listReplays = (params: { cursor?: number; limit?: number } = {}, si
 export const listRecordings = (broadcastId: number, signal?: AbortSignal) =>
   api<{ recordings: Recording[] }>(`/broadcasts/${broadcastId}/recordings`, { signal }).then((r) => r.recordings)
 
-/** 1:02:03 / 4:05 */
+/** 1:02:03 / 4:05. 플레이어 기본 컨트롤처럼 초 단위는 내림한다 (같은 화면에서 길이가 1초 다르게 보이지 않게) */
 export function formatDuration(ms: number) {
-  const total = Math.max(0, Math.round(ms / 1000))
+  const total = Math.max(0, Math.floor(ms / 1000))
   const h = Math.floor(total / 3600)
   const m = Math.floor((total % 3600) / 60)
   const s = String(total % 60).padStart(2, '0')

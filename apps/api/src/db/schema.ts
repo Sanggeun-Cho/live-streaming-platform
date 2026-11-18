@@ -62,6 +62,8 @@ export const broadcasts = sqliteTable(
     endedAt: integer('ended_at', { mode: 'timestamp_ms' }),
     // LIVE 중 송출이 끊긴 시각. 유예 시간(기본 45초) 안에 재송출하면 지우고, 지나면 ENDED로 확정한다
     disconnectedAt: integer('disconnected_at', { mode: 'timestamp_ms' }),
+    // 방송 중 화면을 마지막으로 올린 시각. 파일은 THUMBNAILS_DIR/<id>.jpg이고, 이 값은 썸네일 주소의 캐시 무효화 키다
+    thumbnailUpdatedAt: integer('thumbnail_updated_at', { mode: 'timestamp_ms' }),
     createdAt: createdAt(),
     updatedAt: nowMs('updated_at'),
     deletedAt: integer('deleted_at', { mode: 'timestamp_ms' }),

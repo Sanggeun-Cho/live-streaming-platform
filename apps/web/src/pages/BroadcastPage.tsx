@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { CircleAlert, Radio, SearchX, Trash2 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { useAuth } from '../auth/context'
 import { useAuthErrorRedirect } from '../auth/useAuthErrorRedirect'
@@ -8,44 +10,90 @@ import { ChatPanel } from '../components/ChatPanel'
 import { DonationAlert, DonationBoard, DonationPanel } from '../components/Donations'
 import { LivePlayer } from '../components/LivePlayer'
 import { ReplayPlayer } from '../components/ReplayPlayer'
+import { useFeedback } from '../feedback/context'
 import { useBroadcastEvents } from '../hooks/useBroadcastEvents'
+import { useDocumentTitle } from '../hooks/useDocumentTitle'
+import { EmptyState } from '../components/EmptyState'
+import { Spinner } from '../components/Spinner'
 import { useBroadcast } from '../hooks/useBroadcast'
 import { useComments } from '../hooks/useComments'
 import { useDonations } from '../hooks/useDonations'
 import { useRecordings } from '../hooks/useRecordings'
 import { errorMessage } from '../lib/api'
-import { type BroadcastStatus, deleteBroadcast } from '../lib/broadcasts'
+import { type Broadcast, type BroadcastStatus, deleteBroadcast, STATUS_LABEL } from '../lib/broadcasts'
 import type { Donation } from '../lib/donations'
+import { timeAgoOf } from '../lib/time'
+import { useNow } from '../hooks/useNow'
 
 const PLAYER_MESSAGE: Record<BroadcastStatus, string> = {
-  READY: '방송 시작 전입니다',
-  LIVE: '방송 화면 준비 중',
-  ENDED: '방송이 종료되었습니다',
+  READY: '방송 시작 전입니다.',
+  LIVE: '방송 화면을 준비하고 있습니다.',
+  ENDED: '방송이 종료되었습니다.',
 }
 
-/** 종료된 방송: 녹화가 있으면 다시보기, 막 끝났으면 준비 중 안내 (#12) */
-function EndedPlayer({ replay, everLive }: { replay: ReturnType<typeof useRecordings>; everLive: boolean }) {
+/**
+ * 종료된 방송: 녹화가 있으면 다시보기, 없으면 그 이유를 화면 자리에 안내한다 (#12).
+ * 보는 중에 끝났으면 다음에 갈 곳(다른 라이브)을 함께 보여 준다.
+ */
+function EndedPlayer({
+  replay,
+  everLive,
+  endedWhileWatching,
+}: {
+  replay: ReturnType<typeof useRecordings>
+  everLive: boolean
+  endedWhileWatching: boolean
+}) {
   const { recordings, error, preparing, reload } = replay
   if (recordings && recordings.length > 0) return <ReplayPlayer recordings={recordings} />
 
   let message = PLAYER_MESSAGE.ENDED
-  if (!recordings && error) message = `다시보기를 불러오지 못했습니다: ${error}`
+  if (!recordings && error) message = `다시보기를 불러오지 못했습니다. ${error}`
   else if (!recordings) message = '다시보기를 불러오는 중…'
-  else if (preparing) message = '녹화 파일을 준비하고 있습니다. 준비가 끝나면 이 화면에서 바로 재생됩니다'
-  else if (everLive) message = '방송이 종료되었습니다. 저장된 녹화가 없습니다'
+  else if (preparing) message = '녹화 파일을 준비하고 있습니다. 준비가 끝나면 이 화면에서 바로 재생됩니다.'
+  else if (everLive) message = '방송이 종료되었습니다. 저장된 녹화가 없습니다.'
 
   return (
     <div className="player-placeholder" data-testid="player-placeholder">
       <StatusBadge status="ENDED" />
-      <p className="muted" role={error ? 'alert' : undefined}>
+      <p className="muted" role={error ? 'alert' : 'status'}>
         {message}
       </p>
-      {!recordings && error && (
+      {!recordings && error ? (
         <button type="button" onClick={reload}>
           다시 시도
         </button>
+      ) : (
+        endedWhileWatching && (
+          <Link to="/" className="button">
+            다른 라이브 보기
+          </Link>
+        )
       )}
     </div>
+  )
+}
+
+/** 제목 아래 한 줄: 상태는 플레이어 배지가 보여 주므로 글로는 시각만 적는다. 화면 읽기 프로그램에는 상태·시청자 수도 읽힌다 */
+function StatusLine({ broadcast, viewers }: { broadcast: Broadcast; viewers: number | null }) {
+  const now = useNow()
+  const { status, startedAt, endedAt, createdAt } = broadcast
+  const when =
+    status === 'LIVE'
+      ? startedAt && timeAgoOf(startedAt, '시작', now)
+      : status === 'ENDED'
+        ? endedAt && timeAgoOf(endedAt, '종료', now)
+        : timeAgoOf(createdAt, '등록', now)
+  const viewerText = status === 'LIVE' && viewers !== null ? `, 시청자 ${viewers.toLocaleString()}명` : ''
+  return (
+    <span className="broadcast-when" data-testid="status-line">
+      <span className="sr-only">
+        {STATUS_LABEL[status]}
+        {viewerText}
+        {when && ', '}
+      </span>
+      {when}
+    </span>
   )
 }
 
@@ -58,9 +106,21 @@ export function BroadcastPage() {
   const [deleting, setDeleting] = useState(false)
   const [viewers, setViewers] = useState<number | null>(null)
   const [deleted, setDeleted] = useState(false)
+  useDocumentTitle(
+    error
+      ? error.status === 404
+        ? '방송을 찾을 수 없음'
+        : '방송을 불러오지 못함'
+      : deleted
+        ? '삭제된 방송'
+        : broadcast && `${broadcast.title} · ${broadcast.streamer.nickname}`,
+  )
   // 송출이 다시 붙을 때마다 플레이어를 새로 연결한다
   const [playerKey, setPlayerKey] = useState(0)
   const redirectIfUnauthorized = useAuthErrorRedirect()
+  const { confirm, toast } = useFeedback()
+  // 보는 중에 방송이 끝났으면 다시보기로 바뀌는 이유를 알려 준다
+  const [endedWhileWatching, setEndedWhileWatching] = useState(false)
   const donations = useDonations(broadcast ? id : null)
   // 화면에 띄울 최신 후원 알림
   const [latestDonation, setLatestDonation] = useState<Donation | null>(null)
@@ -70,6 +130,8 @@ export function BroadcastPage() {
   const { connected } = useBroadcastEvents(broadcast ? id : null, {
     status: (data) => {
       if (data.status === 'LIVE' && !data.disconnectedAt) setPlayerKey((k) => k + 1)
+      // 연결할 때 현재 상태도 한 번 오므로, 이미 끝난 방송을 연 경우는 제외한다
+      if (data.status === 'ENDED' && broadcast && broadcast.status !== 'ENDED') setEndedWhileWatching(true)
       patch(data)
     },
     updated: (data) => patch(data),
@@ -95,31 +157,34 @@ export function BroadcastPage() {
   }, [connected, reloadDonations])
 
   if (error) {
-    return (
-      <section>
-        <p className="error">{error.status === 404 ? '방송을 찾을 수 없습니다. 삭제되었을 수 있습니다.' : error.message}</p>
-        <Link to="/">목록으로</Link>
-      </section>
+    return error.status === 404 ? (
+      <PageMessage icon={SearchX} title="방송을 찾을 수 없습니다" text="삭제되었거나 주소가 바뀌었을 수 있습니다." />
+    ) : (
+      <PageMessage icon={CircleAlert} title="방송을 불러오지 못했습니다" text={error.message}>
+        <button type="button" onClick={() => window.location.reload()}>
+          다시 시도
+        </button>
+      </PageMessage>
     )
   }
-  if (!broadcast) return <p className="muted">불러오는 중…</p>
-  if (deleted) {
-    return (
-      <section>
-        <p className="error">방송자가 이 방송을 삭제했습니다.</p>
-        <Link to="/">목록으로</Link>
-      </section>
-    )
-  }
+  if (!broadcast) return <Spinner label="방송 정보를 불러오는 중…" size="lg" />
+  if (deleted) return <PageMessage icon={Trash2} title="방송자가 이 방송을 삭제했습니다" text="다른 라이브를 둘러보세요." />
 
   const isOwner = user?.channelId === broadcast.channel.id
 
   async function onDelete() {
-    if (!window.confirm('이 방송을 삭제할까요? 삭제한 방송은 목록에서 사라집니다.')) return
+    const ok = await confirm({
+      title: '이 방송을 삭제할까요?',
+      message: '삭제한 방송은 목록과 다시보기에서 사라집니다.',
+      confirmLabel: '삭제하기',
+      danger: true,
+    })
+    if (!ok) return
     setActionError(null)
     setDeleting(true)
     try {
       await deleteBroadcast(id)
+      toast('방송을 삭제했습니다.')
       navigate(`/channels/${broadcast!.channel.id}`, { replace: true })
     } catch (e) {
       setDeleting(false)
@@ -131,24 +196,40 @@ export function BroadcastPage() {
     <div className="broadcast-layout">
       <article className="broadcast-detail">
         {broadcast.status === 'ENDED' ? (
-          <EndedPlayer replay={replay} everLive={broadcast.startedAt !== null} />
+          <EndedPlayer
+            replay={replay}
+            everLive={broadcast.startedAt !== null}
+            endedWhileWatching={endedWhileWatching && !isOwner}
+          />
         ) : broadcast.status === 'LIVE' && !broadcast.disconnectedAt ? (
-          // 방송자 본인도 시청할 수 있다 (예: 휴대폰으로 송출하고 PC에서 확인). 음소거로 시작하므로 하울링이 없다
-          <LivePlayer key={playerKey} broadcastId={id} />
+          // 방송자 본인도 시청할 수 있다 (예: 휴대폰으로 송출하고 PC에서 확인). 항상 음소거로 시작하므로 하울링이 없다
+          <LivePlayer
+            key={playerKey}
+            broadcastId={id}
+            viewers={viewers ?? undefined}
+            startedAt={broadcast.startedAt}
+            alwaysMuted={isOwner}
+          />
         ) : (
           <div className="player-placeholder" data-testid="player-placeholder">
-            <StatusBadge status={broadcast.status} />
-            <p className="muted">
+            <StatusBadge status={broadcast.status} reconnecting={broadcast.disconnectedAt !== null} />
+            <p className="muted" role="status">
               {broadcast.disconnectedAt
                 ? '방송자의 연결이 끊겼습니다. 다시 연결되기를 기다리는 중…'
                 : PLAYER_MESSAGE[broadcast.status]}
             </p>
+            {isOwner && (
+              <Link to={`/broadcasts/${id}/studio`} className="button primary start-cta">
+                <Radio size={18} aria-hidden="true" />
+                {broadcast.status === 'LIVE' ? '방송 스튜디오로 돌아가기' : '방송 시작하기'}
+              </Link>
+            )}
           </div>
         )}
-        <div className="broadcast-body">
+        <div className="broadcast-head">
           <div className="broadcast-info">
             <Link to={`/channels/${broadcast.channel.id}`} aria-label={`${broadcast.streamer.nickname} 채널`}>
-              <Avatar id={broadcast.streamer.id} name={broadcast.streamer.nickname} size={48} />
+              <Avatar id={broadcast.streamer.id} name={broadcast.streamer.nickname} size={40} />
             </Link>
             <div className="broadcast-info-text">
               <h1>{broadcast.title}</h1>
@@ -156,24 +237,22 @@ export function BroadcastPage() {
                 <Link to={`/channels/${broadcast.channel.id}`} className="streamer-name">
                   {broadcast.streamer.nickname}
                 </Link>
-                <span data-testid="status-line">
-                  <StatusBadge status={broadcast.status} />
-                  {viewers !== null && broadcast.status === 'LIVE' && ` 시청자 ${viewers}명`}
-                </span>
+                <StatusLine broadcast={broadcast} viewers={viewers} />
               </div>
             </div>
           </div>
-          {broadcast.description && <p className="description">{broadcast.description}</p>}
-
-          {latestDonation && <DonationAlert key={latestDonation.id} donation={latestDonation} />}
           <DonationPanel broadcast={broadcast} isOwner={isOwner} />
-          <DonationBoard donations={donations} />
+        </div>
+        {latestDonation && <DonationAlert key={latestDonation.id} donation={latestDonation} />}
+        <div className="broadcast-body">
+          {broadcast.description && <p className="description">{broadcast.description}</p>}
+          <DonationBoard donations={donations} isOwner={isOwner} broadcastStatus={broadcast.status} />
 
           {isOwner && (
             <div className="row owner-actions">
-              {broadcast.status !== 'ENDED' && (
+              {broadcast.status === 'LIVE' && !broadcast.disconnectedAt && (
                 <Link to={`/broadcasts/${id}/studio`} className="button primary">
-                  {broadcast.status === 'LIVE' ? '방송 스튜디오로 돌아가기' : '방송 시작하기'}
+                  방송 스튜디오로 돌아가기
                 </Link>
               )}
               <Link to={`/broadcasts/${id}/edit`} className="button">
@@ -191,7 +270,7 @@ export function BroadcastPage() {
               </button>
               {broadcast.status === 'LIVE' && (
                 <small id="delete-hint" className="muted">
-                  방송을 종료한 뒤 삭제할 수 있습니다
+                  방송을 종료한 뒤 삭제할 수 있습니다.
                 </small>
               )}
             </div>
@@ -203,7 +282,27 @@ export function BroadcastPage() {
           )}
         </div>
       </article>
-      <ChatPanel broadcastId={id} chat={chat} />
+      <ChatPanel broadcastId={id} chat={chat} broadcastStatus={broadcast.status} />
     </div>
+  )
+}
+
+/** 방송을 볼 수 없을 때(없음·삭제·오류) 다음에 갈 곳을 함께 보여 준다 */
+function PageMessage({ icon, title, text, children }: { icon: LucideIcon; title: string; text: string; children?: ReactNode }) {
+  return (
+    <EmptyState
+      icon={icon}
+      as="h1"
+      title={title}
+      description={text}
+      action={
+        <>
+          {children}
+          <Link to="/" className="button primary">
+            지금 방송 중인 라이브 보기
+          </Link>
+        </>
+      }
+    />
   )
 }

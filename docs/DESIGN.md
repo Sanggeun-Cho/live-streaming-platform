@@ -129,6 +129,7 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 | publish 토큰 발급 | 401 | 403 | ✅ READY·LIVE(유예 중 재연결 포함), ENDED는 409 `BROADCAST_ENDED` |
 | 송출 (MediaMTX publish 인가) | 401 (토큰 없음) | 401 (토큰을 받을 수 없음) | ✅ 이 방송의 유효 토큰 + READY·LIVE (ENDED·삭제는 403, 다른 방송 토큰은 401) |
 | 방송 종료 | 401 | 403 | ✅ READY·LIVE, 이미 ENDED는 409 |
+| 썸네일 업로드 (`PUT /broadcasts/:id/thumbnail`) | 401 | 403 | ✅ LIVE일 때만, READY·ENDED는 409 `BROADCAST_NOT_LIVE` |
 | 댓글 조회 | ✅ | ✅ | ✅ |
 | 댓글 작성 | 401 | ✅ | ✅ (READY·LIVE·ENDED 모두) |
 | 댓글 수정·삭제 | 401 | 403 (방송자도 남의 댓글은 403) | ✅ 작성자 |
@@ -137,12 +138,14 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 | 후원 웹훅 | 공개 (토스 서버. 본문을 믿지 않고 결제 조회 API로 확인) | | |
 | 후원 내역·합계·설정 조회 | ✅ | ✅ | ✅ |
 | 다시보기 목록·녹화 목록 | ✅ | ✅ | ✅ |
+| 썸네일 조회 (`GET /broadcasts/:id/thumbnail`) | ✅ (올린 적 없으면 404 `THUMBNAIL_NOT_FOUND`) | ✅ | ✅ |
 | 녹화 파일(`/recordings/*`) | ✅ 등록된 파일이고 방송이 삭제되지 않았을 때 | ✅ | ✅ |
 | 녹화 등록(세그먼트 훅)·내부 훅·미디어 인가 | 공유 시크릿만 (사용자 세션과 무관, 없으면 401) | | |
 | 회원가입·로그인·로그아웃 | ✅ (가입·로그인은 IP당 분당 10회) | ✅ | ✅ |
 | **삭제된 방송**의 모든 조회·쓰기 | 쓰기는 401, 조회는 404 | 404 `BROADCAST_NOT_FOUND` | 404 (소유자도) |
 
 - 검증 순서는 인증(401) → 요청 형식(400) → 대상 존재(404) → 소유권(403) → 상태(409)다. 형식이 틀린 요청은 남의 방송이어도 400이 먼저 나온다(정보 노출 없음: 존재 여부는 형식 검사와 무관).
+- 예외: 썸네일 업로드는 본문(이미지)을 받기 전에 로그인·존재·소유·상태를 먼저 확인한다(남의 방송에 큰 본문을 보내도 읽지 않는다). 그 뒤 Content-Type 415, JPEG 형식 400, 300KB 초과 413 순이다.
 - 형식이 아예 다른 요청(잘못된 JSON 400 `INVALID_JSON`, JSON 아닌 본문 415, 1MB 초과 413, 깨진 URL 400 `BAD_URL`, 없는 경로 404)과 처리하지 못한 예외(500 `INTERNAL_ERROR`, 내부 정보 숨김)도 같은 형식이다(`error-format.test.ts`). `/internal`은 MediaMTX·Caddy만 부르므로 상태 코드만 쓴다.
 
 ## 6. 송출 클라이언트
@@ -179,7 +182,7 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 
 ### 댓글 (실시간)
 - REST CRUD가 기준이다. 작성·수정·삭제 이벤트는 SSE `/api/broadcasts/:id/events`로 전파한다.
-- 삭제는 Soft Delete이며 "삭제된 댓글입니다"로 표시한다.
+- 삭제는 Soft Delete이며 "삭제된 채팅입니다"로 표시한다.
 - API
   - `GET /api/broadcasts/:id/comments?cursor&limit`(공개): 최신 `limit`개(기본 50, 최대 100)를 **오래된 것부터**(채팅 순서) 돌려주고, 더 오래된 댓글은 `nextCursor`로 읽는다. 삭제된 댓글은 `content`·`author`를 모두 null로 숨기고 자리만 남는다(본문은 DB에 보관).
   - `POST /api/broadcasts/:id/comments`(로그인), `PATCH /api/comments/:id`·`DELETE /api/comments/:id`(작성자만, 아니면 403. 방송자도 남의 댓글은 403). 삭제 응답은 본문을 숨긴 댓글(200).
@@ -220,6 +223,12 @@ User 1 ── 1 Channel 1 ── N Broadcast(회차) 1 ── N Comment
 - 변환은 `flock`으로 한 번에 하나, ffmpeg 스레드 1개·`nice`·30분 `timeout`. 차례를 기다리기 전에 빈 임시 파일(표식)을 먼저 만들어, 대기 중에도 복구 스캔이 "변환 중"으로 보고 원본을 등록하지 않게 한다(#31).
 - API: `GET /api/replays`(녹화가 있는 ENDED 방송, 종료 시각 최신순, 커서), `GET /api/broadcasts/:id/recordings`(재생 순서대로). 공개, 삭제된 방송은 404.
 - 재연결로 세그먼트가 여러 개 생기면 회차 상세에서 시작 시각 순서로 이어서 재생한다(구간 목록 표시). 종료 직후 아직 등록 전이면 "녹화 파일을 준비하고 있습니다"를 보여준다. SSE `recording`과, 종료 후 10분 동안의 10초 주기 조회(개수 무관, 마지막 구간 누락 방지)로 갱신한다.
+
+### 방송 썸네일
+- 목록 카드에 실제 방송 화면을 보여준다. 스튜디오가 송출 중인 미리보기 화면을 캔버스로 캡처해(최대 640px 폭, JPEG 품질 0.7, `apps/web/src/lib/thumbnails.ts`) `PUT /api/broadcasts/:id/thumbnail`(본문 `image/jpeg`, 최대 300KB)로 주기적으로 올린다.
+- 서버는 본인 방송이고 LIVE일 때만 받고, SOI·EOI 바이트로 JPEG인지 확인한 뒤 `THUMBNAILS_DIR/<id>.jpg`(기본 DB 파일 옆 `thumbnails/`, compose에서는 api_data 볼륨 `/data/thumbnails`)를 임시 파일 → rename으로 덮어쓴다. DB에는 올린 시각(`broadcasts.thumbnail_updated_at`)만 둔다.
+- 방송 응답(목록·상세·다시보기)의 `thumbnailUrl`은 `/api/broadcasts/:id/thumbnail?v=<올린 시각>`이고 없으면 null이다. 주소가 바뀌므로 새 화면이 캐시에 가리지 않고, 조회 응답은 삭제가 빨리 반영되게 `Cache-Control: public, max-age=60`이다. 종료 후에도 마지막 화면이 다시보기 카드에 남고, 삭제된 방송은 404다.
+- 썸네일이 없거나 이미지를 불러오지 못하면 카드는 방송자 색 그라디언트에 제목을 쓴 표지로 대신한다.
 
 ## 8. 위험과 대응
 

@@ -1,0 +1,673 @@
+/*
+ * 방송 스튜디오. 넓은 화면은 왼쪽(미리보기·조작)과 오른쪽(후원·채팅) 2열,
+ * 휴대폰은 미리보기 → 조작 → 채팅 순서로 쌓고 조작 막대를 엄지가 닿는 아래쪽에 붙인다.
+ */
+.studio-layout {
+  display: grid;
+  gap: 16px;
+  max-width: 1600px;
+}
+
+.studio-main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.studio-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.studio-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.studio-title h1 {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+.studio-watch-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.studio-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.studio-phase {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 800;
+  font-size: 0.85rem;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.studio-phase .live-dot {
+  background: var(--on-fill);
+}
+
+.studio-phase.phase-live {
+  background: var(--live);
+  color: var(--on-fill);
+}
+
+.studio-phase.phase-preview {
+  background: var(--info);
+  color: var(--on-fill);
+}
+
+.studio-phase.phase-reconnecting,
+.studio-phase.phase-sourceEnded,
+.studio-phase.phase-takenOver,
+.studio-phase.phase-connecting {
+  background: var(--warn);
+  color: var(--accent-ink);
+}
+
+.studio-stat {
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--bg-elev-2);
+}
+
+/* ---- 미리보기 ---- */
+.studio-stage {
+  --ratio: 1.7778;
+  position: relative;
+  aspect-ratio: var(--ratio);
+  /* 세로 영상도 화면 높이 안에서 최대한 크게 */
+  width: min(100%, calc(68dvh * var(--ratio)));
+  margin-inline: auto;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--player-bg);
+}
+
+.preview {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.preview.mirrored {
+  transform: scaleX(-1);
+}
+
+.stage-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: rgb(0 0 0 / 0.65);
+  color: var(--on-fill);
+}
+
+.stage-mic-off {
+  top: auto;
+  bottom: 10px;
+  background: var(--live);
+}
+
+.stage-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 16px;
+  text-align: center;
+  background: radial-gradient(circle at 50% 30%, var(--bg-elev-2), var(--bg) 70%);
+}
+
+.stage-steps {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.stage-steps li {
+  counter-increment: step;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stage-steps li::before {
+  content: counter(step);
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.stage-steps li + li::after {
+  order: -1;
+  content: '';
+  width: 14px;
+  height: 1px;
+  background: var(--border);
+}
+
+.stage-steps .current {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.stage-steps .current::before {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.stage-sources {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+}
+
+.source-button {
+  flex-direction: column;
+  gap: 4px;
+  width: 168px;
+  padding: 18px 12px;
+  border-radius: 14px;
+  background: var(--bg-elev);
+}
+
+.source-button span {
+  font-size: 1rem;
+}
+
+.source-button small {
+  font-weight: 500;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+.source-button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.stage-note {
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+/* ---- 조작 막대 ---- */
+.studio-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px;
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+}
+
+.studio-toolbar:not(:has(button)) {
+  display: none;
+}
+
+.toolbar-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.studio-toolbar button {
+  min-height: 44px;
+}
+
+.label-short {
+  display: none;
+}
+
+.tool-off {
+  border-color: var(--live);
+  color: #ffb3c0;
+}
+
+.go-live {
+  min-width: 140px;
+}
+
+.studio-hint {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+/* ---- 소리 ---- */
+.audio-status {
+  list-style: none;
+  padding: 12px 14px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+}
+
+.audio-status li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.audio-label {
+  min-width: 64px;
+  font-weight: 700;
+}
+
+.slider {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-dim);
+}
+
+.slider input {
+  width: 160px;
+  accent-color: var(--accent);
+}
+
+.slider-value {
+  min-width: 3.2em;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+}
+
+.quality-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.stats-limited {
+  flex-wrap: wrap;
+  color: var(--warn);
+}
+
+.stats-hint {
+  flex-basis: 100%;
+  padding-left: 14px;
+  color: var(--text-dim);
+}
+
+.stage-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 420px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--text);
+  text-align: left;
+}
+
+.stage-error svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--danger);
+}
+
+/* 미리보기 위 상태 칩: 헤더가 숨는 휴대폰 가로 모드에서만 */
+.stage-status {
+  display: none;
+}
+
+.stats-limited .quality-dot {
+  background: var(--warn);
+}
+
+.countdown {
+  font-variant-numeric: tabular-nums;
+}
+
+.stage-paused {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  color: var(--text-dim);
+  font-weight: 700;
+}
+
+/* 방송 중 반응 오버레이: 휴대폰에서만 (넓은 화면은 오른쪽 패널로 충분하다) */
+.stage-overlay {
+  display: none;
+}
+
+/* ---- 시청자 반응 (후원·채팅) ---- */
+.studio-side {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.studio-donations {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+.studio-donations strong {
+  font-size: 1.15rem;
+  color: var(--accent);
+}
+
+/* 스튜디오에서는 후원 알림을 채팅 위에 띄운다 (화면 가운데를 가리지 않게) */
+.studio-side .donation-alert {
+  position: static;
+  transform: none;
+  width: auto;
+}
+
+.studio-side .chat-panel {
+  height: 60dvh;
+  min-height: 320px;
+}
+
+/* ---- 종료 요약 ---- */
+.studio-ended {
+  max-width: 520px;
+}
+
+.ended-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 20px 0;
+}
+
+.ended-stats div {
+  padding: 14px;
+  border-radius: var(--radius);
+  background: var(--bg-elev-2);
+}
+
+.ended-stats dt {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.ended-stats dd {
+  margin: 4px 0 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.ended-actions {
+  justify-content: center;
+}
+
+/* 휴대폰: 조작 막대를 화면 아래에 붙여 엄지로 바로 누른다 */
+@media (max-width: 699px) {
+  .studio-toolbar {
+    position: sticky;
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    z-index: 5;
+    box-shadow: 0 -6px 20px rgb(0 0 0 / 0.4);
+  }
+
+  .toolbar-group,
+  .toolbar-main {
+    width: 100%;
+  }
+
+  .toolbar-group button {
+    flex: 1;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 4px;
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+
+  .label-full {
+    display: none;
+  }
+
+  .label-short {
+    display: inline;
+  }
+
+  .studio-side .chat-panel {
+    height: 50dvh;
+  }
+
+  .source-button {
+    width: 140px;
+    padding: 14px 10px;
+  }
+
+  /* 마이크 꺼짐 배지는 오버레이와 겹치지 않게 위로 */
+  .stage-mic-off {
+    top: 10px;
+    bottom: auto;
+    left: auto;
+    right: 10px;
+  }
+
+  .stage-steps {
+    display: none;
+  }
+}
+
+/* 넓은 화면: 미리보기·조작은 왼쪽, 후원·채팅은 오른쪽에 화면 높이로 고정 */
+@media (min-width: 1100px) {
+  .studio-layout {
+    grid-template-columns: minmax(0, 1fr) var(--chat-w);
+    align-items: start;
+  }
+
+  .studio-side {
+    position: sticky;
+    top: calc(var(--header-h) + 16px);
+    height: calc(100dvh - var(--header-h) - 32px);
+  }
+
+  .studio-side .chat-panel {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+  }
+}
+
+/* 휴대폰 가로: 방송 중에는 헤더를 숨기고 영상을 화면 높이로, 조작은 오른쪽 세로 레일에 둔다 */
+@media (orientation: landscape) and (max-height: 500px) {
+  :root:has(.studio-layout.on-air) .header {
+    display: none;
+  }
+
+  :root:has(.studio-layout.on-air) .container {
+    padding: 8px;
+  }
+
+  .studio-layout.on-air .studio-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: calc(100dvh - 16px);
+    gap: 8px;
+  }
+
+  .studio-layout.on-air .studio-head,
+  .studio-layout.on-air .studio-main > :not(.studio-stage, .studio-toolbar) {
+    display: none;
+  }
+
+  .studio-layout.on-air .studio-stage {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+  }
+
+  .studio-layout.on-air .studio-toolbar {
+    position: static;
+    flex-direction: column;
+    justify-content: center;
+    width: 112px;
+    box-shadow: none;
+  }
+
+  .studio-layout.on-air .toolbar-group {
+    flex-direction: column;
+  }
+
+  .studio-layout.on-air .studio-toolbar button {
+    width: 100%;
+  }
+
+  .studio-layout.on-air .stage-status {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    display: block;
+  }
+
+  .studio-layout.on-air .studio-toolbar button {
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 4px;
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+
+  .studio-layout.on-air .label-full {
+    display: none;
+  }
+
+  .studio-layout.on-air .label-short {
+    display: inline;
+  }
+}
+
+/* 반응 오버레이는 휴대폰 세로·가로 모두에서 보인다 */
+@media (max-width: 699px), (orientation: landscape) and (max-height: 500px) {
+  .stage-overlay {
+    position: absolute;
+    inset: auto 8px 8px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    pointer-events: none;
+  }
+
+  /* 영상을 가리지 않게 작게: 아이콘을 빼고 한 덩어리로 */
+  .stage-overlay .donation-alert {
+    position: static;
+    transform: none;
+    width: auto;
+    padding: 8px 12px;
+    font-size: 0.85rem;
+  }
+
+  .stage-overlay .donation-alert-icon {
+    display: none;
+  }
+
+  .stage-overlay .donation-alert-amount {
+    font-size: 1.05rem;
+  }
+
+  .overlay-chat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.85rem;
+  }
+
+  .overlay-chat li {
+    width: fit-content;
+    max-width: 100%;
+    padding: 3px 8px;
+    border-radius: 8px;
+    background: rgb(0 0 0 / 0.55);
+    color: var(--on-fill);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 미리보기 위에 이미 보이므로 패널 쪽 알림은 숨긴다 */
+  .studio-side .donation-alert {
+    display: none;
+  }
+}

@@ -1,7 +1,7 @@
 # 테스트 명세
 
 명세 항목([SPEC_CHECKLIST.md](SPEC_CHECKLIST.md))이 어느 테스트로 검증되는지, 각 테스트가 무엇을 확인하는지, 테스트로 증명하지 못하는 것이 무엇인지 정리한다.
-모든 건수는 실제 테스트 코드에서 센 값이다(2026-11-10, dev `bdacc6f` + 리뷰 후속 문서 PR의 테스트 1건, vitest `--reporter=json`).
+모든 건수는 실제 테스트 코드에서 센 값이다(2026-11-18, `feat/ux-home` 방송 썸네일 반영, vitest 실행 결과).
 
 ## 1. 개요
 
@@ -9,18 +9,18 @@
 
 | 계층 | 도구 | 위치 | 건수 | 무엇을 보나 |
 |---|---|---|---|---|
-| API 통합 | vitest + Fastify `inject` (SSE는 임시 포트로 실제 연결) | `apps/api/test/*.test.ts` 13개 파일 | **414** | 라우트 → 서비스 → SQLite(메모리 또는 임시 파일)까지 실제 코드. MediaMTX Control API와 토스 API만 대역 |
-| 웹 단위 | vitest (node 환경, 브라우저 API는 가짜) | `apps/web/src/lib/**/*.test.ts` 4개 파일 | **53** | 송출(Publisher) 상태 전이, 캡처, WHIP 핸드셰이크·코덱 선택, 다시보기 구간 |
-| 브라우저 E2E | playwright-core + 설치된 Chrome + 가짜 카메라·마이크·화면 | `e2e/NN-*.mjs` 9개 파일 | 시나리오 단계 94개(11을 가짜 결제로 돌릴 때 실행 기준. 테스트 키 모드면 89개) | 실제 화면·실제 MediaMTX·실제 WebRTC 송출과 시청 |
+| API 통합 | vitest + Fastify `inject` (SSE는 임시 포트로 실제 연결) | `apps/api/test/*.test.ts` 14개 파일 | **435** | 라우트 → 서비스 → SQLite(메모리 또는 임시 파일)까지 실제 코드. MediaMTX Control API와 토스 API만 대역 |
+| 웹 단위 | vitest (node 환경, 브라우저 API는 가짜) | `apps/web/src/lib/**/*.test.ts` 7개 파일 | **62** | 송출(Publisher) 상태 전이, 캡처, WHIP 핸드셰이크·코덱 선택, 다시보기 구간 |
+| 브라우저 E2E | playwright-core + 설치된 Chrome + 가짜 카메라·마이크·화면 | `e2e/NN-*.mjs` 9개 파일 | 시나리오 단계 99개(11을 가짜 결제로 돌릴 때 실행 기준. 테스트 키 모드면 92개) | 실제 화면·실제 MediaMTX·실제 WebRTC 송출과 시청 |
 
-- 합계: vitest 467건(API 414 + 웹 53). CI(`.github/workflows`)는 `npm run typecheck`와 `npm test`(API·웹 모두)를 돌린다. E2E는 CI에 없고 로컬에서 돌린다.
+- 합계: vitest 497건(API 435 + 웹 62). CI(`.github/workflows`)는 `npm run typecheck`와 `npm test`(API·웹 모두)를 돌린다. E2E는 CI에 없고 로컬에서 돌린다.
 - API 테스트는 테스트마다 새 앱(`makeApp`, 메모리 DB)을 만든다. 재시작 테스트만 임시 파일 DB를 두 번 연다.
 
 ### 실행 방법
 
 ```bash
 npm ci
-npm test                      # API 409 + 웹 53 (루트: 두 워크스페이스를 차례로)
+npm test                      # API 435 + 웹 62 (루트: 두 워크스페이스를 차례로)
 npm test -w @live/api         # API 통합 테스트만
 npm test -w @live/web         # 웹 단위 테스트만
 npm run typecheck             # api tsc + web tsc·vite build + CSS 검사
@@ -66,7 +66,7 @@ ID는 [SPEC_CHECKLIST.md](SPEC_CHECKLIST.md)와 같다. "수동"은 테스트로
 | A2 | 비로그인 목록·시청 | `authz-matrix` 공개 조회 12종 × 3, 시청(read) 비로그인 허용 | — | 05 비로그인 상세, 06 비로그인 시청자, 12 | — |
 | A3 | 등록·송출은 로그인만 | `authz-matrix` 방송 등록·publish 토큰 anon 401, `internal-media` 토큰 발급 | — | 06 "토큰 없이 WHIP로 송출하면 401" | — |
 | A4 | 소유자 권한 서버 검증 | `broadcasts` 수정·삭제 403, 검증 순서, `internal-media` 토큰·종료 403, `authz-matrix` 쓰기 | — | 05 "API로 직접 수정·삭제하면 403", 07 다른 사용자 스튜디오 | — |
-| A5 | 사용자 유형별 허용·거절 | `authz-matrix` 151건(147칸 + 독립 4건) | — | — | — |
+| A5 | 사용자 유형별 허용·거절 | `authz-matrix` 166건(162칸 + 독립 4건) | — | — | — |
 | C1 | 댓글 CRUD | `comments`(22) | — | 10 전체 | — |
 | C2 | 댓글 작성자 권한 | `comments` 수정·삭제 403(방송자라도), `authz-matrix` 댓글 행 | — | 10 "C가 API로 직접 수정·삭제하면 403" | — |
 | D1 | 후원 대상·금액 선택, 테스트 결제 요청 | `donations` 설정·주문 생성, `error-format` 후원 금액 | — | 11 금액 규칙·결제창(테스트 키 모드) | 실제 카드 승인 |
@@ -87,13 +87,13 @@ ID는 [SPEC_CHECKLIST.md](SPEC_CHECKLIST.md)와 같다. "수동"은 테스트로
 
 ## 3. 파일별 테스트 목록
 
-### API 통합 (`apps/api/test`, 414건)
+### API 통합 (`apps/api/test`, 435건)
 
 | 파일 | 건수 | describe (건수) |
 |---|---|---|
 | `auth-service.test.ts` | 6 | 로그인 시간 균등화(2), 테스트 계정 시드(3), 만료 세션 정리(1) |
 | `auth.test.ts` | 24 | 인증 API(20), 리버스 프록시 신뢰(1), 세션 영속성(3) |
-| `authz-matrix.test.ts` | 151 | 쓰기(78), 공개 조회(36), 삭제된 방송(33), 독립(4) |
+| `authz-matrix.test.ts` | 166 | 쓰기(87), 공개 조회(36), 삭제된 방송(39), 독립(4) |
 | `broadcasts.test.ts` | 21 | 등록(6), 조회(4), 수정(3), 삭제(3), 그 밖(5) |
 | `comments.test.ts` | 22 | 작성(10), 목록(4), 수정(4), 삭제(3), SSE(1) |
 | `donations.test.ts` | 52 | 설정(4), 주문 생성(10), 승인(26), 웹훅(7), 내역·합계(4), SSE(1) |
@@ -103,6 +103,7 @@ ID는 [SPEC_CHECKLIST.md](SPEC_CHECKLIST.md)와 같다. "수동"은 테스트로
 | `recordings-scan.test.ts` | 12 | mp4 길이 계산(4), 복구 스캔(8) |
 | `recordings.test.ts` | 32 | 등록·다시보기(21), 영구 저장(1), 경로·메타데이터 해석(10) |
 | `state-boundaries.test.ts` | 10 | 종료·삭제와 훅의 경합(5), 유예 시간(2), 삭제된 방송의 후원·녹화(3) |
+| `thumbnails.test.ts` | 6 | 방송 썸네일(6) |
 | `toss-client.test.ts` | 10 | 토스 API 클라이언트(8), 가짜 토스 멱등키(2) |
 
 #### `auth-service.test.ts` (6)
@@ -115,11 +116,11 @@ ID는 [SPEC_CHECKLIST.md](SPEC_CHECKLIST.md)와 같다. "수동"은 테스트로
 - 리버스 프록시 신뢰(1): 신뢰하는 프록시가 전달한 클라이언트 IP별로 시도 횟수를 센다.
 - 세션 영속성(3): 재시작해도 로그인 유지 / `SEED_TEST_ACCOUNTS` 켜짐: 기동 시 계정 생성(재기동해도 중복 없음)·목록 공개 / 꺼짐: 목록 비어 있음.
 
-#### `authz-matrix.test.ts` (151)
+#### `authz-matrix.test.ts` (166)
 DESIGN §5 권한 매트릭스를 행 그대로 옮겨, 행마다 비로그인(anon)·다른 사용자(other)·소유자(owner) 칸을 각각 새 앱에서 실행한다. 거절 칸은 상태 코드와 `{code, message}` 형식까지, 대표 성공 칸은 본문까지 확인한다.
-- 쓰기(78 = 25행): 방송 등록·수정(READY·ENDED)·삭제(READY·LIVE), publish 토큰(READY·LIVE·ENDED), 송출 인가, 종료(READY·LIVE·ENDED), 댓글 작성(일반·종료된 방송)·수정·삭제, 후원 주문(LIVE·READY·ENDED)·승인 확인, 웹훅, 로그인·로그아웃·가입, 내부 훅. 댓글 수정·삭제와 승인 확인은 "방송자" 칸을 더해 4칸.
+- 쓰기(87 = 28행): 방송 등록·수정(READY·ENDED)·삭제(READY·LIVE), publish 토큰(READY·LIVE·ENDED), 송출 인가, 종료(READY·LIVE·ENDED), 썸네일 업로드(LIVE·READY·ENDED), 댓글 작성(일반·종료된 방송)·수정·삭제, 후원 주문(LIVE·READY·ENDED)·승인 확인, 웹훅, 로그인·로그아웃·가입, 내부 훅. 댓글 수정·삭제와 승인 확인은 "방송자" 칸을 더해 4칸.
 - 공개 조회(36 = 12종 × 3): 방송 목록·채널별 목록·상세, 채널 정보, 댓글 목록, 후원 내역·합계, 후원 설정, 다시보기 목록, 녹화 목록, 시청(read) 인가 LIVE / READY·ENDED, `/auth/me`.
-- 삭제된 방송(33 = 11종 × 3): 상세·수정·삭제·토큰·종료·SSE·댓글 목록·댓글 작성·후원 주문·후원 내역·녹화 목록이 모두 404.
+- 삭제된 방송(39 = 13종 × 3): 상세·수정·삭제·토큰·종료·SSE·댓글 목록·댓글 작성·후원 주문·후원 내역·녹화 목록·썸네일 조회·썸네일 업로드가 모두 404.
 - 독립(4): 거절된 수정·삭제·종료는 방송을 바꾸지 않는다 / 남의 채널을 지정해 등록할 수 없다 / 다른 방송의 토큰으로 송출 불가 / 위조·로그아웃한 쿠키는 비로그인과 같다(401).
 
 #### `broadcasts.test.ts` (21)
@@ -186,18 +187,35 @@ DB 정상이면 200 ok / 없는 경로 404 형식 / 로그에서 `secret`·`toke
 - 유예 시간(2): 유예 중 새 토큰으로 재송출 가능 / 유예 확정 대기 중 재송출 후 다시 끊기면 새 기준으로 다시 셈.
 - 삭제된 방송의 후원·녹화(3): 결제창 연 사이 종료·삭제 → 승인 요청 없이 404·FAILED / 이미 승인된 결제는 삭제 후 웹훅으로도 적립 / 삭제 뒤 늦은 세그먼트는 등록하되 노출 안 함.
 
+#### `thumbnails.test.ts` (6)
+- 소유자가 방송 중에 올리면 `THUMBNAILS_DIR/<id>.jpg`로 저장, 목록·상세에 `thumbnailUrl`(`?v=` 갱신 시각), 공개 조회는 `image/jpeg`·`Cache-Control: public, max-age=60`.
+- 다시 올리면 덮어쓰고 주소가 바뀜 / 종료 후에도 마지막 썸네일이 남음.
+- 권한: 비로그인 401·다른 사용자 403·없는 방송 404, 거절되면 파일을 만들지 않음.
+- 상태: READY·ENDED는 409 `BROADCAST_NOT_LIVE`.
+- 형식: JPEG 아닌 본문 400 `INVALID_IMAGE`·빈 본문 400 / 다른 Content-Type 415 / 상한(300KB) 경계 허용·초과 413.
+- 조회: 올린 적 없으면 404 `THUMBNAIL_NOT_FOUND` / 삭제된 방송 404.
+
 #### `toss-client.test.ts` (10)
 - 토스 API 클라이언트(8, `fetch` 대역): Basic 인증·받은 멱등키 부착 / 성공 응답 형식 오류 ×3(빈 본문, 필드 누락, 금액 문자열)은 일시 오류 / 429·5xx는 일시 오류, 4xx 거절은 아님 / 재시도 안내 4xx ×3(409 IDEMPOTENT_REQUEST_PROCESSING, PROVIDER_ERROR, FAILED_PAYMENT_INTERNAL_SYSTEM_PROCESSING)은 일시 오류.
 - 가짜 토스 멱등키(2): 같은 키는 첫 응답(오류 포함) 재생·처리 중 409·다른 키는 새로 처리 / E2E용 가짜 결제: 같은 키 재요청은 같은 승인, 다른 키로 같은 결제는 ALREADY_PROCESSED_PAYMENT.
 
-### 웹 단위 (`apps/web/src`, 53건)
+### 웹 단위 (`apps/web/src`, 62건)
 
 | 파일 | 건수 | describe (건수) |
 |---|---|---|
+| `lib/comments.test.ts` | 4 | 도배 제한 재전송(3), 채팅 시각 표시(1) |
+| `lib/donations.test.ts` | 3 | 금액 입력 해석(1), 상황별 금액 안내(1), 상대 시간(1) |
 | `lib/recordings.test.ts` | 4 | 다시보기 구간(3), formatDuration(1) |
+| `lib/time.test.ts` | 2 | 말로 쓴 길이(1), "N분 전 시작"(1) |
 | `lib/webrtc/media.test.ts` | 5 | captureScreen(1), captureCamera(4) |
 | `lib/webrtc/publisher.test.ts` | 37 | 송출 시작·종료(4), 연결 끊김과 재연결(6), 다른 탭과 송출 경쟁(2), 영상 소스 중단(10), 소스 선택 중 연결 끊김(4), 카메라 복구 루프(9), 소스 중단 뒤 자동 종료 시한(2) |
 | `lib/webrtc/whip.test.ts` | 7 | h264Rank(1), preferH264(3), publish(3) |
+
+#### `lib/comments.test.ts` (4)
+429면 기다렸다 다시 보내고 성공하면 결과 / 계속 429면 기회를 다 쓴 뒤 오류 / 429가 아닌 오류는 다시 보내지 않음 / 오늘이면 시:분, 아니면 날짜도.
+
+#### `lib/donations.test.ts` (3)
+쉼표·단위가 섞인 입력에서 숫자만 읽고 비면 null / 단위·최소·최대마다 다른 안내 / "방금 전"·분·시간·일 단위 상대 시간.
 
 #### `lib/recordings.test.ts` (4)
 다음 구간은 시작 시각 순, 마지막이면 null / 보던 구간은 id로 추적(앞 구간이 늦게 끼어도 유지) / 보던 구간이 사라지면 첫 구간 / `formatDuration` m:ss·h:mm:ss.
@@ -233,8 +251,8 @@ DB 정상이면 200 ok / 없는 경로 404 형식 / 로그에서 `secret`·`toke
 | `06-publish.mjs` | 11 | 방송 생성·비로그인 시청자 대기 / 토큰 없는 WHIP / 카메라 송출 → 시청자 화면 LIVE·재생 / 시청자 수 / LIVE 중 삭제 비활성 / 송출 탭 닫힘 → "재연결 대기" / 유예 안 재송출 → 다시 재생 / 종료 → "방송 종료" / 종료 후 토큰 재발급 409 / 끊긴 채 45초 → 자동 종료 / 다른 탭에서 종료 → 송출 탭 장치 끔 | WHIP 401, 상태 문구 실시간 변화(새로고침 없음), `expectMediaFlowing`, 살아 있는 캡처 트랙 0개 |
 | `07-studio.mjs` | 12 | 상세 → 스튜디오 / 다른 사용자 송출 불가 / 화면 공유 선택 → 미리보기·화면 소리·마이크 상태 / 시작 → LIVE·시청 재생·송출 품질 / 마이크 끄기·켜기 / 방송 중 카메라 전환 / 공유 중지 → 안내·시청자 재연결 대기 → 다시 선택 / 다른 탭 송출 → "다른 곳에서 송출 중" → 되가져오기 / MediaMTX Control API로 세션 강제 종료 → "재연결 중" → LIVE / 종료 → 캡처 트랙 0개 / 공유 중지 방치 → 유예 뒤 자동 종료 / 종료된 방송 스튜디오 안내 | `expectMediaFlowing`(영상 + 오디오 RTP), 단계 문구, `docker compose exec mediamtx`로 실제 끊김 유발 |
 | `08-mobile.mjs` | 7 | iPhone UA·390px·터치, `getDisplayMedia` 제거 / 가입·방송 생성 / 화면 공유 대신 안내, 카메라로 송출(카메라 열기 실패 시 다시 누르기 1회까지만) / 송출 → PC 시청 / 전면/후면 전환 / 카메라 트랙 강제 종료(`stop` + `ended`) → 새 트랙으로 복구 / 휴대폰 시청: 음소거 시작·소리 켜기·전체 화면 / 휴대폰에서 종료 | PC 쪽 `expectMediaFlowing`, 복구 뒤 새 트랙 id·송신 `framesEncoded` 증가, 두 번째 카메라 실패는 회귀로 실패 처리 |
-| `10-comments.mjs` | 15 | 비로그인 안내 / 공백 전송 비활성 / A의 채팅이 B(비로그인)에 실시간 / 작성자에게만 수정·삭제 / C가 API로 수정·삭제 403 / 방송자 표시 / "(수정됨)" / "삭제된 댓글입니다" / 모바일 영상 아래·데스크톱 옆 배치 / SSE 끊긴 동안 50개 초과 쌓여도 빈 구간 없이 이어짐 / 비로그인 → 가입 → 같은 방송에서 채팅 / 세션 만료 후 전송 → 로그인 유도 / 연달아 보내도 입력 유지 / 모든 페이지 `pageerror` 0건 | 화면 텍스트·요소 위치, API 403, 처리되지 않은 오류 없음 |
-| `11-donations.mjs` | 15 (가짜 결제 13 / 테스트 키 8) | 공통 5: READY 비활성 안내 / 내부 훅으로 LIVE → 새로고침 없이 활성 / 비로그인 로그인 유도 / 방송자 본인 비활성 / 금액 규칙. 가짜 결제 7: 후원 → 성공 화면 → 합계·내역 / 다른 시청자 실시간 알림 / 채팅에 후원 내역이 실시간으로 남고 수정·삭제 버튼 없음(#40) / 성공 주소 재방문 1번 적립 / 금액 위조 거절 / 결제 취소 안내 / 390px 넘침 없음. 테스트 키 2: 실제 토스 결제창이 주문 금액으로 열리고 닫으면 취소 안내 / 인증 없이 만든 결제 키는 실제 승인 API가 거절·주문 실패. 공통 마지막: 종료 후 버튼 꺼짐·내역 유지 | 화면 문구, API로 `total = {amount: 5000, count: 1}`, `alreadyConfirmed: true` |
+| `10-comments.mjs` | 18 | 비로그인 안내 / 공백 전송 비활성 / A의 채팅이 B(비로그인)에 실시간 / 작성자에게만 수정·삭제 / C가 API로 수정·삭제 403 / 방송자 표시 / "(수정됨)" / 확인 대화상자를 거쳐 "삭제된 댓글입니다" / 모바일 영상 아래·데스크톱 옆 배치 / SSE 끊긴 동안 50개 초과 쌓여도 빈 구간 없이 이어짐 / 위로 스크롤 중 "새 채팅 N개" 버튼 / 비로그인 → 가입 → 같은 방송에서 채팅 / 세션 만료 후 전송 → 로그인 유도 / 연달아 보내도 입력 유지 / 도배 제한(429)에 걸려도 순서대로 모두 전송·실패 표시 없음 / 300자 넘는 붙여넣기 안내·250자부터 글자 수 / 모든 페이지 `pageerror` 0건 | 화면 텍스트·요소 위치, API 403, 처리되지 않은 오류 없음 |
+| `11-donations.mjs` | 16 (가짜 결제 15 / 테스트 키 8) | 공통 5: READY 비활성 안내 / 내부 훅으로 LIVE → 새로고침 없이 활성 / 비로그인 로그인 유도 / 방송자 본인은 후원 버튼 없이 "아직 받은 후원이 없습니다"·주문 API 403 / 금액 입력(쉼표 표시·상황별 안내·제출 막기). 가짜 결제 9: 후원 → 확인 단계(받는 사람·금액·메시지) → 결제 → 영수증 → 합계·내역 / 다른 시청자 실시간 알림 / 채팅에 후원 내역이 실시간으로 남고 수정·삭제 버튼 없음(#40) / 성공 주소 재방문 1번 적립 / 금액 위조 거절 / 결제 실패 강조·문의용 코드 / 취소 화면 "다시 후원하기" → 시트 열린 채 복귀 / 390px 시트 넘침 없음·제출 버튼 화면 안. 테스트 키 2: 실제 토스 결제창이 주문 금액으로 열리고 닫으면 취소 안내 / 인증 없이 만든 결제 키는 실제 승인 API가 거절·주문 실패. 공통 마지막: 종료 후 버튼 꺼짐·내역 유지 | 화면 문구, API로 `total = {amount: 5000, count: 1}`, `alreadyConfirmed: true` |
 | `12-recordings.mjs` | 15 | 카메라 송출 / 탭 닫고 유예 안 재송출(세그먼트 2개) / 시청 중 종료 → 다시보기 플레이어로 전환 / 세그먼트 ≥ 2 / 홈 다시보기 목록 / 재생(오디오 포함) / 다음 구간 자동 재생 / Range·faststart / ffprobe h264+aac·임시 파일 없음 / 미등록·경로 조작 404 / api 재시작 후 조회 / 훅 유실 세그먼트 복구 스캔 / Cache-Control은 허용 응답에만 / 녹화 1개 방송의 "준비 중" → 플레이어 / 삭제 후 전부 404 | 재생 시간 증가·오디오 디코드 바이트 > 0, `ffprobe` 코덱, 원문 경로 요청(`https.request`)으로 404·`/etc/passwd` 미노출, 길이 오차 300ms 이내 |
 | `13-restart.mjs` | 6 (3 + MediaMTX 재시작 반복 3) | 방송 송출·종료, 댓글·후원(가짜 결제)·녹화 생성 / `docker compose restart api` / `down` → `up -d`(볼륨 유지) / MediaMTX 재시작 0·2·4초 뒤 새 방송 송출 | 재시작 전후 스냅샷(방송·댓글·후원 합계·내역·녹화·다시보기·파일 Range 206·`/auth/me` 200) 동일, LIVE 도달 |
 | `14-test-accounts.mjs` | 3 | 로그인 화면 "방송자 A / 시청자 B" / 방송자 A로 바로 로그인 → 원래 화면 / 로그아웃 후 시청자 B | URL·채널 링크 |

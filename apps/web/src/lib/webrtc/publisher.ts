@@ -65,8 +65,8 @@ export const CAMERA_RECOVER_ATTEMPTS = 6
 const cameraRecoverDelay = (attempt: number) => Math.min(1000 * (attempt - 1), 3000)
 // 1분 안에 이보다 많이 복구(카메라 다시 열기·재송출)해야 하면 장치가 불안정한 것이다 → 송출을 멈춘다
 export const RECOVERY_BUDGET = 5
-const CAMERA_LOST_MESSAGE = '카메라를 다시 열지 못해 송출을 멈췄습니다. 다른 앱이 카메라를 쓰고 있는지 확인한 뒤 다시 선택하세요'
-const SOURCE_UNSTABLE_MESSAGE = '영상이 계속 끊겨 송출을 멈췄습니다. 장치와 네트워크를 확인한 뒤 다시 선택하세요'
+const CAMERA_LOST_MESSAGE = '카메라를 다시 열지 못해 송출을 멈췄습니다. 다른 앱이 카메라를 쓰고 있는지 확인한 뒤 다시 선택해 주세요.'
+const SOURCE_UNSTABLE_MESSAGE = '영상이 계속 끊겨 송출을 멈췄습니다. 장치와 네트워크를 확인한 뒤 다시 선택해 주세요.'
 // 영상 소스가 끝난 뒤 다시 선택하지 않으면 이 시간 뒤 방송을 종료한다 (서버 유예 시간과 같게).
 // 송출 직후 바로 끊기면 MediaMTX에 송출이 잡히지 않아 서버가 끊김을 모를 수 있어서 화면이 직접 끝낸다
 export const SOURCE_ENDED_TIMEOUT_MS = 45_000
@@ -86,8 +86,8 @@ const INITIAL: PublisherState = {
   errorCode: null,
 }
 
-const errorState = (e: unknown) => ({
-  error: publishErrorMessage(e),
+const errorState = (e: unknown, source?: SourceKind) => ({
+  error: publishErrorMessage(e, source),
   errorCode: e instanceof ApiError ? e.code : null,
 })
 
@@ -189,8 +189,8 @@ export class Publisher {
       next = source === 'screen' ? await captureScreen({ mic: true }) : await captureCamera(this.state.facing)
     } catch (e) {
       // 고르는 사이 상태가 바뀌었으면(연결 끊김 → 재연결 등) 그 상태를 유지한다
-      if (this.state.phase !== 'requesting') return this.set(errorState(e))
-      this.set({ phase: before, ...errorState(e) })
+      if (this.state.phase !== 'requesting') return this.set(errorState(e, source))
+      this.set({ phase: before, ...errorState(e, source) })
       // 소스 중단 뒤 고르다 취소했다: 자동 종료 시한은 그대로다 (이미 지났으면 바로 종료)
       if (before === 'sourceEnded') this.armSourceEndedTimer()
       return
