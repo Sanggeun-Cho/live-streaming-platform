@@ -3,10 +3,11 @@ import { type CSSProperties, useEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { useAuth } from '../auth/context'
+import { useFeedback } from '../feedback/context'
 import { useDonationConfig, type useDonations } from '../hooks/useDonations'
 import { useNow } from '../hooks/useNow'
 import { errorMessage } from '../lib/api'
-import type { Broadcast } from '../lib/broadcasts'
+import type { Broadcast, BroadcastStatus } from '../lib/broadcasts'
 import {
   createDonationOrder,
   DONATION_PRESETS,
@@ -14,6 +15,7 @@ import {
   type DonationDraft,
   donationReturnUrl,
   formatWon,
+  rememberOrder,
   wantsDonationForm,
 } from '../lib/donations'
 import { formatDateTime, timeAgo } from '../lib/time'
@@ -22,9 +24,11 @@ import { Avatar } from './Avatar'
 import { DonationSheet } from './DonationSheet'
 import './donations.css'
 
-type Notice = { tone: 'info' | 'error'; text: string }
-
-/** 후원 버튼과 후원 시트. 후원할 수 없으면 이유를 보여주고, 방송자 본인에게는 보이지 않는다 */
+/**
+ * 후원 버튼과 후원 시트. 방송 중에만 보이고 방송자 본인에게는 보이지 않는다
+ * (방송 전·종료 후의 안내는 후원 내역(DonationBoard)의 빈 문구가 맡는다).
+ * 넓은 화면은 카드, 휴대폰은 제목 줄 오른쪽의 작은 버튼으로 보인다 (donations.css).
+ */
 export function DonationPanel({ broadcast, isOwner }: { broadcast: Broadcast; isOwner: boolean }) {
   const { status: authStatus } = useAuth()
   const { config, error: configError } = useDonationConfig()
@@ -34,25 +38,21 @@ export function DonationPanel({ broadcast, isOwner }: { broadcast: Broadcast; is
   const [draft, setDraft] = useState<DonationDraft>({ amount: DONATION_PRESETS[1], message: '' })
   // 토스 결제창이 떠 있는 동안 (결제하면 성공/실패 주소로 페이지가 바뀐다)
   const [paying, setPaying] = useState(false)
-  const [notice, setNotice] = useState<Notice | null>(null)
+  const { toast } = useFeedback()
 
   // "다시 후원하기"로 왔으면 state를 지워 새로고침했을 때 시트가 또 열리지 않게 한다
   useEffect(() => {
     if (wantsDonationForm(location.state)) navigate(location.pathname + location.search, { replace: true, state: null })
   }, [location, navigate])
 
-  if (isOwner || (!config && !configError)) return null
+  if (isOwner || broadcast.status !== 'LIVE' || (!config && !configError)) return null
 
   // 후원할 수 없는 이유 (위에서부터 먼저 걸리는 것 하나만 보여준다)
   const reason = configError
-    ? `후원 설정을 불러오지 못했습니다 (${configError}). 새로고침해 주세요`
+    ? `후원 설정을 불러오지 못했습니다(${configError}). 새로고침해 주세요.`
     : !config?.enabled
-      ? '결제 설정이 없어 후원을 사용할 수 없습니다'
-      : broadcast.status === 'READY'
-        ? '방송이 시작되면 후원할 수 있습니다'
-        : broadcast.status === 'ENDED'
-          ? '종료된 방송에는 후원할 수 없습니다'
-          : null
+      ? '결제 설정이 없어 후원을 사용할 수 없습니다.'
+      : null
   const title = `${broadcast.streamer.nickname}님 응원하기`
 
   if (!reason && authStatus === 'anonymous') {
@@ -63,7 +63,7 @@ export function DonationPanel({ broadcast, isOwner }: { broadcast: Broadcast; is
         <div className="donation-panel-text">
           <strong>{title}</strong>
           <small className="muted" data-testid="donation-reason">
-            로그인하면 후원할 수 있습니다
+            로그인하면 후원할 수 있습니다.
           </small>
         </div>
         <Link to={`/login?next=${next}`} className="button primary">
@@ -83,7 +83,7 @@ export function DonationPanel({ broadcast, isOwner }: { broadcast: Broadcast; is
             {reason}
           </small>
         </div>
-        <button type="button" className="primary" disabled aria-describedby="donation-reason">
+        <button type="button" className="primary" disabled aria-describedby="donation-reason" title={reason ?? undefined}>
           후원하기
         </button>
       </section>
@@ -93,6 +93,7 @@ export function DonationPanel({ broadcast, isOwner }: { broadcast: Broadcast; is
   async function pay() {
     if (!config || draft.amount === null) return
     const order = await createDonationOrder(broadcast.id, { amount: draft.amount, message: draft.message })
+    rememberOrder({ orderId: order.orderId, amount: order.amount, broadcastId: broadcast.id })
     if (config.fake) {
       // 가짜 결제: 결제창 대신 토스가 성공 주소로 보내 주는 것과 같은 쿼리로 이동한다
       const qs = new URLSearchParams({
@@ -119,19 +120,16 @@ export function DonationPanel({ broadcast, isOwner }: { broadcast: Broadcast; is
         failUrl: donationReturnUrl(broadcast.id, 'fail'),
         onCancel: () => {
           setPaying(false)
-          setNotice({ tone: 'info', text: '결제를 취소했습니다. 입력한 금액과 메시지는 그대로 남아 있습니다' })
+          toast('결제를 취소했습니다. 입력한 금액과 메시지는 그대로 남아 있습니다.', 'info')
         },
         onError: (err) => {
           setPaying(false)
-          setNotice({ tone: 'error', text: `결제를 요청하지 못했습니다 (${errorMessage(err)}). 다시 시도해 주세요` })
+          toast(`결제를 요청하지 못했습니다(${errorMessage(err)}). 다시 시도해 주세요.`, 'error')
         },
       })
     } catch (err) {
       setPaying(false)
-      setNotice({
-        tone: 'error',
-        text: tossErrorCode(err) ? `결제창을 열지 못했습니다 (${errorMessage(err)})` : errorMessage(err),
-      })
+      toast(tossErrorCode(err) ? `결제창을 열지 못했습니다(${errorMessage(err)}). 다시 시도해 주세요.` : errorMessage(err), 'error')
     }
   }
 
@@ -140,27 +138,16 @@ export function DonationPanel({ broadcast, isOwner }: { broadcast: Broadcast; is
       <PanelIcon />
       <div className="donation-panel-text">
         <strong>{title}</strong>
-        <small className="muted">후원 금액과 메시지가 방송 화면과 채팅에 함께 표시됩니다</small>
+        <small className="muted">후원 금액과 메시지가 방송 화면과 채팅에 함께 표시됩니다.</small>
       </div>
       <button
         type="button"
         className="primary"
         disabled={paying}
-        onClick={() => {
-          setNotice(null)
-          setOpen(true)
-        }}
+        onClick={() => setOpen(true)}
       >
         {paying ? '결제 진행 중…' : '후원하기'}
       </button>
-      {notice && (
-        <p
-          className={`donation-panel-notice ${notice.tone === 'error' ? 'error' : 'muted'}`}
-          role={notice.tone === 'error' ? 'alert' : 'status'}
-        >
-          {notice.text}
-        </p>
-      )}
       {open && (
         <DonationSheet
           broadcast={broadcast}
@@ -183,13 +170,22 @@ function PanelIcon() {
   )
 }
 
+/** 후원이 없을 때의 문구. 방송 상태마다 할 수 있는 일이 달라 따로 쓴다 */
+function emptyText(status: BroadcastStatus, isOwner: boolean) {
+  if (status === 'ENDED') return isOwner ? '이 방송에서 받은 후원이 없습니다.' : '이 방송에는 후원이 없었습니다.'
+  if (isOwner) return '아직 받은 후원이 없습니다.'
+  return status === 'READY' ? '방송이 시작되면 후원할 수 있습니다.' : '아직 후원이 없습니다. 첫 후원을 남겨 보세요.'
+}
+
 /** 방송별 후원 합계와 내역 (최신순) */
 export function DonationBoard({
   donations,
   isOwner,
+  broadcastStatus,
 }: {
   donations: ReturnType<typeof useDonations>
   isOwner: boolean
+  broadcastStatus: BroadcastStatus
 }) {
   const { items, total, status, error, hasMore, loadMore, reload } = donations
   const now = useNow()
@@ -204,7 +200,7 @@ export function DonationBoard({
       </header>
       {status === 'error' && (
         <p className="error" role="alert">
-          후원 내역을 불러오지 못했습니다 ({error}){' '}
+          후원 내역을 불러오지 못했습니다({error}).{' '}
           <button type="button" className="link-button" onClick={reload}>
             다시 시도
           </button>
@@ -212,9 +208,9 @@ export function DonationBoard({
       )}
       {status === 'loading' && items.length === 0 && <p className="muted">불러오는 중…</p>}
       {status === 'idle' && items.length === 0 && (
-        <p className="donation-empty">
+        <p className="donation-empty" data-testid="donation-reason">
           <HandHeart size={28} aria-hidden />
-          {isOwner ? '아직 받은 후원이 없습니다' : '아직 후원이 없습니다. 첫 후원을 남겨 보세요'}
+          {emptyText(broadcastStatus, isOwner)}
         </p>
       )}
       <ul className="donation-list" data-testid="donation-list">
@@ -265,7 +261,7 @@ export function DonationAlert({ donation }: { donation: Donation }) {
       </span>
       <div className="donation-alert-text">
         <span>
-          <strong>{donation.donor.nickname}</strong>님이 후원했습니다
+          <strong>{donation.donor.nickname}</strong>님이 후원했습니다.
         </span>
         <strong className="donation-alert-amount">{formatWon(donation.amount)}</strong>
         {donation.message && <p>{donation.message}</p>}

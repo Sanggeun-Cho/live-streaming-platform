@@ -368,6 +368,9 @@ button.ghost:hover:not(:disabled),
   background: var(--neutral);
   color: var(--on-fill);
   vertical-align: middle;
+  /* 전역 overflow-wrap: anywhere 때문에 좁은 자리에서 "LIV/E"처럼 끊기지 않게 한다 */
+  white-space: nowrap;
+  overflow-wrap: normal;
 }
 
 .badge-live {
@@ -376,6 +379,11 @@ button.ghost:hover:not(:disabled),
 
 .badge-ready {
   background: var(--info);
+}
+
+.badge-warn {
+  background: var(--warn);
+  color: var(--warn-ink);
 }
 
 .live-dot {
@@ -526,13 +534,24 @@ button.ghost:hover:not(:disabled),
 }
 
 .nav-cta {
+  gap: 4px;
   color: var(--accent);
+}
+
+/* 휴대폰: 카메라 아이콘만으로는 뜻이 약해 짧은 글자를 붙인다 */
+.nav .nav-cta {
+  padding: var(--space-2) 10px;
+  font-size: var(--fs-sm);
 }
 
 @media (min-width: 640px) {
   .nav-nickname,
   .nav-label {
     display: inline;
+  }
+
+  .nav-label-short {
+    display: none;
   }
 
   .nav-signup {
@@ -542,6 +561,7 @@ button.ghost:hover:not(:disabled),
   .nav .nav-cta {
     width: auto;
     padding: var(--space-2) var(--space-4);
+    font-size: var(--fs-md);
     background: var(--accent);
     border-color: var(--accent);
     color: var(--accent-ink);
@@ -675,6 +695,8 @@ button.ghost:hover:not(:disabled),
 }
 
 .section-title {
+  /* 홈 상단 "N개 방송 진행 중"을 눌러 이동했을 때 고정 헤더에 가리지 않게 */
+  scroll-margin-top: calc(var(--header-h) + var(--space-4));
   display: flex;
   align-items: center;
   gap: 8px;
@@ -851,11 +873,10 @@ input[type='range'] {
 .broadcast-layout {
   display: grid;
   gap: var(--space-4);
-  /* 모바일: 영상 → 제목·방송자 → 후원 버튼 → 채팅 → 설명·후원 내역 (치지직·유튜브 라이브와 같은 순서) */
+  /* 태블릿: 영상 → 제목·방송자·후원 → 채팅 → 설명·후원 내역 */
   grid-template-areas:
     'player'
     'head'
-    'donate'
     'chat'
     'info';
 }
@@ -863,28 +884,6 @@ input[type='range'] {
 .broadcast-head {
   grid-area: head;
   min-width: 0;
-}
-
-.broadcast-donate {
-  grid-area: donate;
-  min-width: 0;
-}
-
-.broadcast-donate:empty {
-  display: none;
-}
-
-.ended-notice {
-  display: flex;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 16px;
-}
-
-.ended-notice p {
-  margin: 0;
 }
 
 .start-cta {
@@ -912,13 +911,54 @@ input[type='range'] {
   grid-area: chat;
 }
 
+/*
+ * 휴대폰: 영상을 화면 위에 붙여 두고(sticky) 그 아래 제목 한 줄과 후원 버튼, 남은 높이는 채팅이 채운다.
+ * 영상과 채팅을 한 화면에서 함께 보게 하려는 배치다. 설명·후원 내역은 채팅 아래로 내려간다.
+ * 영상은 가장자리까지 꽉 채우므로(본문 여백을 상쇄) 높이를 폭에서 계산할 수 있다.
+ */
+@media (max-width: 768px) {
+  .broadcast-layout {
+    --player-h: min(56.25vw, calc(100dvh - var(--header-h) - var(--space-12)));
+    --head-h: 60px;
+    gap: 0;
+    margin: calc(-1 * var(--space-5)) calc(-1 * var(--space-4)) 0;
+  }
+
+  .broadcast-layout .player,
+  .broadcast-layout .player-placeholder {
+    border-radius: 0;
+  }
+
+  .broadcast-layout > .broadcast-detail > .player,
+  .broadcast-layout > .broadcast-detail > .player-placeholder,
+  .broadcast-layout > .broadcast-detail > .replay {
+    position: sticky;
+    top: var(--header-h);
+    z-index: 5;
+  }
+
+  /* 제목 줄 오른쪽에 후원 버튼 (donations.css가 휴대폰에서 카드 대신 버튼만 보인다) */
+  .broadcast-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: var(--head-h);
+    padding: 0 var(--space-3);
+  }
+
+  .broadcast-body {
+    padding: var(--space-4) var(--space-4) 0;
+  }
+}
+
 @media (min-width: 1000px) {
   .broadcast-layout {
     grid-template-columns: minmax(0, 1fr) var(--chat-w);
+    /* 채팅(오른쪽)이 왼쪽보다 길어도 남는 높이는 마지막 줄이 받는다 (위쪽 줄 사이에 빈 띠가 생기지 않게) */
+    grid-template-rows: auto auto 1fr;
     grid-template-areas:
       'player chat'
       'head chat'
-      'donate chat'
       'info chat';
     align-items: start;
   }
@@ -1093,51 +1133,41 @@ input[type='range'] {
   color: var(--on-fill);
 }
 
-/* 다시보기는 브라우저 기본 컨트롤을 쓰되 라이브와 같은 틀(배지·모서리)로 맞춘다 */
-.replay-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1) var(--space-3);
-  margin: var(--space-3) 0 0;
-  font-size: var(--fs-sm);
-  color: var(--text-dim);
-}
-
-.replay-meta > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
+/* 다시보기는 브라우저 기본 컨트롤을 쓰되 라이브와 같은 틀(배지·모서리)로 맞춘다.
+   구간 이동은 영상 아래 작은 버튼으로 (휴대폰은 영상·채팅을 한 화면에 두려고 숨긴다: 구간은 자동으로 이어진다) */
 .segment-list {
   padding: 0;
   list-style: none;
   display: flex;
   gap: 6px;
-  margin: var(--space-3) 0 0;
+  margin: var(--space-2) 0 0;
   overflow-x: auto;
 }
 
 .segment-list button {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0;
-  min-height: var(--tap);
-  padding: 6px var(--space-3);
-  font-size: var(--fs-sm);
+  gap: 6px;
+  min-height: 32px;
+  padding: 2px 10px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-dim);
   white-space: nowrap;
 }
 
 .segment-list small {
   font-weight: 400;
-  color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
 
 .segment-list [aria-current='true'] {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+@media (max-width: 768px) {
+  .segment-list {
+    display: none;
+  }
 }
 
 .broadcast-info {
@@ -1171,6 +1201,42 @@ input[type='range'] {
   color: var(--accent);
   font-weight: 700;
   text-decoration: none;
+}
+
+.broadcast-when {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 휴대폰: 제목은 한 줄로 줄이고(넘치면 …), 방송자 이름·시각을 그 아래 작게 */
+@media (max-width: 768px) {
+  .broadcast-info {
+    flex: 1;
+    min-width: 0;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+  }
+
+  .broadcast-info h1 {
+    margin: 0;
+    font-size: var(--fs-md);
+    line-height: 1.35;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .broadcast-meta {
+    flex-wrap: nowrap;
+    gap: 8px;
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+  }
+
+  .broadcast-meta .streamer-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
 .owner-actions {

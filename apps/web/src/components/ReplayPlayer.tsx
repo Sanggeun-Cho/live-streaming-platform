@@ -1,11 +1,11 @@
-import { Clock, Film, Layers, RotateCw } from 'lucide-react'
+import { Clock, RotateCw } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { formatDuration, nextSegment, type Recording, segmentPosition } from '../lib/recordings'
-
-const timeFormat = new Intl.DateTimeFormat('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+import { StatusBadge } from './BroadcastList'
 
 /**
  * 다시보기 플레이어. 라이브 플레이어와 같은 틀·배지를 쓰고, 탐색은 브라우저 기본 컨트롤에 맡긴다. 재연결·송출 대체로 세그먼트가 여러 개면 시작 시각 순서로 이어서 재생한다.
+ * 구간은 녹화 사정이라 시청자에게는 총 길이를 크게 보이고, 구간 이동은 영상 아래 작은 버튼으로만 둔다.
  * 파일은 Caddy가 Range 요청으로 서빙하므로 <video>의 탐색이 그대로 동작한다.
  * 재생 중인 구간은 배열 위치가 아니라 녹화 id로 기억한다: SSE로 앞쪽 구간이 늦게 끼어들어도 보던 구간이 바뀌지 않는다.
  */
@@ -53,18 +53,13 @@ export function ReplayPlayer({ recordings }: { recordings: Recording[] }) {
             const next = nextSegment(recordings, current.id)
             if (next) select(next)
           }}
-          onError={() => setError('영상을 불러오지 못했습니다. 네트워크를 확인하고 다시 시도하세요.')}
+          onError={() => setError('영상을 불러오지 못했습니다. 네트워크를 확인하고 다시 시도해 주세요.')}
         />
         <div className="player-top">
-          <span className="badge">
-            <Film size={12} aria-hidden="true" />
-            다시보기
+          <StatusBadge status="ENDED" replay />
+          <span className="player-chip">
+            <Clock size={13} aria-hidden="true" />총 {formatDuration(total)}
           </span>
-          {recordings.length > 1 && (
-            <span className="player-chip">
-              {position + 1}/{recordings.length} 구간
-            </span>
-          )}
         </div>
         {error && (
           <div className="player-error" role="alert">
@@ -83,26 +78,12 @@ export function ReplayPlayer({ recordings }: { recordings: Recording[] }) {
           </div>
         )}
       </div>
-      <p className="replay-meta">
-        <span>
-          <Clock size={14} aria-hidden="true" />총 {formatDuration(total)}
-        </span>
-        {recordings.length > 1 && (
-          <span>
-            <Layers size={14} aria-hidden="true" />
-            {recordings.length}개 구간을 이어서 재생합니다
-          </span>
-        )}
-      </p>
       {recordings.length > 1 && (
-        <ol className="segment-list" data-testid="segment-list" aria-label="구간 선택">
+        <ol className="segment-list" data-testid="segment-list" aria-label="구간 이동">
           {recordings.map((r, i) => (
             <li key={r.id}>
               <button type="button" aria-current={i === position ? 'true' : undefined} onClick={() => select(r)}>
-                {i + 1}구간
-                <small>
-                  {timeFormat.format(new Date(r.startedAt))} 시작 · {formatDuration(r.durationMs)}
-                </small>
+                {i + 1}구간 <small>{formatDuration(r.durationMs)}</small>
               </button>
             </li>
           ))}

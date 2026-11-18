@@ -22,25 +22,25 @@ export function HomePage() {
       {/* 첫 화면에서 "무엇을 하는 곳인지"와 "지금 볼 것이 있는지"를 함께 알린다. 휴대폰에서는 한 줄로 줄어든다 */}
       <section className="home-intro" aria-labelledby="home-title">
         <div className="home-intro-text">
-          <p className={`home-kicker${live?.count ? ' is-live' : ''}`}>
-            {live?.count ? (
-              <>
-                <span className="live-dot" aria-hidden="true" />
-                지금 {live.count}
-                {live.hasMore ? '개 이상' : '개'} 채널이 방송 중입니다
-              </>
-            ) : (
-              '로그인 없이 바로 시청합니다'
-            )}
-          </p>
+          {live?.count ? (
+            // 휴대폰에서는 이 한 줄이 소개를 대신하므로 누르면 라이브 목록으로 내려간다
+            <a href="#live-heading" className="home-kicker is-live">
+              <span className="live-dot" aria-hidden="true" />
+              {live.count}
+              {live.hasMore ? '개 이상의' : '개'} 방송 진행 중
+            </a>
+          ) : (
+            !user && <p className="home-kicker">로그인 없이 바로 시청할 수 있습니다.</p>
+          )}
           <h1 id="home-title">누구나 바로 보고, 바로 방송합니다</h1>
           <p className="home-intro-desc">
             실시간 방송을 보며 채팅과 후원으로 방송자와 함께합니다. 방송은 설치 없이 PC 화면 공유나 휴대폰 카메라로
             시작합니다.
           </p>
         </div>
+        {/* 헤더의 "방송하기"(초록)와 나란히 두 개의 주 버튼이 되지 않게 여기서는 보조 버튼으로 */}
         <div className="home-actions">
-          <Link to="/broadcasts/new" className="button primary">
+          <Link to="/broadcasts/new" className="button">
             <Radio size={18} aria-hidden="true" />
             방송 시작하기
           </Link>
@@ -60,7 +60,7 @@ export function HomePage() {
           {live !== null && live.count > 0 && (
             <span className="section-count">
               {live.count}
-              {live.hasMore ? '+' : ''}개 채널
+              {live.hasMore ? '+' : ''}개 방송
             </span>
           )}
         </div>
@@ -75,7 +75,7 @@ export function HomePage() {
               inline
               as="p"
               icon={Radio}
-              title="지금 방송 중인 채널이 없습니다"
+              title="지금 진행 중인 방송이 없습니다"
               description="방송을 시작하면 이곳에 가장 먼저 보입니다."
               action={
                 <Link to="/broadcasts/new" className="button primary">

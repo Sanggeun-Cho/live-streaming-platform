@@ -16,10 +16,10 @@ describe('후원 금액', () => {
   })
 
   it('상황마다 다른 안내를 돌려주고, 규칙에 맞으면 null', () => {
-    expect(amountError(null, limits)).toBe('후원 금액을 입력해 주세요')
-    expect(amountError(500, limits)).toBe('최소 1,000원부터 후원할 수 있습니다')
-    expect(amountError(2_000_000, limits)).toBe('최대 1,000,000원까지 후원할 수 있습니다')
-    expect(amountError(1_500, limits)).toBe('1,000원 단위로 입력해 주세요')
+    expect(amountError(null, limits)).toBe('후원 금액을 입력해 주세요.')
+    expect(amountError(500, limits)).toBe('최소 1,000원부터 후원할 수 있습니다.')
+    expect(amountError(2_000_000, limits)).toBe('최대 1,000,000원까지 후원할 수 있습니다.')
+    expect(amountError(1_500, limits)).toBe('1,000원 단위로 입력해 주세요.')
     expect(amountError(12_000, limits)).toBeNull()
   })
 })

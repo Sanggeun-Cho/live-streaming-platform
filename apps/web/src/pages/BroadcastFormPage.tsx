@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router'
 import { useAuth } from '../auth/context'
 import { useAuthErrorRedirect } from '../auth/useAuthErrorRedirect'
 import { EmptyState } from '../components/EmptyState'
+import { useFeedback } from '../feedback/context'
 import { FormField } from '../components/FormField'
 import { Spinner } from '../components/Spinner'
 import { useBroadcast } from '../hooks/useBroadcast'
@@ -36,7 +37,7 @@ function BroadcastForm({ initial, onSubmit, submitLabel, pendingLabel, onCancel 
     e.preventDefault()
     setError(null)
     if (!title.trim()) {
-      setTitleError('제목을 입력하세요')
+      setTitleError('제목을 입력해 주세요.')
       titleRef.current?.focus()
       return
     }
@@ -110,6 +111,7 @@ function BroadcastForm({ initial, onSubmit, submitLabel, pendingLabel, onCancel 
 
 export function NewBroadcastPage() {
   const navigate = useNavigate()
+  const { toast } = useFeedback()
   useDocumentTitle('새 방송 만들기')
   return (
     <section className="auth-card">
@@ -120,6 +122,7 @@ export function NewBroadcastPage() {
         pendingLabel="만드는 중…"
         onSubmit={async (input) => {
           const created = await createBroadcast(input)
+          toast('방송을 만들었습니다. 방송 시작하기를 눌러 송출하세요.', 'success')
           navigate(`/broadcasts/${created.id}`, { replace: true })
         }}
       />
@@ -131,6 +134,7 @@ export function EditBroadcastPage() {
   const id = Number(useParams().id)
   const { user } = useAuth()
   const navigate = useNavigate()
+  const { toast } = useFeedback()
   const { broadcast, error } = useBroadcast(id)
   useDocumentTitle(broadcast ? `${broadcast.title} 정보 수정` : '방송 정보 수정')
 
@@ -141,7 +145,7 @@ export function EditBroadcastPage() {
         tone="error"
         as="h1"
         title={error.status === 404 ? '방송을 찾을 수 없습니다' : '방송 정보를 불러오지 못했습니다'}
-        description={error.status === 404 ? '삭제되었거나 주소가 잘못되었습니다.' : error.message}
+        description={error.status === 404 ? '삭제되었거나 주소가 바뀌었을 수 있습니다.' : error.message}
         action={
           <Link to="/" className="button">
             홈으로
@@ -184,6 +188,7 @@ export function EditBroadcastPage() {
         onCancel={() => navigate(`/broadcasts/${id}`)}
         onSubmit={async (input) => {
           await updateBroadcast(id, input)
+          toast('저장했습니다.', 'success')
           navigate(`/broadcasts/${id}`, { replace: true })
         }}
       />

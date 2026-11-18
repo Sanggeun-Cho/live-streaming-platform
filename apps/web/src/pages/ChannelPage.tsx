@@ -5,7 +5,7 @@ import { useAuth } from '../auth/context'
 import { Avatar } from '../components/Avatar'
 import { EmptyState } from '../components/EmptyState'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
-import { BroadcastList, type Item } from '../components/BroadcastList'
+import { BroadcastList, type Item, StatusBadge } from '../components/BroadcastList'
 import { ApiError, api, errorMessage } from '../lib/api'
 import { colorOf } from '../lib/avatar'
 import { type BroadcastStatus, listBroadcasts } from '../lib/broadcasts'
@@ -31,8 +31,15 @@ export function ChannelPage() {
   }, [channelId, valid])
 
   const current = result?.id === channelId ? result : null
-  useDocumentTitle(current?.channel ? `${current.channel.owner.nickname}의 채널` : null)
-  if (!valid || current?.error?.status === 404) {
+  const notFound = !valid || current?.error?.status === 404
+  useDocumentTitle(
+    current?.channel
+      ? `${current.channel.owner.nickname}의 채널`
+      : notFound
+        ? '채널을 찾을 수 없음'
+        : current?.error && '채널을 불러오지 못함',
+  )
+  if (notFound) {
     return (
       <EmptyState
         icon={SearchX}
@@ -97,7 +104,7 @@ function ChannelBody({ channel }: { channel: Channel }) {
   const nothingAtAll = othersLoaded && live.count === 0 && ready.count === 0
   const endedEmpty = !othersLoaded ? null : nothingAtAll ? (
     isMine ? (
-      <EmptyState inline as="p" icon={Radio} title="아직 만든 방송이 없습니다" description={'"새 방송 만들기"로 첫 방송을 준비하세요.'} />
+      <EmptyState inline as="p" icon={Radio} title="아직 만든 방송이 없습니다" description={'"새 방송 만들기"로 첫 방송을 준비해 보세요.'} />
     ) : (
       <EmptyState inline as="p" icon={Radio} title="이 채널에는 아직 방송이 없습니다" />
     )
@@ -114,7 +121,7 @@ function ChannelBody({ channel }: { channel: Channel }) {
       >
         <div className={`channel-avatar${liveNow ? ' is-live' : ''}`}>
           <Avatar id={channel.owner.id} name={channel.owner.nickname} size={76} />
-          {liveNow && <span className="badge badge-live">LIVE</span>}
+          {liveNow && <StatusBadge status="LIVE" />}
         </div>
         <div className="channel-info">
           <h1 id="channel-title">
@@ -136,13 +143,13 @@ function ChannelBody({ channel }: { channel: Channel }) {
         </div>
         <div className="channel-actions">
           {liveNow && (
-            <Link to={`/broadcasts/${liveNow.id}`} className="button live">
+            <Link to={`/broadcasts/${liveNow.id}`} className="button primary">
               <Play size={16} fill="currentColor" aria-hidden="true" />
               지금 보러 가기
             </Link>
           )}
           {isMine && (
-            <Link to="/broadcasts/new" className="button primary">
+            <Link to="/broadcasts/new" className={liveNow ? 'button' : 'button primary'}>
               <Plus size={18} aria-hidden="true" />새 방송 만들기
             </Link>
           )}

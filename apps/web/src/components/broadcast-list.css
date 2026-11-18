@@ -164,13 +164,6 @@
   background: rgb(20 21 26 / 0.85);
 }
 
-.badge-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #fff;
-}
-
 .thumb-chip {
   position: absolute;
   bottom: 8px;
@@ -314,6 +307,11 @@
 
 .home-kicker.is-live {
   color: #ff6b85;
+  text-decoration: none;
+}
+
+a.home-kicker:hover {
+  text-decoration: underline;
 }
 
 .home-intro h1 {
@@ -477,16 +475,6 @@
   min-height: 44px;
 }
 
-.button.live {
-  background: var(--live);
-  border-color: var(--live);
-  color: #fff;
-}
-
-.button.live:hover {
-  background: color-mix(in srgb, var(--live) 85%, #fff);
-}
-
 /* ---- 휴대폰 ---- */
 @media (max-width: 599px) {
   .broadcast-grid {
@@ -547,6 +535,11 @@
 
   /* 헤더에 "방송하기"가 있으므로 휴대폰에서는 버튼을 빼고 한 줄 안내만 남긴다 */
   .home-actions {
+    display: none;
+  }
+
+  /* 한 줄 안내도 없으면(로그인 + 방송 없음) 빈 띠가 되므로 숨긴다 */
+  .home-intro:not(:has(.home-kicker)) {
     display: none;
   }
 

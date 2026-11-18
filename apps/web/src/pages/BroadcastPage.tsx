@@ -20,38 +20,80 @@ import { useComments } from '../hooks/useComments'
 import { useDonations } from '../hooks/useDonations'
 import { useRecordings } from '../hooks/useRecordings'
 import { errorMessage } from '../lib/api'
-import { type BroadcastStatus, deleteBroadcast } from '../lib/broadcasts'
+import { type Broadcast, type BroadcastStatus, deleteBroadcast, STATUS_LABEL } from '../lib/broadcasts'
 import type { Donation } from '../lib/donations'
+import { timeAgoOf } from '../lib/time'
+import { useNow } from '../hooks/useNow'
 
 const PLAYER_MESSAGE: Record<BroadcastStatus, string> = {
-  READY: '방송 시작 전입니다',
-  LIVE: '방송 화면 준비 중',
-  ENDED: '방송이 종료되었습니다',
+  READY: '방송 시작 전입니다.',
+  LIVE: '방송 화면을 준비하고 있습니다.',
+  ENDED: '방송이 종료되었습니다.',
 }
 
-/** 종료된 방송: 녹화가 있으면 다시보기, 막 끝났으면 준비 중 안내 (#12) */
-function EndedPlayer({ replay, everLive }: { replay: ReturnType<typeof useRecordings>; everLive: boolean }) {
+/**
+ * 종료된 방송: 녹화가 있으면 다시보기, 없으면 그 이유를 화면 자리에 안내한다 (#12).
+ * 보는 중에 끝났으면 다음에 갈 곳(다른 라이브)을 함께 보여 준다.
+ */
+function EndedPlayer({
+  replay,
+  everLive,
+  endedWhileWatching,
+}: {
+  replay: ReturnType<typeof useRecordings>
+  everLive: boolean
+  endedWhileWatching: boolean
+}) {
   const { recordings, error, preparing, reload } = replay
   if (recordings && recordings.length > 0) return <ReplayPlayer recordings={recordings} />
 
   let message = PLAYER_MESSAGE.ENDED
-  if (!recordings && error) message = `다시보기를 불러오지 못했습니다: ${error}`
+  if (!recordings && error) message = `다시보기를 불러오지 못했습니다. ${error}`
   else if (!recordings) message = '다시보기를 불러오는 중…'
-  else if (preparing) message = '녹화 파일을 준비하고 있습니다. 준비가 끝나면 이 화면에서 바로 재생됩니다'
-  else if (everLive) message = '방송이 종료되었습니다. 저장된 녹화가 없습니다'
+  else if (preparing) message = '녹화 파일을 준비하고 있습니다. 준비가 끝나면 이 화면에서 바로 재생됩니다.'
+  else if (everLive) message = '방송이 종료되었습니다. 저장된 녹화가 없습니다.'
 
   return (
     <div className="player-placeholder" data-testid="player-placeholder">
       <StatusBadge status="ENDED" />
-      <p className="muted" role={error ? 'alert' : undefined}>
+      <p className="muted" role={error ? 'alert' : 'status'}>
         {message}
       </p>
-      {!recordings && error && (
+      {!recordings && error ? (
         <button type="button" onClick={reload}>
           다시 시도
         </button>
+      ) : (
+        endedWhileWatching && (
+          <Link to="/" className="button">
+            다른 라이브 보기
+          </Link>
+        )
       )}
     </div>
+  )
+}
+
+/** 제목 아래 한 줄: 상태는 플레이어 배지가 보여 주므로 글로는 시각만 적는다. 화면 읽기 프로그램에는 상태·시청자 수도 읽힌다 */
+function StatusLine({ broadcast, viewers }: { broadcast: Broadcast; viewers: number | null }) {
+  const now = useNow()
+  const { status, startedAt, endedAt, createdAt } = broadcast
+  const when =
+    status === 'LIVE'
+      ? startedAt && timeAgoOf(startedAt, '시작', now)
+      : status === 'ENDED'
+        ? endedAt && timeAgoOf(endedAt, '종료', now)
+        : timeAgoOf(createdAt, '등록', now)
+  const viewerText = status === 'LIVE' && viewers !== null ? `, 시청자 ${viewers.toLocaleString()}명` : ''
+  return (
+    <span className="broadcast-when" data-testid="status-line">
+      <span className="sr-only">
+        {STATUS_LABEL[status]}
+        {viewerText}
+        {when && ', '}
+      </span>
+      {when}
+    </span>
   )
 }
 
@@ -60,11 +102,19 @@ export function BroadcastPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const { broadcast, error, patch } = useBroadcast(id)
-  useDocumentTitle(broadcast && `${broadcast.title} · ${broadcast.streamer.nickname}`)
   const [actionError, setActionError] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [viewers, setViewers] = useState<number | null>(null)
   const [deleted, setDeleted] = useState(false)
+  useDocumentTitle(
+    error
+      ? error.status === 404
+        ? '방송을 찾을 수 없음'
+        : '방송을 불러오지 못함'
+      : deleted
+        ? '삭제된 방송'
+        : broadcast && `${broadcast.title} · ${broadcast.streamer.nickname}`,
+  )
   // 송출이 다시 붙을 때마다 플레이어를 새로 연결한다
   const [playerKey, setPlayerKey] = useState(0)
   const redirectIfUnauthorized = useAuthErrorRedirect()
@@ -80,7 +130,8 @@ export function BroadcastPage() {
   const { connected } = useBroadcastEvents(broadcast ? id : null, {
     status: (data) => {
       if (data.status === 'LIVE' && !data.disconnectedAt) setPlayerKey((k) => k + 1)
-      if (data.status === 'ENDED') setEndedWhileWatching(true)
+      // 연결할 때 현재 상태도 한 번 오므로, 이미 끝난 방송을 연 경우는 제외한다
+      if (data.status === 'ENDED' && broadcast && broadcast.status !== 'ENDED') setEndedWhileWatching(true)
       patch(data)
     },
     updated: (data) => patch(data),
@@ -133,7 +184,7 @@ export function BroadcastPage() {
     setDeleting(true)
     try {
       await deleteBroadcast(id)
-      toast('방송을 삭제했습니다')
+      toast('방송을 삭제했습니다.')
       navigate(`/channels/${broadcast!.channel.id}`, { replace: true })
     } catch (e) {
       setDeleting(false)
@@ -145,14 +196,24 @@ export function BroadcastPage() {
     <div className="broadcast-layout">
       <article className="broadcast-detail">
         {broadcast.status === 'ENDED' ? (
-          <EndedPlayer replay={replay} everLive={broadcast.startedAt !== null} />
+          <EndedPlayer
+            replay={replay}
+            everLive={broadcast.startedAt !== null}
+            endedWhileWatching={endedWhileWatching && !isOwner}
+          />
         ) : broadcast.status === 'LIVE' && !broadcast.disconnectedAt ? (
-          // 방송자 본인도 시청할 수 있다 (예: 휴대폰으로 송출하고 PC에서 확인). 음소거로 시작하므로 하울링이 없다
-          <LivePlayer key={playerKey} broadcastId={id} viewers={viewers ?? undefined} startedAt={broadcast.startedAt} />
+          // 방송자 본인도 시청할 수 있다 (예: 휴대폰으로 송출하고 PC에서 확인). 항상 음소거로 시작하므로 하울링이 없다
+          <LivePlayer
+            key={playerKey}
+            broadcastId={id}
+            viewers={viewers ?? undefined}
+            startedAt={broadcast.startedAt}
+            alwaysMuted={isOwner}
+          />
         ) : (
           <div className="player-placeholder" data-testid="player-placeholder">
-            <StatusBadge status={broadcast.status} />
-            <p className="muted">
+            <StatusBadge status={broadcast.status} reconnecting={broadcast.disconnectedAt !== null} />
+            <p className="muted" role="status">
               {broadcast.disconnectedAt
                 ? '방송자의 연결이 끊겼습니다. 다시 연결되기를 기다리는 중…'
                 : PLAYER_MESSAGE[broadcast.status]}
@@ -166,17 +227,9 @@ export function BroadcastPage() {
           </div>
         )}
         <div className="broadcast-head">
-          {endedWhileWatching && broadcast.status === 'ENDED' && (
-            <div className="notice ended-notice" role="status">
-              <p>방송이 종료되었습니다. 녹화가 준비되면 위 화면에서 다시보기를 볼 수 있습니다.</p>
-              <Link to="/" className="button">
-                다른 라이브 보기
-              </Link>
-            </div>
-          )}
           <div className="broadcast-info">
             <Link to={`/channels/${broadcast.channel.id}`} aria-label={`${broadcast.streamer.nickname} 채널`}>
-              <Avatar id={broadcast.streamer.id} name={broadcast.streamer.nickname} size={48} />
+              <Avatar id={broadcast.streamer.id} name={broadcast.streamer.nickname} size={40} />
             </Link>
             <div className="broadcast-info-text">
               <h1>{broadcast.title}</h1>
@@ -184,21 +237,16 @@ export function BroadcastPage() {
                 <Link to={`/channels/${broadcast.channel.id}`} className="streamer-name">
                   {broadcast.streamer.nickname}
                 </Link>
-                <span data-testid="status-line">
-                  <StatusBadge status={broadcast.status} />
-                  {viewers !== null && broadcast.status === 'LIVE' && ` 시청자 ${viewers}명`}
-                </span>
+                <StatusLine broadcast={broadcast} viewers={viewers} />
               </div>
             </div>
           </div>
-        </div>
-        <div className="broadcast-donate">
-          {latestDonation && <DonationAlert key={latestDonation.id} donation={latestDonation} />}
           <DonationPanel broadcast={broadcast} isOwner={isOwner} />
         </div>
+        {latestDonation && <DonationAlert key={latestDonation.id} donation={latestDonation} />}
         <div className="broadcast-body">
           {broadcast.description && <p className="description">{broadcast.description}</p>}
-          <DonationBoard donations={donations} isOwner={isOwner} />
+          <DonationBoard donations={donations} isOwner={isOwner} broadcastStatus={broadcast.status} />
 
           {isOwner && (
             <div className="row owner-actions">
@@ -222,7 +270,7 @@ export function BroadcastPage() {
               </button>
               {broadcast.status === 'LIVE' && (
                 <small id="delete-hint" className="muted">
-                  방송을 종료한 뒤 삭제할 수 있습니다
+                  방송을 종료한 뒤 삭제할 수 있습니다.
                 </small>
               )}
             </div>

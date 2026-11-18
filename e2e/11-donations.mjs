@@ -48,16 +48,16 @@ async function goLive() {
   if (!res.ok) throw new Error(`online 훅 실패 ${res.status}`)
 }
 
-await step('방송 전(READY): 후원 버튼이 비활성이고 이유를 안내한다', async () => {
+await step('방송 전(READY): 후원 버튼 없이 후원 내역 자리에서 언제 후원할 수 있는지 안내한다', async () => {
   await viewer.goto(url)
-  await reason(viewer).getByText('방송이 시작되면 후원할 수 있습니다').waitFor()
-  expectEqual(await donateButton(viewer).isDisabled(), true, '버튼 비활성')
-  await viewer.getByText('아직 후원이 없습니다').waitFor()
+  await reason(viewer).getByText('방송이 시작되면 후원할 수 있습니다.').waitFor()
+  expectEqual(await donateButton(viewer).count(), 0, '후원 버튼 수')
 })
 
-await step('방송이 시작되면 새로고침 없이 후원 버튼이 켜진다', async () => {
+await step('방송이 시작되면 새로고침 없이 후원 버튼이 나타나고, 빈 안내가 "첫 후원"으로 바뀐다', async () => {
   await goLive()
   await donateButton(viewer).and(viewer.locator(':enabled')).waitFor()
+  await reason(viewer).getByText('아직 후원이 없습니다. 첫 후원을 남겨 보세요.').waitFor()
 })
 
 await step('비로그인: 로그인 안내 링크를 누르면 로그인 화면으로 가고 돌아올 주소를 유지한다', async () => {
@@ -166,7 +166,8 @@ if (config.fake) {
   await step('결제 실패로 돌아오면 결제되지 않았음을 강조하고 문의용 코드를 작게 보여준다', async () => {
     await viewer.goto(`${url}/donation/fail?code=REJECT_CARD_COMPANY&message=${encodeURIComponent('카드사에서 거절했습니다')}`)
     await viewer.getByRole('heading', { name: '결제에 실패했습니다' }).waitFor()
-    await viewer.getByText('결제는 이뤄지지 않았습니다').waitFor()
+    await viewer.getByText('결제는 이뤄지지 않았고').waitFor()
+    await viewer.getByTestId('order-summary').waitFor()
     await viewer.locator('.result-code').getByText('REJECT_CARD_COMPANY').waitFor()
     await viewer.getByRole('link', { name: '방송으로 돌아가기' }).click()
     await viewer.waitForURL((u) => u.pathname === `/broadcasts/${id}`)
@@ -224,11 +225,13 @@ if (config.fake) {
   })
 }
 
-await step('방송이 끝나면 후원 버튼이 꺼지고 내역은 그대로 보인다', async () => {
+await step('방송이 끝나면 후원 버튼이 사라지고 내역은 그대로 보인다', async () => {
   await viewer.goto(url)
+  await donateButton(viewer).waitFor()
   await apiFetch(streamer, `/broadcasts/${id}/end`, { method: 'POST' })
-  await reason(viewer).getByText('종료된 방송에는 후원할 수 없습니다').waitFor()
+  await donateButton(viewer).waitFor({ state: 'detached', timeout: 10_000 })
   if (config.fake) await viewer.getByTestId('donation-list').getByText('E2E 응원합니다').waitFor()
+  else await reason(viewer).getByText('이 방송에는 후원이 없었습니다.').waitFor()
 })
 
 await browser.close()

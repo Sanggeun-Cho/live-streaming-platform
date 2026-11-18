@@ -48,13 +48,13 @@ await step('시청자 A가 쓴 채팅이 B(비로그인) 화면에 새로고침 
 })
 
 await step('작성자 A에게만 수정·삭제 버튼이 보인다 (B·C에게는 없다)', async () => {
-  await chat(viewerA).getByRole('button', { name: '댓글 수정' }).waitFor()
-  await chat(viewerA).getByRole('button', { name: '댓글 삭제' }).waitFor()
+  await chat(viewerA).getByRole('button', { name: '채팅 수정' }).waitFor()
+  await chat(viewerA).getByRole('button', { name: '채팅 삭제' }).waitFor()
   await otherC.goto(url)
   await chat(otherC).getByText(message).waitFor()
-  expectEqual(await chat(otherC).getByRole('button', { name: '댓글 수정' }).count(), 0, 'C 수정 버튼')
-  expectEqual(await chat(otherC).getByRole('button', { name: '댓글 삭제' }).count(), 0, 'C 삭제 버튼')
-  expectEqual(await chat(anonB).getByRole('button', { name: '댓글 삭제' }).count(), 0, 'B 삭제 버튼')
+  expectEqual(await chat(otherC).getByRole('button', { name: '채팅 수정' }).count(), 0, 'C 수정 버튼')
+  expectEqual(await chat(otherC).getByRole('button', { name: '채팅 삭제' }).count(), 0, 'C 삭제 버튼')
+  expectEqual(await chat(anonB).getByRole('button', { name: '채팅 삭제' }).count(), 0, 'B 삭제 버튼')
 })
 
 await step('다른 사용자 C가 API로 A의 댓글을 직접 수정·삭제하면 403', async () => {
@@ -89,29 +89,29 @@ await step('방송자의 채팅은 "방송자" 표시로 강조된다', async ()
 
 await step('A가 수정하면 B 화면에 "(수정됨)"과 함께 바뀐다', async () => {
   const item = chat(viewerA).getByTestId('comment').filter({ hasText: message })
-  await item.getByRole('button', { name: '댓글 수정' }).click()
-  await chat(viewerA).getByLabel('댓글 수정 내용').fill(`${message} 고침`)
+  await item.getByRole('button', { name: '채팅 수정' }).click()
+  await chat(viewerA).getByLabel('채팅 수정 내용').fill(`${message} 고침`)
   await chat(viewerA).getByRole('button', { name: '저장' }).click()
   await chat(anonB).getByText(`${message} 고침`).waitFor()
   await chat(anonB).getByText('(수정됨)').waitFor()
 })
 
-await step('A가 삭제하면 확인 대화상자를 거쳐 A·B 화면 모두 "삭제된 댓글입니다"로 바뀐다', async () => {
+await step('A가 삭제하면 확인 대화상자를 거쳐 A·B 화면 모두 "삭제된 채팅입니다"로 바뀐다', async () => {
   const item = chat(viewerA).getByTestId('comment').filter({ hasText: message })
   const dialog = viewerA.getByRole('dialog', { name: '채팅을 삭제할까요?' })
   // 취소하면 그대로 남는다
-  await item.getByRole('button', { name: '댓글 삭제' }).click()
+  await item.getByRole('button', { name: '채팅 삭제' }).click()
   await dialog.getByRole('button', { name: '취소' }).click()
   await dialog.waitFor({ state: 'detached' })
   await chat(viewerA).getByText(`${message} 고침`).waitFor()
-  await item.getByRole('button', { name: '댓글 삭제' }).click()
+  await item.getByRole('button', { name: '채팅 삭제' }).click()
   await dialog.getByRole('button', { name: '삭제' }).click()
-  await chat(viewerA).getByText('삭제된 댓글입니다').waitFor()
-  await chat(anonB).getByText('삭제된 댓글입니다').waitFor()
+  await chat(viewerA).getByText('삭제된 채팅입니다').waitFor()
+  await chat(anonB).getByText('삭제된 채팅입니다').waitFor()
   expectEqual(await chat(anonB).getByText(message).count(), 0, '원문 숨김')
   // 새로고침해도 자리는 남고 본문은 없다
   await anonB.reload()
-  await chat(anonB).getByText('삭제된 댓글입니다').waitFor()
+  await chat(anonB).getByText('삭제된 채팅입니다').waitFor()
   expectEqual(await chat(anonB).getByText(message).count(), 0, '새로고침 후 원문 숨김')
   return `댓글 id=${commentId}`
 })
