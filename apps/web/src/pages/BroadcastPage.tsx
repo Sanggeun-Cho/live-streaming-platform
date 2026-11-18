@@ -233,7 +233,7 @@ export function BroadcastPage() {
           )}
         </div>
       </article>
-      <ChatPanel broadcastId={id} chat={chat} />
+      <ChatPanel broadcastId={id} chat={chat} broadcastStatus={broadcast.status} />
     </div>
   )
 }
