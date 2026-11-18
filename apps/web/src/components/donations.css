@@ -1,0 +1,726 @@
+/* 후원 (#11): 후원 패널·시트, 내역, 알림, 결제 결과 화면 */
+
+/* ---- 후원 패널 (방송 정보 아래) ---- */
+.donation-panel {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 12px 14px;
+  margin-top: var(--space-4);
+  padding: 16px;
+  border-radius: var(--radius);
+  background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 9%, var(--bg-elev)), var(--bg-elev) 60%);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+}
+
+.donation-panel-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.donation-panel-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.donation-panel > .button,
+.donation-panel > button {
+  grid-column: 1 / -1;
+  min-height: 46px;
+}
+
+@media (min-width: 640px) {
+  .donation-panel {
+    grid-template-columns: auto 1fr auto;
+  }
+
+  .donation-panel > .button,
+  .donation-panel > button {
+    grid-column: auto;
+    min-width: 140px;
+  }
+}
+
+/* 휴대폰 시청 화면: 큰 카드 대신 제목 줄 오른쪽의 작은 버튼만 (같은 후원 시트를 연다) */
+@media (max-width: 768px) {
+  .donation-panel {
+    display: block;
+    flex: none;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: none;
+  }
+
+  .donation-panel-icon,
+  .donation-panel-text {
+    display: none;
+  }
+
+  .donation-panel > .button,
+  .donation-panel > button {
+    min-width: 0;
+    min-height: 38px;
+    padding: 6px 14px;
+    font-size: var(--fs-sm);
+    white-space: nowrap;
+  }
+}
+
+/* ---- 후원 시트 (모달 dialog). 모바일은 아래에서 올라오는 시트, 넓은 화면은 가운데 카드 ---- */
+html:has(.donation-sheet[open]) {
+  overflow: hidden;
+}
+
+.donation-sheet {
+  width: 100%;
+  max-width: 100%;
+  max-height: 92dvh;
+  margin: auto 0 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 20px 20px 0 0;
+  background: var(--bg-elev);
+  color: var(--text);
+  box-shadow: 0 -12px 40px rgb(0 0 0 / 0.5);
+  animation: sheet-up 0.22s ease-out;
+}
+
+.donation-sheet::backdrop {
+  background: rgb(0 0 0 / 0.6);
+}
+
+.donation-sheet-body {
+  padding: 18px 16px calc(16px + env(safe-area-inset-bottom));
+}
+
+@media (min-width: 640px) {
+  .donation-sheet {
+    width: 440px;
+    margin: auto;
+    border-bottom: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: 0 20px 60px rgb(0 0 0 / 0.6);
+    animation-name: sheet-pop;
+  }
+
+  .donation-sheet-body {
+    padding: 22px 24px 24px;
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(40px);
+    opacity: 0;
+  }
+}
+
+@keyframes sheet-pop {
+  from {
+    transform: scale(0.96);
+    opacity: 0;
+  }
+}
+
+.donation-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.donation-sheet-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  overflow-wrap: anywhere;
+}
+
+.icon-button {
+  flex: none;
+  width: 36px;
+  min-height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.donation-form.form {
+  gap: 14px;
+}
+
+.donation-presets {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.donation-presets legend {
+  margin-bottom: 8px;
+  padding: 0;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+@media (min-width: 640px) {
+  .donation-presets {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.donation-presets .preset {
+  min-height: 48px;
+  padding: 8px 4px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.donation-presets .preset[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+}
+
+.donation-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.donation-field label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.donation-amount-input {
+  position: relative;
+}
+
+.donation-amount-input input {
+  padding-right: 40px;
+  text-align: right;
+  font-size: 1.15rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.donation-amount-input span {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-dim);
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.donation-amount-input input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.donation-count {
+  align-self: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+
+.donation-form .donation-submit,
+.donation-actions button {
+  min-height: 50px;
+  font-size: 1rem;
+}
+
+/* 결제 모드 안내 */
+.pay-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.test-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  color: var(--warn);
+  font-weight: 700;
+  font-size: 0.75rem;
+}
+
+/* 결제 전 확인 */
+.donation-review {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.donation-review-amount {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 0;
+  padding: 18px 12px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg));
+}
+
+.donation-review-amount strong {
+  font-size: 2rem;
+  line-height: 1.2;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.donation-actions {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 8px;
+}
+
+/* 받는 사람·메시지 등 항목표 (결제 확인, 완료 영수증) */
+.donation-receipt {
+  margin: 0;
+  text-align: left;
+}
+
+.donation-receipt > div {
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px dashed var(--border);
+}
+
+.donation-receipt > div:last-child {
+  border-bottom: 1px dashed var(--border);
+}
+
+.donation-receipt dt {
+  color: var(--text-dim);
+  font-size: 0.88rem;
+}
+
+.donation-receipt dd {
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.donation-quote {
+  white-space: pre-wrap;
+}
+
+.receipt-code {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.receipt-code span {
+  min-width: 0;
+}
+
+.receipt-copy {
+  width: 32px;
+  min-height: 32px;
+  border-radius: var(--radius-sm);
+}
+
+.receipt-copy:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- 후원 내역 ---- */
+.donation-board {
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+}
+
+.donation-board-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.donation-board-head h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.donation-board-total {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+}
+
+.donation-board-total strong {
+  font-size: 1.35rem;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.donation-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 24px 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.donation-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.donation-list li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.donation-list li:last-child {
+  border-bottom: none;
+}
+
+.donation-item {
+  min-width: 0;
+}
+
+.donation-item-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 36px;
+  flex-wrap: wrap;
+}
+
+.donation-donor {
+  overflow-wrap: anywhere;
+}
+
+.donation-item-head time {
+  font-size: 0.8rem;
+}
+
+.donation-amount {
+  margin-left: auto;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.donation-message {
+  margin: 2px 0 0;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.donation-more {
+  display: flex;
+  width: 100%;
+  margin-top: 8px;
+}
+
+/* ---- 새 후원 알림 ---- */
+.donation-alert {
+  position: fixed;
+  left: 50%;
+  top: calc(var(--header-h) + 16px);
+  z-index: 30;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  width: min(92vw, 400px);
+  padding: 16px 18px 18px;
+  overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-elev));
+  box-shadow:
+    0 12px 36px rgb(0 0 0 / 0.5),
+    0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
+  transform: translateX(-50%);
+  animation: alert-in 0.35s cubic-bezier(0.2, 1.4, 0.4, 1);
+  overflow-wrap: anywhere;
+}
+
+/* 남은 표시 시간 */
+.donation-alert::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 100%;
+  background: var(--accent);
+  transform-origin: left;
+  animation: alert-timer var(--alert-ms, 6s) linear forwards;
+}
+
+.donation-alert-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), #00b8ff);
+  color: var(--accent-ink);
+}
+
+.donation-alert-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.donation-alert-amount {
+  font-size: 1.5rem;
+  line-height: 1.25;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.donation-alert p {
+  margin: 4px 0 0;
+  color: var(--text);
+  /* 긴 메시지가 영상을 덮지 않게 두 줄까지만 */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+/* 휴대폰: 영상(높이 약 220px)을 덜 가리도록 작게 */
+@media (max-width: 768px) {
+  .donation-alert {
+    gap: 10px;
+    padding: 10px 12px 12px;
+    top: calc(var(--header-h) + 8px);
+    max-height: 132px;
+    font-size: var(--fs-sm);
+  }
+
+  .donation-alert-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .donation-alert-amount {
+    font-size: 1.15rem;
+  }
+}
+
+@keyframes alert-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -16px) scale(0.96);
+  }
+}
+
+@keyframes alert-timer {
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* ---- 결제 결과 화면 (successUrl / failUrl) ---- */
+.donation-result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  max-width: 440px;
+  margin: var(--space-8) auto;
+  padding: var(--space-8) var(--space-6) var(--space-6);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  text-align: center;
+}
+
+.donation-result h1 {
+  margin: 12px 0 4px;
+  font-size: 1.25rem;
+}
+
+.donation-result p {
+  margin: 0;
+}
+
+.result-icon {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+}
+
+.result-icon-success {
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: 0 0 0 8px color-mix(in srgb, var(--accent) 15%, transparent);
+  animation: pop-in 0.35s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+
+.result-icon-error {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
+}
+
+.result-icon-neutral {
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+}
+
+@keyframes pop-in {
+  from {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+}
+
+.result-amount {
+  font-size: 2.2rem;
+  font-weight: 800;
+  line-height: 1.2;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.donation-result .donation-receipt {
+  align-self: stretch;
+  margin-top: 20px;
+}
+
+.result-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-self: stretch;
+  margin-top: 24px;
+}
+
+.result-actions .button,
+.result-actions button {
+  min-height: 50px;
+  font-size: 1rem;
+}
+
+/* 버튼처럼 보이지 않게 테두리·채움 없이 아이콘이 붙은 안내 문장으로 */
+.donation-result .result-safe {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 0.9rem;
+  color: var(--text-dim);
+}
+
+.result-safe svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.donation-result .result-order {
+  margin: 4px 0 8px;
+  color: var(--text-dim);
+  font-size: 0.92rem;
+}
+
+.donation-result .result-note {
+  margin-top: 14px;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.donation-result .result-code {
+  margin-top: 16px;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.result-code code {
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-elev-2);
+}
+
+.result-spinner {
+  color: var(--accent);
+}
+
+.donation-result .result-slow {
+  margin-top: 16px;
+  color: var(--warn);
+  font-size: 0.9rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .donation-sheet,
+  .donation-alert,
+  .result-icon-success {
+    animation: none;
+  }
+
+  .donation-alert::after {
+    display: none;
+  }
+}

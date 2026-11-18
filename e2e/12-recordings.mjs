@@ -5,7 +5,7 @@
 import { spawnSync } from 'node:child_process'
 import http from 'node:http'
 import https from 'node:https'
-import { anonPage, BASE, expectEqual, finish, launch, signedUpPage, startCameraBroadcast, step } from './lib.mjs'
+import { anonPage, BASE, escapeRe, expectEqual, finish, launch, signedUpPage, startCameraBroadcast, step } from './lib.mjs'
 
 const ROOT = new URL('..', import.meta.url)
 const compose = (...args) => {
@@ -117,8 +117,10 @@ await step('홈의 다시보기 목록에 방송이 나타난다', async () => {
   const anon = await anonPage(browser)
   await anon.goto(`${BASE}/`)
   const section = anon.getByRole('region', { name: '다시보기' })
-  await section.getByText(title).waitFor({ timeout: 10_000 })
-  await section.getByText(title).click()
+  // 썸네일이 없으면 표지에도 제목이 들어가므로 글자가 아니라 카드 링크(접근 이름에 제목 포함)로 찾는다
+  const card = section.getByRole('link', { name: new RegExp(escapeRe(title)) })
+  await card.waitFor({ timeout: 10_000 })
+  await card.click()
   await anon.waitForURL(new RegExp(`/broadcasts/${id}$`))
   await anon.getByTestId('replay-video').waitFor()
   await anon.close()

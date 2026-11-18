@@ -48,13 +48,13 @@ await step('시청자 A가 쓴 채팅이 B(비로그인) 화면에 새로고침 
 })
 
 await step('작성자 A에게만 수정·삭제 버튼이 보인다 (B·C에게는 없다)', async () => {
-  await chat(viewerA).getByRole('button', { name: '댓글 수정' }).waitFor()
-  await chat(viewerA).getByRole('button', { name: '댓글 삭제' }).waitFor()
+  await chat(viewerA).getByRole('button', { name: '채팅 수정' }).waitFor()
+  await chat(viewerA).getByRole('button', { name: '채팅 삭제' }).waitFor()
   await otherC.goto(url)
   await chat(otherC).getByText(message).waitFor()
-  expectEqual(await chat(otherC).getByRole('button', { name: '댓글 수정' }).count(), 0, 'C 수정 버튼')
-  expectEqual(await chat(otherC).getByRole('button', { name: '댓글 삭제' }).count(), 0, 'C 삭제 버튼')
-  expectEqual(await chat(anonB).getByRole('button', { name: '댓글 삭제' }).count(), 0, 'B 삭제 버튼')
+  expectEqual(await chat(otherC).getByRole('button', { name: '채팅 수정' }).count(), 0, 'C 수정 버튼')
+  expectEqual(await chat(otherC).getByRole('button', { name: '채팅 삭제' }).count(), 0, 'C 삭제 버튼')
+  expectEqual(await chat(anonB).getByRole('button', { name: '채팅 삭제' }).count(), 0, 'B 삭제 버튼')
 })
 
 await step('다른 사용자 C가 API로 A의 댓글을 직접 수정·삭제하면 403', async () => {
@@ -83,27 +83,35 @@ await step('방송자의 채팅은 "방송자" 표시로 강조된다', async ()
   await streamer.getByLabel('채팅 입력').fill('방송 시작합니다')
   await streamer.getByRole('button', { name: '전송' }).click()
   const item = chat(anonB).getByTestId('comment').filter({ hasText: '방송 시작합니다' })
-  await item.getByText('방송자', { exact: true }).waitFor()
+  // 이 시나리오의 방송자 닉네임도 "방송자"라 닉네임이 아닌 배지를 찾는다
+  await item.locator('.chat-badge', { hasText: '방송자' }).waitFor()
 })
 
 await step('A가 수정하면 B 화면에 "(수정됨)"과 함께 바뀐다', async () => {
   const item = chat(viewerA).getByTestId('comment').filter({ hasText: message })
-  await item.getByRole('button', { name: '댓글 수정' }).click()
-  await chat(viewerA).getByLabel('댓글 수정 내용').fill(`${message} 고침`)
+  await item.getByRole('button', { name: '채팅 수정' }).click()
+  await chat(viewerA).getByLabel('채팅 수정 내용').fill(`${message} 고침`)
   await chat(viewerA).getByRole('button', { name: '저장' }).click()
   await chat(anonB).getByText(`${message} 고침`).waitFor()
   await chat(anonB).getByText('(수정됨)').waitFor()
 })
 
-await step('A가 삭제하면 A·B 화면 모두 "삭제된 댓글입니다"로 바뀐다', async () => {
-  viewerA.once('dialog', (d) => d.accept())
-  await chat(viewerA).getByRole('button', { name: '댓글 삭제' }).click()
-  await chat(viewerA).getByText('삭제된 댓글입니다').waitFor()
-  await chat(anonB).getByText('삭제된 댓글입니다').waitFor()
+await step('A가 삭제하면 확인 대화상자를 거쳐 A·B 화면 모두 "삭제된 채팅입니다"로 바뀐다', async () => {
+  const item = chat(viewerA).getByTestId('comment').filter({ hasText: message })
+  const dialog = viewerA.getByRole('dialog', { name: '채팅을 삭제할까요?' })
+  // 취소하면 그대로 남는다
+  await item.getByRole('button', { name: '채팅 삭제' }).click()
+  await dialog.getByRole('button', { name: '취소' }).click()
+  await dialog.waitFor({ state: 'detached' })
+  await chat(viewerA).getByText(`${message} 고침`).waitFor()
+  await item.getByRole('button', { name: '채팅 삭제' }).click()
+  await dialog.getByRole('button', { name: '삭제' }).click()
+  await chat(viewerA).getByText('삭제된 채팅입니다').waitFor()
+  await chat(anonB).getByText('삭제된 채팅입니다').waitFor()
   expectEqual(await chat(anonB).getByText(message).count(), 0, '원문 숨김')
   // 새로고침해도 자리는 남고 본문은 없다
   await anonB.reload()
-  await chat(anonB).getByText('삭제된 댓글입니다').waitFor()
+  await chat(anonB).getByText('삭제된 채팅입니다').waitFor()
   expectEqual(await chat(anonB).getByText(message).count(), 0, '새로고침 후 원문 숨김')
   return `댓글 id=${commentId}`
 })
@@ -202,6 +210,22 @@ await step('연결이 끊긴 동안 쌓인 채팅(한 페이지 50개 초과)은
   expectEqual([...ids].sort((a, b) => a - b), ids, 'id 순서')
 })
 
+await step('위로 스크롤해 읽는 중 새 채팅이 오면 "새 채팅 N개" 버튼이 뜨고, 누르면 맨 아래로 간다', async () => {
+  const list = chat(anonB).getByTestId('chat-list')
+  await list.evaluate((el) => el.scrollTo({ top: 0 }))
+  await anonB.waitForFunction(() => document.querySelector('[data-testid=chat-list]').scrollTop === 0)
+  await postMany(streamer, '읽는 중에 온 채팅', 2)
+  const jump = chat(anonB).getByRole('button', { name: '새 채팅 2개' })
+  await jump.waitFor()
+  expectEqual(await list.evaluate((el) => el.scrollTop), 0, '읽던 위치 유지')
+  await jump.click()
+  await jump.waitFor({ state: 'detached' })
+  await anonB.waitForFunction(() => {
+    const el = document.querySelector('[data-testid=chat-list]')
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 40
+  })
+})
+
 await step('비로그인(390px): "로그인하고 채팅하기" → 가입 → 같은 방송으로 돌아와 바로 채팅한다', async () => {
   const page = await anonPage(browser)
   watch(page, '새시청자')
@@ -238,6 +262,35 @@ await step('응답을 기다리지 않고 연달아 보내도 이어서 입력�
     await viewerA.getByLabel('채팅 입력').press('Enter')
   }
   for (const m of burst) await chat(anonB).getByText(m).waitFor({ timeout: 5000 })
+})
+
+await step('도배 제한(429)에 걸릴 만큼 빠르게 보내도 잠시 기다렸다 순서대로 모두 보내고 실패로 남기지 않는다', async () => {
+  const tag = unique('빠르게')
+  const burst = Array.from({ length: 12 }, (_, i) => `${tag}-${String(i).padStart(2, '0')}`)
+  for (const m of burst) {
+    await viewerA.getByLabel('채팅 입력').fill(m)
+    await viewerA.getByLabel('채팅 입력').press('Enter')
+  }
+  // "잠시 후 이어서 보냅니다"는 제한에 걸린 순간에만 잠깐 보여 타이밍에 따라 놓칠 수 있다. 결과(순서·실패 없음)로 판정한다
+  await chat(anonB).getByText(burst.at(-1)).waitFor({ timeout: 20_000 })
+  const texts = await chat(anonB).getByTestId('comment').filter({ hasText: tag }).allInnerTexts()
+  expectEqual(texts.map((t) => t.match(new RegExp(`${tag}-\\d+`))?.[0]), burst, '도착 순서')
+  expectEqual(await chat(viewerA).getByText('보내지 못한 채팅').count(), 0, '실패 표시')
+})
+
+await step('300자를 넘게 붙여넣으면 잘린 것을 안내하고, 250자부터 글자 수를 보여준다', async () => {
+  const input = viewerA.getByLabel('채팅 입력')
+  await input.fill('')
+  await input.focus()
+  await viewerA.evaluate(() => {
+    const data = new DataTransfer()
+    data.setData('text/plain', '가'.repeat(320))
+    document.activeElement.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true }))
+  })
+  await viewerA.getByText('넘친 부분은 붙여넣지 않았습니다').waitFor()
+  await input.fill('가'.repeat(287))
+  await chat(viewerA).getByText('287/300').waitFor()
+  await input.fill('')
 })
 
 await step('어느 화면에서도 처리되지 않은 오류가 없다', async () => {

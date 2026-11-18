@@ -57,6 +57,13 @@
       "when": 1794468571820,
       "tag": "0007_donation_comment",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1794996169060,
+      "tag": "0008_broadcast_thumbnail",
+      "breakpoints": true
     }
   ]
 }

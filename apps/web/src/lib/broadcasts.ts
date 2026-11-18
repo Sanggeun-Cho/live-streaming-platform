@@ -13,6 +13,8 @@ export type Broadcast = {
   disconnectedAt: string | null
   createdAt: string
   updatedAt: string
+  /** 방송 중 마지막 화면 (lib/thumbnails.ts). 올린 적이 없으면 null */
+  thumbnailUrl: string | null
   channel: { id: number; name: string }
   streamer: { id: number; nickname: string }
   /** 목록에서만: 방송 중이면 지금 시청자 수 */
@@ -24,7 +26,7 @@ export type BroadcastPage = { items: Broadcast[]; nextCursor: number | null }
 export type ListParams = { status?: BroadcastStatus; channelId?: number; cursor?: number; limit?: number }
 
 export const STATUS_LABEL: Record<BroadcastStatus, string> = {
-  READY: '방송 준비',
+  READY: '방송 예정',
   LIVE: 'LIVE',
   ENDED: '방송 종료',
 }

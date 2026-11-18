@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../auth/context'
 import { api, errorMessage } from '../lib/api'
+import { Spinner } from './Spinner'
 
 type TestAccount = { role: string; email: string; password: string }
 
@@ -40,8 +41,15 @@ export function TestAccountLogin() {
       <p className="dim">테스트 계정으로 바로 로그인</p>
       <div className="test-login-buttons">
         {accounts.map((a) => (
-          <button key={a.email} type="button" onClick={() => void loginAs(a)} disabled={pending !== null}>
-            {pending === a.email ? '로그인 중…' : a.role}
+          <button
+            key={a.email}
+            type="button"
+            onClick={() => void loginAs(a)}
+            disabled={pending !== null}
+            aria-busy={pending === a.email}
+          >
+            {pending === a.email && <Spinner />}
+            {a.role}
           </button>
         ))}
       </div>

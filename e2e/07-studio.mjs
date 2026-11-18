@@ -1,7 +1,7 @@
 // #7 PC 송출(방송 스튜디오) 시나리오 (docker compose 전체 구성 필요: E2E_BASE_URL=https://localhost)
 // Chrome 가짜 화면 공유(--auto-select-desktop-capture-source)와 가짜 카메라·마이크를 쓴다.
 import { execSync } from 'node:child_process'
-import { anonPage, BASE, expectEqual, expectMediaFlowing, finish, launch, liveCaptureTracks, signedUpPage, step } from './lib.mjs'
+import { confirmDialog, anonPage, BASE, expectEqual, expectMediaFlowing, finish, launch, liveCaptureTracks, signedUpPage, step } from './lib.mjs'
 
 const browser = await launch()
 const owner = await signedUpPage(browser, '스튜디오')
@@ -52,7 +52,7 @@ await step('화면 공유를 선택하면 미리보기와 화면 소리·마이�
 
 await step('방송을 시작하면 LIVE가 되고, 시청자 화면에서 재생되며 송출 품질이 표시된다', async () => {
   await owner.getByRole('button', { name: '방송 시작' }).click()
-  await phase(owner).getByText('LIVE').waitFor({ timeout: 20_000 })
+  await phase(owner).getByText('LIVE', { exact: true }).waitFor({ timeout: 20_000 })
   await viewer.goto(`${BASE}/broadcasts/${id}`)
   await waitPlaying(viewer)
   await owner.getByTestId('studio-stats').waitFor({ timeout: 10_000 })
@@ -68,7 +68,7 @@ await step('마이크 끄기·켜기를 누르면 상태가 바뀐다', async ()
 await step('방송 중 카메라로 소스를 바꾸면 연결을 유지한 채 시청자 화면이 바뀐다', async () => {
   const before = (await videoInfo(viewer)).w
   await owner.getByRole('button', { name: /카메라/ }).first().click()
-  await phase(owner).getByText('LIVE').waitFor({ timeout: 15_000 })
+  await phase(owner).getByText('LIVE', { exact: true }).waitFor({ timeout: 15_000 })
   await viewer.waitForFunction((w) => document.querySelector('[data-testid=live-video]')?.videoWidth !== w, before, {
     timeout: 15_000,
   })
@@ -79,7 +79,7 @@ await step('화면 공유를 브라우저에서 중지하면 안내가 뜨고, �
   await owner.getByRole('button', { name: /화면 공유/ }).click()
   // 이미 LIVE였으므로 LIVE 표시만으로는 전환이 끝났는지 알 수 없다. 버튼 문구로 화면 공유가 실제 소스가 된 것을 기다린다
   await owner.getByRole('button', { name: /화면 공유 다시 선택/ }).waitFor({ timeout: 15_000 })
-  await phase(owner).getByText('LIVE').waitFor({ timeout: 15_000 })
+  await phase(owner).getByText('LIVE', { exact: true }).waitFor({ timeout: 15_000 })
   // 브라우저의 "공유 중지" 버튼은 트랙에 ended 이벤트를 보낸다
   await owner.evaluate(() => {
     const t = document.querySelector('[data-testid=studio-preview]').srcObject.getVideoTracks()[0]
@@ -90,19 +90,22 @@ await step('화면 공유를 브라우저에서 중지하면 안내가 뜨고, �
   // 영상이 멈춘 채 마이크만 나가지 않는다: 송출이 끊겨 시청자에게 재연결 대기가 보인다
   await viewer.getByText('다시 연결되기를 기다리는 중').waitFor({ timeout: 15_000 })
   await owner.getByRole('button', { name: '화면 다시 선택' }).click()
-  await phase(owner).getByText('LIVE').waitFor({ timeout: 20_000 })
+  await phase(owner).getByText('LIVE', { exact: true }).waitFor({ timeout: 20_000 })
   await waitPlaying(viewer)
 })
 
 await step('같은 방송을 다른 탭에서 송출하면 이전 탭은 "다른 곳에서 송출 중"으로 바뀌고, 다시 가져올 수 있다', async () => {
   const second = await owner.context().newPage()
   await second.goto(`${BASE}/broadcasts/${id}/studio`)
+  // 다른 탭이 송출 중이면 "다른 기기에서 송출 중"을 알리고, 가져오기 전에 확인한다
+  await phase(second).getByText('LIVE · 다른 기기').waitFor()
   await second.getByRole('button', { name: /카메라/ }).first().click()
-  await second.getByRole('button', { name: '방송 시작' }).click()
-  await phase(second).getByText('LIVE').waitFor({ timeout: 20_000 })
+  await second.getByRole('button', { name: '이 기기로 가져오기' }).click()
+  await confirmDialog(second, '가져오기')
+  await phase(second).getByText('LIVE', { exact: true }).waitFor({ timeout: 20_000 })
   await phase(owner).getByText('다른 곳에서 송출 중').waitFor({ timeout: 10_000 })
   await owner.getByRole('button', { name: '여기서 다시 송출' }).click()
-  await phase(owner).getByText('LIVE').waitFor({ timeout: 20_000 })
+  await phase(owner).getByText('LIVE', { exact: true }).waitFor({ timeout: 20_000 })
   await phase(second).getByText('다른 곳에서 송출 중').waitFor({ timeout: 10_000 })
   await waitPlaying(viewer)
   second.once('dialog', (d) => d.accept())
@@ -115,7 +118,7 @@ await step('서버에서 송출 연결이 끊기면(네트워크 끊김) 스튜�
   const path = JSON.parse(sh(`wget -qO- http://localhost:9997/v3/paths/get/live/${id}`))
   sh(`wget -qO- --post-data= http://localhost:9997/v3/webrtcsessions/kick/${path.source.id}`)
   await phase(owner).getByText('재연결 중').waitFor({ timeout: 20_000 })
-  await phase(owner).getByText('LIVE').waitFor({ timeout: 30_000 })
+  await phase(owner).getByText('LIVE', { exact: true }).waitFor({ timeout: 30_000 })
   await waitPlaying(viewer)
 })
 
@@ -123,8 +126,8 @@ await step('방송을 종료하면 종료 화면으로 바뀌고 화면 공유·
   await owner.evaluate(() => {
     window.__studioTracks = document.querySelector('[data-testid=studio-preview]').srcObject.getTracks()
   })
-  owner.once('dialog', (d) => d.accept())
   await owner.getByRole('button', { name: '방송 종료' }).click()
+  await confirmDialog(owner, '종료하기')
   await owner.getByRole('heading', { name: '방송이 종료되었습니다' }).waitFor({ timeout: 10_000 })
   expectEqual(await liveCaptureTracks(owner), 0, '살아 있는 캡처 트랙')
   await viewer.getByTestId('status-line').getByText('방송 종료').waitFor({ timeout: 10_000 })
@@ -139,7 +142,7 @@ await step('화면 공유를 중지하고 그대로 두면 유예 시간 뒤 방
   await owner.goto(`${BASE}/broadcasts/${id2}/studio`)
   await owner.getByRole('button', { name: /화면 공유/ }).click()
   await owner.getByRole('button', { name: '방송 시작' }).click()
-  await phase(owner).getByText('LIVE').waitFor({ timeout: 20_000 })
+  await phase(owner).getByText('LIVE', { exact: true }).waitFor({ timeout: 20_000 })
   const started = Date.now()
   await owner.evaluate(() => {
     const t = document.querySelector('[data-testid=studio-preview]').srcObject.getVideoTracks()[0]
