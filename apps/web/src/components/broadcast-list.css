@@ -10,25 +10,6 @@
   gap: 24px 16px;
 }
 
-/* 홈 라이브의 첫 카드: 넓은 화면에서 2×2칸, 휴대폰에서는 한 줄을 다 쓴다 */
-.broadcast-grid.has-featured {
-  grid-auto-flow: dense;
-}
-
-.broadcast-grid > .featured {
-  grid-column: span 2;
-}
-
-@media (min-width: 900px) {
-  .broadcast-grid > .featured {
-    grid-row: span 2;
-  }
-
-  .featured .card-text .title {
-    font-size: 1.1rem;
-  }
-}
-
 /* ---- 카드 ---- */
 .broadcast-card {
   display: flex;
@@ -54,11 +35,6 @@
   /* 표지 글자 크기를 카드 폭에 맞춘다 (2×2 카드와 휴대폰 2열 카드가 같은 규칙을 쓴다) */
   container-type: inline-size;
   transition: box-shadow 0.2s;
-}
-
-/* 2×2 카드는 위아래 카드 두 장 높이를 채우도록 늘린다 */
-.featured .broadcast-card .thumb {
-  flex: 1;
 }
 
 .thumb-media {
@@ -273,76 +249,220 @@
   border-radius: var(--radius);
 }
 
-/* ---- 홈 ---- */
-.home-intro {
+/* ---- 홈: 추천 라이브 ---- */
+.featured-live {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elev);
+}
+
+.featured-live.is-loading {
+  aspect-ratio: 16 / 9;
+  max-height: 520px;
+  background: var(--bg-elev-2);
+}
+
+.featured-media {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background:
+    radial-gradient(90% 120% at 100% 0%, color-mix(in srgb, var(--thumb-color) 65%, transparent), transparent 65%),
+    linear-gradient(150deg, color-mix(in srgb, var(--thumb-color) 40%, #0a0c12), #07080c 80%);
+}
+
+.featured-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.featured-placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.featured-placeholder .avatar {
+  box-shadow: 0 0 0 6px rgb(255 255 255 / 0.18);
+}
+
+.featured-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: rgb(0 0 0 / 0.25);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.featured-media:hover .featured-play {
+  opacity: 1;
+}
+
+.featured-play svg {
+  box-sizing: content-box;
+  padding: 18px 16px 18px 20px;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 0.55);
+}
+
+.featured-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-5) var(--space-5) var(--space-6);
+}
+
+.featured-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}
+
+.featured-status > span:last-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.featured-title {
+  margin: 0;
+  font-size: clamp(1.25rem, 2.4vw, 1.75rem);
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+}
+
+.featured-title a {
+  text-decoration: none;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+.featured-title a:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.featured-channel {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  align-self: flex-start;
+  text-decoration: none;
+}
+
+.featured-channel > span {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.35;
+  font-size: var(--fs-sm);
+}
+
+.featured-channel strong {
+  font-size: var(--fs-md);
+}
+
+.featured-channel:hover strong {
+  text-decoration: underline;
+}
+
+.featured-desc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin: 0;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+}
+
+.featured-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: auto;
+  padding-top: var(--space-2);
+}
+
+@media (min-width: 900px) {
+  .featured-live {
+    grid-template-columns: minmax(0, 1.85fr) minmax(280px, 1fr);
+  }
+
+  .featured-body {
+    padding: var(--space-8) var(--space-6);
+  }
+}
+
+/* 라이브가 없을 때: 방송을 시작하거나 다시보기로 가는 안내 */
+.idle-hero {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 16px 24px;
-  padding: 24px;
-  border-radius: 14px;
+  gap: var(--space-5);
+  padding: var(--space-6);
   border: 1px solid var(--border);
-  background:
-    radial-gradient(80% 160% at 0% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%),
-    radial-gradient(60% 140% at 100% 100%, color-mix(in srgb, var(--live) 14%, transparent), transparent 60%),
-    var(--bg-elev);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elev);
 }
 
-.home-intro-text {
-  flex: 1 1 420px;
-  min-width: 0;
-}
-
-.home-kicker {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 8px;
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: var(--accent);
-  word-break: keep-all;
-}
-
-.home-kicker.is-live {
-  color: #ff6b85;
-  text-decoration: none;
-}
-
-a.home-kicker:hover {
-  text-decoration: underline;
-}
-
-.home-intro h1 {
-  margin: 0 0 6px;
-  font-size: clamp(1.3rem, 2.4vw, 1.75rem);
+.idle-hero h2 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-xl);
   letter-spacing: -0.02em;
 }
 
-.home-intro-desc {
+.idle-hero p {
   margin: 0;
-  max-width: 620px;
+  max-width: 56ch;
   color: var(--text-dim);
 }
 
-.home-actions {
+.idle-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
-.home-actions .button {
+/* ---- 홈 섹션 ---- */
+.home-section {
+  margin-top: 40px;
+}
+
+.section-more {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-height: 46px;
-  padding: 10px 20px;
+  gap: 2px;
+  min-height: var(--tap);
+  padding-left: var(--space-2);
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.section-more:hover {
+  color: var(--text);
 }
 
 .section-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 14px;
@@ -350,47 +470,6 @@ a.home-kicker:hover {
 
 .section-head .section-title {
   margin: 0;
-}
-
-.section-count {
-  color: var(--text-dim);
-  font-size: 0.9rem;
-  font-weight: 600;
-}
-
-.home-guide {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.home-guide li {
-  display: flex;
-  gap: 12px;
-  padding: 16px;
-  border-radius: var(--radius);
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
-}
-
-.home-guide svg {
-  flex: none;
-  color: var(--accent);
-}
-
-.home-guide strong {
-  display: block;
-  margin-bottom: 2px;
-}
-
-.home-guide p {
-  margin: 0;
-  word-break: keep-all;
-  font-size: 0.88rem;
-  color: var(--text-dim);
 }
 
 /* ---- 채널 ---- */
@@ -486,10 +565,6 @@ a.home-kicker:hover {
     display: none;
   }
 
-  .featured .card-meta .avatar {
-    display: inline-flex;
-  }
-
   .card-text {
     font-size: 0.88rem;
   }
@@ -501,46 +576,6 @@ a.home-kicker:hover {
   .thumb-chip,
   .thumb .badge {
     font-size: 0.75rem;
-  }
-
-  /* 첫 화면을 시청에 쓰도록 소개를 한 줄로 줄인다. 방송 안내는 아래 "방송하는 방법"이 맡는다 */
-  .home-intro {
-    padding: 12px 14px;
-    gap: 10px;
-    flex-wrap: nowrap;
-  }
-
-  .home-intro-desc {
-    display: none;
-  }
-
-  /* 제목은 화면 읽기 프로그램에는 남긴다 (.sr-only와 같은 방식) */
-  .home-intro h1 {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-
-  .home-kicker {
-    margin: 0;
-    font-size: 0.9rem;
-  }
-
-  .home-intro-text {
-    flex: 1 1 auto;
-  }
-
-  /* 헤더에 "방송하기"가 있으므로 휴대폰에서는 버튼을 빼고 한 줄 안내만 남긴다 */
-  .home-actions {
-    display: none;
-  }
-
-  /* 한 줄 안내도 없으면(로그인 + 방송 없음) 빈 띠가 되므로 숨긴다 */
-  .home-intro:not(:has(.home-kicker)) {
-    display: none;
   }
 
   .channel-header {

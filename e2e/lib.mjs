@@ -123,8 +123,14 @@ export async function signedUpPage(browser, name) {
   await page.fill('input[autocomplete=nickname]', name)
   await page.fill('input[type=password]', 'password123')
   await page.click('button[type=submit]')
-  await page.getByRole('button', { name: '로그아웃' }).waitFor()
+  await page.getByRole('button', { name: /계정 메뉴/ }).waitFor()
   return page
+}
+
+/** 헤더 계정 메뉴를 열고 항목(링크·버튼)을 누른다 */
+export async function accountMenu(page, item) {
+  await page.getByRole('banner').getByRole('button', { name: /계정 메뉴/ }).click()
+  await page.getByRole('banner').getByRole(item === '로그아웃' ? 'button' : 'link', { name: item }).click()
 }
 
 /** 앱의 확인 대화상자에서 버튼을 누른다 (window.confirm 대신 쓰는 <dialog>) */

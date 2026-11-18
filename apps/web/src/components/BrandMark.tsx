@@ -2,10 +2,10 @@
 export function BrandMark({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-      <rect width="32" height="32" rx="9" fill="var(--accent)" />
+      <rect width="32" height="32" rx="9" fill="var(--brand)" />
       <path
         d="M12.5 10.3v11.4a1 1 0 0 0 1.53.85l9.1-5.7a1 1 0 0 0 0-1.7l-9.1-5.7a1 1 0 0 0-1.53.85Z"
-        fill="var(--accent-ink)"
+        fill="var(--on-fill)"
       />
     </svg>
   )

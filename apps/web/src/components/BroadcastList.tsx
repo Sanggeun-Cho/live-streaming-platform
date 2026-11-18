@@ -53,9 +53,7 @@ type Props = {
   listKey: string
   fetchPage: PageFetcher
   empty: ReactNode
-  /** 첫 카드를 크게 보여준다 (홈의 라이브) */
-  featured?: boolean
-  /** 첫 페이지를 받으면 알린다 (화면 위쪽의 개수·바로가기용) */
+  /** 첫 페이지를 받으면 알린다 (채널 화면이 섹션 제목·개수를 정할 때) */
   onLoad?: (page: { items: Item[]; hasMore: boolean }) => void
   /** 첫 로딩 동안 자리를 잡아 둘 카드 수 */
   skeletons?: number
@@ -63,6 +61,8 @@ type Props = {
   filter?: (item: Item) => boolean
   /** 한 줄 카드 수. 주면 마지막 줄이 덜 찬 카드를 숨겨 그리드에 빈칸이 생기지 않게 한다 (홈 미리보기용) */
   fullRows?: number
+  /** false면 "더 보기"를 그리지 않는다 (홈처럼 전체 목록 화면으로 보내는 곳) */
+  paginate?: boolean
 }
 
 /** 방송 목록 + 더 보기. 방송 목록·채널 방송·다시보기(#12)가 조회 함수만 바꿔 같이 쓴다 */
@@ -70,7 +70,15 @@ export function BroadcastList(props: Props) {
   return <BroadcastListInner key={props.listKey} {...props} />
 }
 
-function BroadcastListInner({ fetchPage: initialFetch, onLoad, empty, featured, skeletons = 4, filter, fullRows }: Props) {
+function BroadcastListInner({
+  fetchPage: initialFetch,
+  onLoad,
+  empty,
+  skeletons = 4,
+  filter,
+  fullRows,
+  paginate = true,
+}: Props) {
   const [fetchList] = useState(() => initialFetch)
   const [notify] = useState(() => onLoad)
   const [items, setItems] = useState<Item[]>([])
@@ -137,9 +145,9 @@ function BroadcastListInner({ fetchPage: initialFetch, onLoad, empty, featured, 
 
   return (
     <>
-      <ul className={`broadcast-grid${featured ? ' has-featured' : ''}`} aria-busy={loading}>
-        {visible.map((b, i) => (
-          <li key={b.id} className={featured && i === 0 ? 'featured' : undefined}>
+      <ul className="broadcast-grid" aria-busy={loading}>
+        {visible.map((b) => (
+          <li key={b.id}>
             <BroadcastCard b={b} now={now} />
           </li>
         ))}
@@ -157,7 +165,7 @@ function BroadcastListInner({ fetchPage: initialFetch, onLoad, empty, featured, 
       </ul>
       {loading && <span className="sr-only">불러오는 중…</span>}
       {state === 'error' && <p className="error">더 불러오지 못했습니다: {error}</p>}
-      {nextCursor && !loading && (
+      {paginate && nextCursor && !loading && (
         <button type="button" className="more" onClick={() => load(nextCursor)}>
           더 보기
         </button>

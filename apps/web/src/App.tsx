@@ -1,79 +1,33 @@
-import { LogOut, MapPinOff, Video, WifiOff } from 'lucide-react'
-import { Link, Route, Routes, useParams } from 'react-router'
-import { useAuth } from './auth/context'
+import { MapPinOff } from 'lucide-react'
+import { Link, Route, Routes, matchPath, useLocation, useParams } from 'react-router'
 import { RequireAuth } from './auth/RequireAuth'
-import { Avatar } from './components/Avatar'
-import { BrandMark } from './components/BrandMark'
 import { EmptyState } from './components/EmptyState'
 import { LiveSidebar } from './components/LiveSidebar'
+import { SiteFooter } from './components/SiteFooter'
+import { SiteHeader } from './components/SiteHeader'
+import { TabBar } from './components/TabBar'
 import { useDocumentTitle } from './hooks/useDocumentTitle'
 import { AuthForm } from './pages/AuthForm'
 import { EditBroadcastPage, NewBroadcastPage } from './pages/BroadcastFormPage'
 import { BroadcastPage } from './pages/BroadcastPage'
+import { LivePage, ReplaysPage } from './pages/BrowsePage'
 import { ChannelPage } from './pages/ChannelPage'
 import { DonationFailPage, DonationSuccessPage } from './pages/DonationResultPage'
 import { HomePage } from './pages/HomePage'
+import { HelpPage } from './pages/info/HelpPage'
+import { LicensesPage } from './pages/info/LicensesPage'
+import { PrivacyPage } from './pages/info/PrivacyPage'
+import { TermsPage } from './pages/info/TermsPage'
 import { StudioPage } from './pages/StudioPage'
 
-function Header() {
-  const { status, user, logout, refresh } = useAuth()
-  return (
-    <header className="header">
-      <Link to="/" className="brand" aria-label="galle LIVE 홈">
-        <BrandMark className="brand-mark" />
-        galle<span className="brand-live">LIVE</span>
-      </Link>
-      <nav className="nav" aria-label="계정">
-        {/* 비로그인도 보인다: 누르면 로그인 후 새 방송 화면으로 돌아온다 */}
-        <Link to="/broadcasts/new" className="button nav-cta" aria-label="방송하기" title="방송하기">
-          <Video size={18} aria-hidden="true" />
-          <span className="nav-label">방송하기</span>
-          <span className="nav-label-short" aria-hidden="true">
-            방송
-          </span>
-        </Link>
-        {status === 'authenticated' && user && (
-          <>
-            <Link to={`/channels/${user.channelId}`} className="nav-user" title="내 채널" aria-label={`${user.nickname} 내 채널`}>
-              <Avatar id={user.id} name={user.nickname} size={30} />
-              <span className="nav-nickname">{user.nickname}</span>
-            </Link>
-            <button
-              type="button"
-              className="ghost icon-only nav-logout"
-              aria-label="로그아웃"
-              title="로그아웃"
-              onClick={() => void logout()}
-            >
-              <LogOut size={18} aria-hidden="true" />
-              <span className="nav-label">로그아웃</span>
-            </button>
-          </>
-        )}
-        {status === 'error' && (
-          <>
-            <span className="nav-error" role="status">
-              <WifiOff size={16} aria-hidden="true" />
-              <span className="nav-label">서버 연결 오류</span>
-            </span>
-            <button type="button" className="ghost" onClick={refresh}>
-              다시 시도
-            </button>
-          </>
-        )}
-        {(status === 'anonymous' || status === 'error') && (
-          <>
-            <Link to="/login" className="button">
-              로그인
-            </Link>
-            <Link to="/signup" className="button nav-signup">
-              회원가입
-            </Link>
-          </>
-        )}
-      </nav>
-    </header>
-  )
+// 영상이 화면을 채우는 곳(시청·스튜디오)과 입력에 집중하는 곳에서는 푸터·하단 탭을 숨긴다
+const IMMERSIVE = ['/broadcasts/:id', '/broadcasts/:id/studio']
+const FOCUSED = [...IMMERSIVE, '/broadcasts/new', '/broadcasts/:id/edit', '/broadcasts/:id/donation/*']
+
+function useLayoutMode() {
+  const { pathname } = useLocation()
+  const matches = (patterns: string[]) => patterns.some((pattern) => matchPath(pattern, pathname))
+  return { immersive: matches(IMMERSIVE), focused: matches(FOCUSED) }
 }
 
 /** 다른 방송으로 이동하면(사이드바 등) 채팅 입력·후원·플레이어 상태를 새로 시작한다 */
@@ -100,59 +54,70 @@ function NotFound() {
 }
 
 export default function App() {
+  const { immersive, focused } = useLayoutMode()
   return (
     <>
       <a href="#main" className="skip-link">
         본문으로 건너뛰기
       </a>
-      <Header />
-      <div className="shell">
+      <SiteHeader />
+      <div className={`shell${focused ? '' : ' has-tab-bar'}`}>
         <LiveSidebar />
-        <main className="container" id="main" tabIndex={-1}>
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/login" element={<AuthForm key="login" mode="login" />} />
-            <Route path="/signup" element={<AuthForm key="signup" mode="signup" />} />
-            <Route
-              path="/broadcasts/new"
-              element={
-                <RequireAuth>
-                  <NewBroadcastPage />
-                </RequireAuth>
-              }
-            />
-            <Route path="/broadcasts/:id" element={<BroadcastRoute />} />
-            <Route
-              path="/broadcasts/:id/edit"
-              element={
-                <RequireAuth>
-                  <EditBroadcastPage />
-                </RequireAuth>
-              }
-            />
-            <Route
-              path="/broadcasts/:id/studio"
-              element={
-                <RequireAuth>
-                  <StudioPage />
-                </RequireAuth>
-              }
-            />
-            {/* 토스 결제창이 돌아오는 주소 (#11) */}
-            <Route
-              path="/broadcasts/:id/donation/success"
-              element={
-                <RequireAuth>
-                  <DonationSuccessPage />
-                </RequireAuth>
-              }
-            />
-            <Route path="/broadcasts/:id/donation/fail" element={<DonationFailPage />} />
-            <Route path="/channels/:channelId" element={<ChannelPage />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </main>
+        <div className="shell-main">
+          <main className="container" id="main" tabIndex={-1}>
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/lives" element={<LivePage />} />
+              <Route path="/replays" element={<ReplaysPage />} />
+              <Route path="/help" element={<HelpPage />} />
+              <Route path="/terms" element={<TermsPage />} />
+              <Route path="/privacy" element={<PrivacyPage />} />
+              <Route path="/licenses" element={<LicensesPage />} />
+              <Route path="/login" element={<AuthForm key="login" mode="login" />} />
+              <Route path="/signup" element={<AuthForm key="signup" mode="signup" />} />
+              <Route
+                path="/broadcasts/new"
+                element={
+                  <RequireAuth>
+                    <NewBroadcastPage />
+                  </RequireAuth>
+                }
+              />
+              <Route path="/broadcasts/:id" element={<BroadcastRoute />} />
+              <Route
+                path="/broadcasts/:id/edit"
+                element={
+                  <RequireAuth>
+                    <EditBroadcastPage />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/broadcasts/:id/studio"
+                element={
+                  <RequireAuth>
+                    <StudioPage />
+                  </RequireAuth>
+                }
+              />
+              {/* 토스 결제창이 돌아오는 주소 (#11) */}
+              <Route
+                path="/broadcasts/:id/donation/success"
+                element={
+                  <RequireAuth>
+                    <DonationSuccessPage />
+                  </RequireAuth>
+                }
+              />
+              <Route path="/broadcasts/:id/donation/fail" element={<DonationFailPage />} />
+              <Route path="/channels/:channelId" element={<ChannelPage />} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </main>
+          {!immersive && <SiteFooter />}
+        </div>
       </div>
+      {!focused && <TabBar />}
     </>
   )
 }

@@ -9,8 +9,8 @@
   margin-top: var(--space-4);
   padding: 16px;
   border-radius: var(--radius);
-  background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 9%, var(--bg-elev)), var(--bg-elev) 60%);
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  background: linear-gradient(120deg, color-mix(in srgb, var(--gift) 9%, var(--bg-elev)), var(--bg-elev) 60%);
+  border: 1px solid color-mix(in srgb, var(--gift) 22%, var(--border));
 }
 
 .donation-panel-icon {
@@ -19,8 +19,8 @@
   width: 42px;
   height: 42px;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--gift) 16%, transparent);
+  color: var(--gift);
 }
 
 .donation-panel-text {
@@ -89,12 +89,12 @@ html:has(.donation-sheet[open]) {
   border-radius: 20px 20px 0 0;
   background: var(--bg-elev);
   color: var(--text);
-  box-shadow: 0 -12px 40px rgb(0 0 0 / 0.5);
+  box-shadow: 0 -12px 40px var(--shadow-color);
   animation: sheet-up 0.22s ease-out;
 }
 
 .donation-sheet::backdrop {
-  background: rgb(0 0 0 / 0.6);
+  background: var(--scrim);
 }
 
 .donation-sheet-body {
@@ -107,7 +107,7 @@ html:has(.donation-sheet[open]) {
     margin: auto;
     border-bottom: 1px solid var(--border);
     border-radius: 16px;
-    box-shadow: 0 20px 60px rgb(0 0 0 / 0.6);
+    box-shadow: 0 20px 60px var(--shadow-color);
     animation-name: sheet-pop;
   }
 
@@ -280,13 +280,13 @@ html:has(.donation-sheet[open]) {
   margin: 0;
   padding: 18px 12px;
   border-radius: var(--radius);
-  background: color-mix(in srgb, var(--accent) 9%, var(--bg));
+  background: color-mix(in srgb, var(--gift) 9%, var(--bg));
 }
 
 .donation-review-amount strong {
   font-size: 2rem;
   line-height: 1.2;
-  color: var(--accent);
+  color: var(--gift);
   font-variant-numeric: tabular-nums;
 }
 
@@ -396,7 +396,7 @@ html:has(.donation-sheet[open]) {
 
 .donation-board-total strong {
   font-size: 1.35rem;
-  color: var(--accent);
+  color: var(--gift);
   font-variant-numeric: tabular-nums;
 }
 
@@ -455,8 +455,8 @@ html:has(.donation-sheet[open]) {
   margin-left: auto;
   padding: 2px 10px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--gift) 14%, transparent);
+  color: var(--gift);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -488,11 +488,11 @@ html:has(.donation-sheet[open]) {
   padding: 16px 18px 18px;
   overflow: hidden;
   border-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
-  background: color-mix(in srgb, var(--accent) 10%, var(--bg-elev));
+  border: 1px solid color-mix(in srgb, var(--gift) 55%, transparent);
+  background: color-mix(in srgb, var(--gift) 10%, var(--bg-elev));
   box-shadow:
-    0 12px 36px rgb(0 0 0 / 0.5),
-    0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent);
+    0 12px 36px var(--shadow-color),
+    0 0 0 4px color-mix(in srgb, var(--gift) 12%, transparent);
   transform: translateX(-50%);
   animation: alert-in 0.35s cubic-bezier(0.2, 1.4, 0.4, 1);
   overflow-wrap: anywhere;
@@ -506,7 +506,7 @@ html:has(.donation-sheet[open]) {
   bottom: 0;
   height: 3px;
   width: 100%;
-  background: var(--accent);
+  background: var(--gift);
   transform-origin: left;
   animation: alert-timer var(--alert-ms, 6s) linear forwards;
 }
@@ -518,8 +518,8 @@ html:has(.donation-sheet[open]) {
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--accent), #00b8ff);
-  color: var(--accent-ink);
+  background: var(--gift);
+  color: var(--gift-ink);
 }
 
 .donation-alert-text {
@@ -531,7 +531,7 @@ html:has(.donation-sheet[open]) {
 .donation-alert-amount {
   font-size: 1.5rem;
   line-height: 1.25;
-  color: var(--accent);
+  color: var(--gift);
   font-variant-numeric: tabular-nums;
 }
 
@@ -639,7 +639,7 @@ html:has(.donation-sheet[open]) {
   font-size: 2.2rem;
   font-weight: 800;
   line-height: 1.2;
-  color: var(--accent);
+  color: var(--gift);
   font-variant-numeric: tabular-nums;
 }
 
