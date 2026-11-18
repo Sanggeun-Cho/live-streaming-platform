@@ -587,11 +587,51 @@ input[type='range'] {
 .broadcast-layout {
   display: grid;
   gap: 16px;
-  /* 모바일: 영상 → 채팅 → 정보 순으로 보여 영상 바로 아래에서 채팅한다 */
+  /* 모바일: 영상 → 제목·방송자 → 후원 버튼 → 채팅 → 설명·후원 내역 (치지직·유튜브 라이브와 같은 순서) */
   grid-template-areas:
     'player'
+    'head'
+    'donate'
     'chat'
     'info';
+}
+
+.broadcast-head {
+  grid-area: head;
+  min-width: 0;
+}
+
+.broadcast-donate {
+  grid-area: donate;
+  min-width: 0;
+}
+
+.broadcast-donate:empty {
+  display: none;
+}
+
+.ended-notice {
+  display: flex;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.ended-notice p {
+  margin: 0;
+}
+
+.start-cta {
+  min-height: 48px;
+  padding: 10px 22px;
+  font-size: 1rem;
+}
+
+.center-actions {
+  justify-content: center;
+  margin-top: 16px;
 }
 
 .broadcast-detail {
@@ -618,6 +658,8 @@ input[type='range'] {
     grid-template-columns: minmax(0, 1fr) var(--chat-w);
     grid-template-areas:
       'player chat'
+      'head chat'
+      'donate chat'
       'info chat';
     align-items: start;
   }
@@ -743,106 +785,7 @@ input[type='range'] {
   margin-top: 16px;
 }
 
-/* ---- 스튜디오 ---- */
-.studio {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  max-width: 1100px;
-}
-
-.studio-preview {
-  position: relative;
-}
-
-.preview {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  border-radius: var(--radius);
-  object-fit: contain;
-  background: #000;
-  display: block;
-}
-
-.studio-empty {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-dim);
-}
-
-.studio-phase {
-  font-weight: 800;
-  font-size: 0.85rem;
-  padding: 5px 12px;
-  border-radius: 999px;
-  background: #3a3d45;
-  color: #fff;
-}
-
-.studio-phase.phase-live {
-  background: var(--live);
-}
-
-.studio-phase.phase-preview {
-  background: var(--info);
-}
-
-.studio-phase.phase-reconnecting,
-.studio-phase.phase-sourceEnded,
-.studio-phase.phase-takenOver,
-.studio-phase.phase-connecting {
-  background: var(--warn);
-  color: #1a1200;
-}
-
-.studio-controls {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 16px;
-  border-radius: var(--radius);
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
-}
-
-.studio button,
-.studio .button {
-  min-height: 44px;
-}
-
-.studio-controls > button {
-  align-self: flex-start;
-}
-
-/* 넓은 화면: 미리보기는 왼쪽, 조작 패널은 오른쪽에 고정해 스크롤 없이 상태와 버튼을 함께 본다 */
-@media (min-width: 1100px) {
-  .studio {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 380px;
-    column-gap: 20px;
-    row-gap: 14px;
-    align-items: start;
-    max-width: 1500px;
-  }
-
-  .studio > * {
-    grid-column: 1;
-  }
-
-  .studio > .studio-controls {
-    grid-column: 2;
-    grid-row: 1 / -1;
-  }
-
-  /* 조작 패널이 왼쪽보다 길어도 남는 높이를 마지막 행이 받아, 제목·미리보기 사이에 빈틈이 생기지 않게 한다 */
-  .studio {
-    grid-template-rows: repeat(5, auto) 1fr;
-  }
-}
-
+/* ---- 안내 상자 ---- */
 .notice {
   padding: 14px;
   border-radius: var(--radius);
@@ -852,32 +795,6 @@ input[type='range'] {
 
 .notice p {
   margin: 0 0 10px;
-}
-
-.audio-status {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.slider {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: 12px;
-  color: var(--text-dim);
-}
-
-.slider input {
-  width: 140px;
-}
-
-.stats {
-  font-variant-numeric: tabular-nums;
-  font-size: 0.85rem;
 }
 
 /* ---- 도네이션 (#11) ---- */
@@ -1189,11 +1106,6 @@ input[type='range'] {
 }
 
 /* ---- 리뷰 반영: 중요한 동작은 눈에 띄게, 비활성은 분명하게, 터치 영역 확보 ---- */
-.studio button.danger {
-  background: var(--danger);
-  color: #fff;
-}
-
 .donation-panel > button:disabled {
   background: var(--bg-elev-2);
   border-color: var(--border);

@@ -2,6 +2,7 @@
 // 가짜 카메라로 WHIP 송출 → 시청자 화면 실시간 상태 변경 → 끊김·재연결 → 종료 → 재송출 거절 → 유예 만료
 import {
   anonPage,
+  confirmDialog,
   BASE,
   expectEqual,
   expectMediaFlowing,
@@ -97,8 +98,8 @@ await step('유예 시간 안에 다시 송출하면 같은 방송이 LIVE로 �
 
 await step('소유자가 방송을 종료하면 시청자 화면이 "방송 종료"로 바뀐다', async () => {
   const page = ownerPage
-  page.once('dialog', (d) => d.accept())
   await page.getByRole('button', { name: '방송 종료' }).click()
+  await confirmDialog(page, '종료하기')
   await statusLine(viewer).getByText('방송 종료').waitFor({ timeout: 10_000 })
   expectEqual(await viewer.getByTestId('live-video').count(), 0, '플레이어')
 })

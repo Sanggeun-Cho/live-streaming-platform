@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { Radio } from 'lucide-react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { useAuth } from '../auth/context'
 import { useAuthErrorRedirect } from '../auth/useAuthErrorRedirect'
@@ -8,6 +9,7 @@ import { ChatPanel } from '../components/ChatPanel'
 import { DonationAlert, DonationBoard, DonationPanel } from '../components/Donations'
 import { LivePlayer } from '../components/LivePlayer'
 import { ReplayPlayer } from '../components/ReplayPlayer'
+import { useFeedback } from '../feedback/context'
 import { useBroadcastEvents } from '../hooks/useBroadcastEvents'
 import { useBroadcast } from '../hooks/useBroadcast'
 import { useComments } from '../hooks/useComments'
@@ -61,6 +63,9 @@ export function BroadcastPage() {
   // 송출이 다시 붙을 때마다 플레이어를 새로 연결한다
   const [playerKey, setPlayerKey] = useState(0)
   const redirectIfUnauthorized = useAuthErrorRedirect()
+  const { confirm, toast } = useFeedback()
+  // 보는 중에 방송이 끝났으면 다시보기로 바뀌는 이유를 알려 준다
+  const [endedWhileWatching, setEndedWhileWatching] = useState(false)
   const donations = useDonations(broadcast ? id : null)
   // 화면에 띄울 최신 후원 알림
   const [latestDonation, setLatestDonation] = useState<Donation | null>(null)
@@ -70,6 +75,7 @@ export function BroadcastPage() {
   const { connected } = useBroadcastEvents(broadcast ? id : null, {
     status: (data) => {
       if (data.status === 'LIVE' && !data.disconnectedAt) setPlayerKey((k) => k + 1)
+      if (data.status === 'ENDED') setEndedWhileWatching(true)
       patch(data)
     },
     updated: (data) => patch(data),
@@ -95,31 +101,34 @@ export function BroadcastPage() {
   }, [connected, reloadDonations])
 
   if (error) {
-    return (
-      <section>
-        <p className="error">{error.status === 404 ? '방송을 찾을 수 없습니다. 삭제되었을 수 있습니다.' : error.message}</p>
-        <Link to="/">목록으로</Link>
-      </section>
+    return error.status === 404 ? (
+      <PageMessage title="방송을 찾을 수 없습니다" text="삭제되었거나 주소가 바뀌었을 수 있습니다." />
+    ) : (
+      <PageMessage title="방송을 불러오지 못했습니다" text={error.message}>
+        <button type="button" onClick={() => window.location.reload()}>
+          다시 시도
+        </button>
+      </PageMessage>
     )
   }
   if (!broadcast) return <p className="muted">불러오는 중…</p>
-  if (deleted) {
-    return (
-      <section>
-        <p className="error">방송자가 이 방송을 삭제했습니다.</p>
-        <Link to="/">목록으로</Link>
-      </section>
-    )
-  }
+  if (deleted) return <PageMessage title="방송자가 이 방송을 삭제했습니다" text="다른 라이브를 둘러보세요." />
 
   const isOwner = user?.channelId === broadcast.channel.id
 
   async function onDelete() {
-    if (!window.confirm('이 방송을 삭제할까요? 삭제한 방송은 목록에서 사라집니다.')) return
+    const ok = await confirm({
+      title: '이 방송을 삭제할까요?',
+      message: '삭제한 방송은 목록과 다시보기에서 사라집니다.',
+      confirmLabel: '삭제하기',
+      danger: true,
+    })
+    if (!ok) return
     setActionError(null)
     setDeleting(true)
     try {
       await deleteBroadcast(id)
+      toast('방송을 삭제했습니다')
       navigate(`/channels/${broadcast!.channel.id}`, { replace: true })
     } catch (e) {
       setDeleting(false)
@@ -143,9 +152,23 @@ export function BroadcastPage() {
                 ? '방송자의 연결이 끊겼습니다. 다시 연결되기를 기다리는 중…'
                 : PLAYER_MESSAGE[broadcast.status]}
             </p>
+            {isOwner && (
+              <Link to={`/broadcasts/${id}/studio`} className="button primary start-cta">
+                <Radio size={18} aria-hidden="true" />
+                {broadcast.status === 'LIVE' ? '방송 스튜디오로 돌아가기' : '방송 시작하기'}
+              </Link>
+            )}
           </div>
         )}
-        <div className="broadcast-body">
+        <div className="broadcast-head">
+          {endedWhileWatching && broadcast.status === 'ENDED' && (
+            <div className="notice ended-notice" role="status">
+              <p>방송이 종료되었습니다. 녹화가 준비되면 위 화면에서 다시보기를 볼 수 있습니다.</p>
+              <Link to="/" className="button">
+                다른 라이브 보기
+              </Link>
+            </div>
+          )}
           <div className="broadcast-info">
             <Link to={`/channels/${broadcast.channel.id}`} aria-label={`${broadcast.streamer.nickname} 채널`}>
               <Avatar id={broadcast.streamer.id} name={broadcast.streamer.nickname} size={48} />
@@ -163,17 +186,20 @@ export function BroadcastPage() {
               </div>
             </div>
           </div>
-          {broadcast.description && <p className="description">{broadcast.description}</p>}
-
+        </div>
+        <div className="broadcast-donate">
           {latestDonation && <DonationAlert key={latestDonation.id} donation={latestDonation} />}
           <DonationPanel broadcast={broadcast} isOwner={isOwner} />
+        </div>
+        <div className="broadcast-body">
+          {broadcast.description && <p className="description">{broadcast.description}</p>}
           <DonationBoard donations={donations} />
 
           {isOwner && (
             <div className="row owner-actions">
-              {broadcast.status !== 'ENDED' && (
+              {broadcast.status === 'LIVE' && !broadcast.disconnectedAt && (
                 <Link to={`/broadcasts/${id}/studio`} className="button primary">
-                  {broadcast.status === 'LIVE' ? '방송 스튜디오로 돌아가기' : '방송 시작하기'}
+                  방송 스튜디오로 돌아가기
                 </Link>
               )}
               <Link to={`/broadcasts/${id}/edit`} className="button">
@@ -205,5 +231,21 @@ export function BroadcastPage() {
       </article>
       <ChatPanel broadcastId={id} chat={chat} />
     </div>
+  )
+}
+
+/** 방송을 볼 수 없을 때(없음·삭제·오류) 다음에 갈 곳을 함께 보여 준다 */
+function PageMessage({ title, text, children }: { title: string; text: string; children?: ReactNode }) {
+  return (
+    <section className="center-card">
+      <h1>{title}</h1>
+      <p className="dim">{text}</p>
+      <div className="row center-actions">
+        {children}
+        <Link to="/" className="button primary">
+          지금 방송 중인 라이브 보기
+        </Link>
+      </div>
+    </section>
   )
 }

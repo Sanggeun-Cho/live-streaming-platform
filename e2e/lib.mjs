@@ -127,6 +127,11 @@ export async function signedUpPage(browser, name) {
   return page
 }
 
+/** 앱의 확인 대화상자에서 버튼을 누른다 (window.confirm 대신 쓰는 <dialog>) */
+export async function confirmDialog(page, label) {
+  await page.getByRole('dialog').getByRole('button', { name: label, exact: true }).click()
+}
+
 export function expectEqual(actual, expected, label = '') {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
     throw new Error(`${label} 기대 ${JSON.stringify(expected)}, 실제 ${JSON.stringify(actual)}`)

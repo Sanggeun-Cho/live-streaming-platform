@@ -1,6 +1,6 @@
 // #8 모바일 송출 + 시청 시나리오 (docker compose 전체 구성 필요: E2E_BASE_URL=https://localhost)
 // 휴대폰 화면 크기·터치·모바일 UA를 흉내 낸다. 실제 기기 확인은 #9에서 한다.
-import { BASE, expectEqual, expectMediaFlowing, finish, launch, newContext, step, unique } from './lib.mjs'
+import { confirmDialog, BASE, expectEqual, expectMediaFlowing, finish, launch, newContext, step, unique } from './lib.mjs'
 
 const browser = await launch()
 const iphone = {
@@ -127,8 +127,8 @@ await step('휴대폰으로 시청: 음소거로 시작하고 "소리 켜기"와
 })
 
 await step('휴대폰에서 방송을 종료하면 시청자 화면이 "방송 종료"로 바뀐다', async () => {
-  phone.once('dialog', (d) => d.accept())
   await phone.getByRole('button', { name: '방송 종료' }).tap()
+  await confirmDialog(phone, '종료하기')
   await phone.getByRole('heading', { name: '방송이 종료되었습니다' }).waitFor({ timeout: 10_000 })
   await pc.getByTestId('status-line').getByText('방송 종료').waitFor({ timeout: 10_000 })
   await mobileViewer.getByTestId('status-line').getByText('방송 종료').waitFor({ timeout: 10_000 })

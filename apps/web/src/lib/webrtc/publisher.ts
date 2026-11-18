@@ -86,8 +86,8 @@ const INITIAL: PublisherState = {
   errorCode: null,
 }
 
-const errorState = (e: unknown) => ({
-  error: publishErrorMessage(e),
+const errorState = (e: unknown, source?: SourceKind) => ({
+  error: publishErrorMessage(e, source),
   errorCode: e instanceof ApiError ? e.code : null,
 })
 
@@ -189,8 +189,8 @@ export class Publisher {
       next = source === 'screen' ? await captureScreen({ mic: true }) : await captureCamera(this.state.facing)
     } catch (e) {
       // 고르는 사이 상태가 바뀌었으면(연결 끊김 → 재연결 등) 그 상태를 유지한다
-      if (this.state.phase !== 'requesting') return this.set(errorState(e))
-      this.set({ phase: before, ...errorState(e) })
+      if (this.state.phase !== 'requesting') return this.set(errorState(e, source))
+      this.set({ phase: before, ...errorState(e, source) })
       // 소스 중단 뒤 고르다 취소했다: 자동 종료 시한은 그대로다 (이미 지났으면 바로 종료)
       if (before === 'sourceEnded') this.armSourceEndedTimer()
       return

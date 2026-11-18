@@ -1,13 +1,23 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Link, useParams } from 'react-router'
+import { Camera, ExternalLink, Mic, MicOff, Monitor, SwitchCamera } from 'lucide-react'
+import { type CSSProperties, type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { Link, useBlocker, useParams } from 'react-router'
 import { useAuth } from '../auth/context'
 import { useAuthErrorRedirect } from '../auth/useAuthErrorRedirect'
+import { ChatPanel } from '../components/ChatPanel'
+import { DonationAlert } from '../components/Donations'
+import { useFeedback } from '../feedback/context'
 import { useBroadcast } from '../hooks/useBroadcast'
 import { useBroadcastEvents } from '../hooks/useBroadcastEvents'
-import { isCameraSupported, isScreenShareSupported } from '../lib/webrtc/media'
+import { useComments } from '../hooks/useComments'
+import { useDonations } from '../hooks/useDonations'
 import { ApiError } from '../lib/api'
-import { MAX_RECONNECT, type Phase, Publisher, SOURCE_ENDED_TIMEOUT_MS } from '../lib/webrtc/publisher'
+import type { Broadcast } from '../lib/broadcasts'
+import { type Donation, formatWon } from '../lib/donations'
+import { formatDuration } from '../lib/recordings'
+import { isCameraSupported, isScreenShareSupported } from '../lib/webrtc/media'
+import { MAX_RECONNECT, type Phase, Publisher, type PublisherState, SOURCE_ENDED_TIMEOUT_MS } from '../lib/webrtc/publisher'
 import { type RtcSummary, summarize } from '../lib/webrtc/stats'
+import './studio.css'
 
 const PHASE_LABEL: Record<Phase, string> = {
   idle: '송출 준비',
@@ -20,6 +30,8 @@ const PHASE_LABEL: Record<Phase, string> = {
   takenOver: '다른 곳에서 송출 중',
   ended: '방송 종료',
 }
+
+const ON_AIR: Phase[] = ['connecting', 'live', 'reconnecting', 'sourceEnded']
 
 /** 화면이 살아 있는 동안 송출 컨트롤러 하나를 유지하고, 상태를 React 상태로 내보낸다 */
 function usePublisher(broadcastId: number) {
@@ -39,69 +51,108 @@ function usePublisher(broadcastId: number) {
   return { publisher, state }
 }
 
+/** 1초마다 다시 그려 경과 시간을 갱신한다 */
+function useNow(active: boolean) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!active) return
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [active])
+  return now
+}
+
 export function StudioPage() {
   const id = Number(useParams().id)
   const { user } = useAuth()
-  const { broadcast, error } = useBroadcast(id)
+  const { broadcast, error, patch } = useBroadcast(id)
 
   if (error) {
     return (
-      <section>
-        <p className="error">{error.status === 404 ? '방송을 찾을 수 없습니다.' : error.message}</p>
-        <Link to="/">목록으로</Link>
-      </section>
+      <StudioMessage title={error.status === 404 ? '방송을 찾을 수 없습니다' : '방송을 불러오지 못했습니다'} text={error.message}>
+        <Link to="/" className="button primary">
+          홈으로
+        </Link>
+      </StudioMessage>
     )
   }
   if (!broadcast) return <p className="muted">불러오는 중…</p>
   if (user?.channelId !== broadcast.channel.id) {
     return (
-      <section>
-        <p className="error">본인 방송만 송출할 수 있습니다.</p>
-        <Link to={`/broadcasts/${id}`}>방송 보러 가기</Link>
-      </section>
+      <StudioMessage title="본인 방송만 송출할 수 있습니다" text="이 방송의 방송자로 로그인했는지 확인하세요.">
+        <Link to={`/broadcasts/${id}`} className="button primary">
+          방송 보러 가기
+        </Link>
+      </StudioMessage>
     )
   }
   if (broadcast.status === 'ENDED') {
     return (
-      <section>
-        <p>이미 종료된 방송입니다. 다시 방송하려면 새 방송을 만드세요.</p>
-        <Link to="/broadcasts/new" className="button">
+      <StudioMessage title="이미 종료된 방송입니다" text="종료한 방송은 다시 시작할 수 없습니다. 새 방송을 만들어 주세요.">
+        <Link to="/broadcasts/new" className="button primary">
           새 방송 만들기
         </Link>
-      </section>
+      </StudioMessage>
     )
   }
   if (!window.isSecureContext) {
-    return <p className="error">카메라·마이크·화면 공유는 HTTPS 주소에서만 쓸 수 있습니다. https:// 로 접속하세요.</p>
+    return (
+      <StudioMessage
+        title="HTTPS 주소에서만 방송할 수 있습니다"
+        text="카메라·마이크·화면 공유는 보안 연결에서만 쓸 수 있습니다. https:// 로 접속하세요."
+      />
+    )
   }
   // 방송이 바뀌면 송출 컨트롤러도 새로 만든다
-  return <Studio key={id} broadcastId={id} title={broadcast.title} />
+  return <Studio key={id} broadcast={broadcast} patch={patch} />
 }
 
-function Studio({ broadcastId, title }: { broadcastId: number; title: string }) {
+function StudioMessage({ title, text, children }: { title: string; text: string; children?: ReactNode }) {
+  return (
+    <section className="center-card">
+      <h1>{title}</h1>
+      <p className="dim">{text}</p>
+      {children}
+    </section>
+  )
+}
+
+function Studio({ broadcast, patch }: { broadcast: Broadcast; patch: (changes: Partial<Broadcast>) => void }) {
+  const broadcastId = broadcast.id
   const { publisher, state } = usePublisher(broadcastId)
-  const previewRef = useRef<HTMLVideoElement>(null)
+  const { confirm } = useFeedback()
+  const redirectIfUnauthorized = useAuthErrorRedirect()
   const [viewers, setViewers] = useState(0)
+  const [peakViewers, setPeakViewers] = useState(0)
   const [stats, setStats] = useState<RtcSummary | null>(null)
   const [ending, setEnding] = useState(false)
-  const { phase, stream } = state
-  const onAir = phase === 'live' || phase === 'reconnecting' || phase === 'sourceEnded' || phase === 'connecting'
-  const redirectIfUnauthorized = useAuthErrorRedirect()
+  const [latestDonation, setLatestDonation] = useState<Donation | null>(null)
+  const donations = useDonations(broadcastId)
+  const { phase } = state
+  const onAir = ON_AIR.includes(phase)
+
+  const { connected } = useBroadcastEvents(broadcastId, {
+    status: (s) => {
+      // 종료(이 화면·다른 탭·유예 만료)는 송출 컨트롤러가 종료 요약 화면으로 바꾼다.
+      // 방송 상태까지 ENDED로 바꾸면 "이미 종료된 방송" 안내가 요약을 덮는다
+      if (s.status === 'ENDED') publisher.handleServerEnded()
+      else patch(s)
+    },
+    viewers: ({ count }) => {
+      setViewers(count)
+      setPeakViewers((peak) => Math.max(peak, count))
+    },
+    comment: (data) => chat.apply(data.comment),
+    donation: (data) => {
+      donations.push(data)
+      setLatestDonation(data.donation)
+    },
+  })
+  const chat = useComments(broadcastId, connected)
 
   useEffect(() => {
     if (state.errorCode === 'UNAUTHORIZED') redirectIfUnauthorized(new ApiError(401, 'UNAUTHORIZED', ''))
   }, [state.errorCode, redirectIfUnauthorized])
-
-  useBroadcastEvents(broadcastId, {
-    // 다른 탭에서 종료했거나 유예 시간이 지나 서버가 종료했다
-    status: (s) => s.status === 'ENDED' && publisher.handleServerEnded(),
-    viewers: (v) => setViewers(v.count),
-  })
-
-  // 미리보기는 캡처 스트림이 바뀔 때마다 다시 붙인다 (소스 전환, 카메라 전환)
-  useEffect(() => {
-    if (previewRef.current && previewRef.current.srcObject !== stream) previewRef.current.srcObject = stream
-  }, [stream])
 
   // 송출 품질 표시 (2초마다)
   useEffect(() => {
@@ -113,7 +164,7 @@ function Studio({ broadcastId, title }: { broadcastId: number; title: string }) 
     return () => clearInterval(timer)
   }, [phase, publisher])
 
-  // 방송 중 새로고침·닫기 경고
+  // 방송 중 새로고침·탭 닫기 경고 (브라우저 기본 창)
   useEffect(() => {
     if (!onAir) return
     const warn = (e: BeforeUnloadEvent) => e.preventDefault()
@@ -121,182 +172,469 @@ function Studio({ broadcastId, title }: { broadcastId: number; title: string }) 
     return () => window.removeEventListener('beforeunload', warn)
   }, [onAir])
 
+  // 방송 중 앱 안의 링크로 이동하면 송출이 끊긴다: 먼저 묻는다
+  const blocker = useBlocker(onAir)
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
+    void confirm({
+      title: '방송 중입니다',
+      message: '이 화면을 떠나면 송출이 끊기고, 다시 돌아오지 않으면 잠시 뒤 방송이 자동으로 종료됩니다.',
+      confirmLabel: '떠나기',
+      cancelLabel: '계속 방송하기',
+      danger: true,
+    }).then((ok) => (ok ? blocker.proceed() : blocker.reset()))
+  }, [blocker, confirm])
+
   async function onEnd() {
-    if (!window.confirm('방송을 종료할까요? 종료한 방송은 다시 시작할 수 없습니다.')) return
+    const ok = await confirm({
+      title: '방송을 종료할까요?',
+      message: '종료한 방송은 다시 시작할 수 없습니다. 녹화는 다시보기로 남습니다.',
+      confirmLabel: '종료하기',
+      danger: true,
+    })
+    if (!ok) return
     setEnding(true)
     await publisher.end().catch(() => undefined)
     setEnding(false)
   }
 
-  const screenOk = isScreenShareSupported()
-  const cameraOk = isCameraSupported()
-
   if (phase === 'ended') {
     return (
-      <section className="studio">
-        <h1>방송이 종료되었습니다</h1>
-        <p className="muted">카메라·마이크·화면 공유를 모두 껐습니다.</p>
-        <div className="row owner-actions">
-          <Link to={`/broadcasts/${broadcastId}`} className="button">
-            방송 화면으로
-          </Link>
-          <Link to="/broadcasts/new" className="button">
-            새 방송 만들기
-          </Link>
-        </div>
-      </section>
+      <EndedSummary
+        broadcast={broadcast}
+        peakViewers={peakViewers}
+        donationTotal={donations.total}
+        chatCount={chat.items.filter((c) => c.content !== null && !c.donation).length}
+      />
     )
   }
 
+  // 서버는 아직 LIVE인데 이 화면은 송출하지 않는다: 앱 밖으로 나갔다가 돌아온 경우다
+  const resumable = broadcast.status === 'LIVE' && !onAir && phase !== 'takenOver'
+
   return (
-    <section className="studio">
-      <div className="row">
-        <h1>{title}</h1>
-        <span className={`studio-phase phase-${phase}`} data-testid="studio-phase">
-          {PHASE_LABEL[phase]}
-          {phase === 'reconnecting' && ` (${state.reconnectAttempt}/${MAX_RECONNECT})`}
-          {phase === 'live' && ` · 시청자 ${viewers}명`}
-        </span>
-      </div>
+    <div className="studio-layout">
+      <section className="studio-main" aria-label="방송 스튜디오">
+        <div className="studio-head">
+          <div className="studio-title">
+            <h1>{broadcast.title}</h1>
+            <Link to={`/broadcasts/${broadcastId}`} target="_blank" rel="noreferrer" className="studio-watch-link">
+              시청 화면 보기 <ExternalLink size={14} aria-hidden="true" />
+            </Link>
+          </div>
+          <OnAirStatus phase={phase} state={state} broadcast={broadcast} viewers={viewers} />
+        </div>
 
-      <div className="studio-preview">
-        <video ref={previewRef} autoPlay playsInline muted className="preview" data-testid="studio-preview" />
-        {!stream && <p className="muted studio-empty">송출할 화면이나 카메라를 선택하세요</p>}
-      </div>
+        <Stage publisher={publisher} state={state} />
 
-      {state.error && (
-        <p className="error" role="alert">
-          {state.error}
-        </p>
-      )}
-
-      {phase === 'sourceEnded' && (
-        <div className="notice" role="alert">
-          <p>
-            {state.source === 'camera' ? '카메라가 꺼져' : '화면 공유가 중지되어'} 송출을 멈췄습니다(마이크 포함).{' '}
-            {SOURCE_ENDED_TIMEOUT_MS / 1000}초 안에 다시 선택하면 방송이 이어지고, 그렇지 않으면 방송이 자동으로 종료됩니다.
+        {resumable && (
+          <div className="notice" role="alert">
+            <p>
+              <strong>송출이 끊긴 상태입니다.</strong> 시청자는 다시 연결되기를 기다리고 있습니다. 화면이나 카메라를 선택해
+              이어서 송출하거나 방송을 종료하세요.
+            </p>
+          </div>
+        )}
+        {state.error && (
+          <p className="error" role="alert">
+            {state.error}
           </p>
-          <div className="row owner-actions">
-            <button type="button" onClick={() => void publisher.selectSource('screen')}>
-              화면 다시 선택
-            </button>
-            <button type="button" onClick={() => void publisher.selectSource('camera')}>
-              카메라로 전환
+        )}
+        {phase === 'sourceEnded' && (
+          <div className="notice" role="alert">
+            <p>
+              {state.source === 'camera' ? '카메라가 꺼져' : '화면 공유가 중지되어'} 송출을 멈췄습니다(마이크 포함).{' '}
+              {SOURCE_ENDED_TIMEOUT_MS / 1000}초 안에 다시 선택하면 방송이 이어지고, 그렇지 않으면 방송이 자동으로
+              종료됩니다.
+            </p>
+            <div className="row">
+              {isScreenShareSupported() && (
+                <button type="button" onClick={() => void publisher.selectSource('screen')}>
+                  화면 다시 선택
+                </button>
+              )}
+              <button type="button" onClick={() => void publisher.selectSource('camera')}>
+                카메라로 전환
+              </button>
+            </div>
+          </div>
+        )}
+        {phase === 'takenOver' && (
+          <div className="notice" role="alert">
+            <p>다른 탭이나 기기에서 이 방송을 송출하고 있어 이 화면의 송출을 멈췄습니다.</p>
+            <button type="button" onClick={() => void publisher.takeBack()}>
+              여기서 다시 송출
             </button>
           </div>
-        </div>
-      )}
-
-      {phase === 'takenOver' && (
-        <div className="notice" role="alert">
-          <p>다른 탭이나 기기에서 이 방송을 송출하고 있어 이 화면의 송출을 멈췄습니다.</p>
-          <button type="button" onClick={() => void publisher.takeBack()}>
-            여기서 다시 송출
-          </button>
-        </div>
-      )}
-
-      <div className="studio-controls">
-        <div className="row owner-actions">
-          {screenOk && (
-            <button type="button" onClick={() => void publisher.selectSource('screen')} disabled={phase === 'requesting'}>
-              🖥 화면 공유{state.source === 'screen' ? ' 다시 선택' : ''}
-            </button>
-          )}
-          {cameraOk && (
-            <button type="button" onClick={() => void publisher.selectSource('camera')} disabled={phase === 'requesting'}>
-              📷 카메라{state.source === 'camera' ? ' 다시 켜기' : ''}
-            </button>
-          )}
-          {state.source === 'camera' && (
-            <button type="button" onClick={() => void publisher.switchCamera()}>
-              🔄 전면/후면 전환
-            </button>
-          )}
-        </div>
-        {!screenOk && cameraOk && (
-          <p className="muted">이 브라우저는 화면 공유를 지원하지 않아 카메라로 송출합니다. (PC의 Chrome·Edge에서 화면 공유 가능)</p>
-        )}
-        {!screenOk && !cameraOk && (
-          <p className="error">
-            이 브라우저는 송출을 지원하지 않습니다. PC는 Chrome·Edge, 휴대폰은 Safari(iOS)·Chrome(Android)을 사용하세요.
-          </p>
         )}
 
-        {state.source === 'screen' && (
-          <ul className="audio-status">
-            <li>
-              화면 소리:{' '}
-              {state.hasDisplayAudio ? (
-                <strong>포함됨</strong>
-              ) : (
-                <span className="warn">
-                  없음 — 탭 소리는 "탭"(Chrome 탭·Edge 탭) 선택 후 "탭 오디오도 공유", Windows 전체 화면은 "시스템 오디오도 공유"를 켜고 다시
-                  선택하세요
-                </span>
-              )}
-              {state.hasDisplayAudio && (
-                <label className="slider">
-                  음량
-                  <input
-                    type="range"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={state.displayVolume}
-                    onChange={(e) => publisher.setDisplayVolume(Number(e.target.value))}
-                  />
-                </label>
-              )}
-            </li>
-            <li>
-              마이크: {state.hasMic ? <strong>{state.micMuted ? '꺼짐' : '켜짐'}</strong> : <span className="warn">없음(권한 거부 또는 장치 없음)</span>}
-              {state.hasMic && (
-                <label className="slider">
-                  음량
-                  <input
-                    type="range"
-                    min={0}
-                    max={1.5}
-                    step={0.05}
-                    value={state.micVolume}
-                    onChange={(e) => publisher.setMicVolume(Number(e.target.value))}
-                  />
-                </label>
-              )}
-            </li>
-          </ul>
-        )}
-        {state.source && state.hasMic && (
-          <button type="button" onClick={() => publisher.setMicMuted(!state.micMuted)} aria-pressed={state.micMuted}>
-            {state.micMuted ? '🎙 마이크 켜기' : '🔇 마이크 끄기'}
-          </button>
-        )}
+        <Toolbar
+          publisher={publisher}
+          state={state}
+          resumable={resumable}
+          canEnd={onAir || phase === 'takenOver' || resumable}
+          ending={ending}
+          onEnd={() => void onEnd()}
+        />
 
-        <div className="row owner-actions">
-          {phase === 'preview' && (
-            <button type="button" className="primary" onClick={() => void publisher.start()}>
-              방송 시작
-            </button>
-          )}
-          {(onAir || phase === 'takenOver') && (
-            <button type="button" className="danger" onClick={onEnd} disabled={ending}>
-              {ending ? '종료 중…' : '방송 종료'}
-            </button>
-          )}
-          <Link to={`/broadcasts/${broadcastId}`} target="_blank" rel="noreferrer">
-            시청 화면 새 탭으로 열기
-          </Link>
-        </div>
+        {state.source === 'screen' && <AudioMixer publisher={publisher} state={state} />}
 
-        {phase === 'live' && stats && (
-          <p className="muted stats" data-testid="studio-stats">
-            {stats.width}x{stats.height} · {stats.fps ?? '-'}fps · {stats.videoKbps !== undefined ? `${stats.videoKbps}kbps` : '비트레이트 측정 중'} · {stats.videoCodec ?? ''}
-          </p>
-        )}
+        {phase === 'live' && stats?.height && <QualityLine stats={stats} />}
         {state.source === 'camera' && onAir && (
-          <p className="muted">송출 중에는 화면을 켜 두세요. 다른 앱으로 전환하면 송출이 멈출 수 있습니다.</p>
+          <p className="muted studio-hint">송출 중에는 화면을 켜 두세요. 다른 앱으로 전환하면 송출이 멈출 수 있습니다.</p>
         )}
+      </section>
+
+      <aside className="studio-side" aria-label="시청자 반응">
+        <div className="studio-donations">
+          <span className="dim">받은 후원</span>
+          <strong data-testid="studio-donation-total">{formatWon(donations.total.amount)}</strong>
+          <span className="dim">{donations.total.count}건</span>
+        </div>
+        {latestDonation && <DonationAlert key={latestDonation.id} donation={latestDonation} />}
+        <ChatPanel broadcastId={broadcastId} chat={chat} />
+      </aside>
+    </div>
+  )
+}
+
+function OnAirStatus({
+  phase,
+  state,
+  broadcast,
+  viewers,
+}: {
+  phase: Phase
+  state: PublisherState
+  broadcast: Broadcast
+  viewers: number
+}) {
+  const live = phase === 'live'
+  const now = useNow(live)
+  const elapsed = live && broadcast.startedAt ? formatDuration(now - Date.parse(broadcast.startedAt)) : null
+  return (
+    <div className="studio-status">
+      <span className={`studio-phase phase-${phase}`} data-testid="studio-phase">
+        {live && <span className="live-dot" aria-hidden="true" />}
+        {PHASE_LABEL[phase]}
+        {phase === 'reconnecting' && ` (${state.reconnectAttempt}/${MAX_RECONNECT})`}
+      </span>
+      {elapsed && (
+        <span className="studio-stat" aria-label={`방송 시간 ${elapsed}`}>
+          {elapsed}
+        </span>
+      )}
+      {live && <span className="studio-stat">시청자 {viewers}명</span>}
+    </div>
+  )
+}
+
+/** 미리보기. 캡처가 없으면 무엇을 해야 하는지 단계로 안내한다 */
+function Stage({ publisher, state }: { publisher: Publisher; state: PublisherState }) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  // 세로 카메라(휴대폰)도 작게 보이지 않도록 미리보기 틀을 영상 비율에 맞춘다
+  const [ratio, setRatio] = useState(16 / 9)
+  const { stream, phase } = state
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (video && video.srcObject !== stream) video.srcObject = stream
+  }, [stream])
+
+  const onResize = () => {
+    const v = videoRef.current
+    if (v?.videoWidth && v.videoHeight) setRatio(v.videoWidth / v.videoHeight)
+  }
+  // 전면 카메라는 거울처럼 보여야 구도를 잡기 쉽다 (송출 영상은 그대로)
+  const mirrored = state.source === 'camera' && state.facing === 'user'
+
+  return (
+    <div className="studio-stage" style={{ '--ratio': ratio } as CSSProperties}>
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        className={`preview${mirrored ? ' mirrored' : ''}`}
+        data-testid="studio-preview"
+        onLoadedMetadata={onResize}
+        onResize={onResize}
+      />
+      {stream && phase === 'preview' && <span className="stage-badge">미리보기 · 아직 시청자에게 보이지 않습니다</span>}
+      {stream && state.hasMic && state.micMuted && (
+        <span className="stage-badge stage-mic-off" role="status">
+          <MicOff size={14} aria-hidden="true" /> 마이크 꺼짐
+        </span>
+      )}
+      {!stream && <EmptyStage publisher={publisher} requesting={phase === 'requesting'} />}
+    </div>
+  )
+}
+
+function EmptyStage({ publisher, requesting }: { publisher: Publisher; requesting: boolean }) {
+  const screenOk = isScreenShareSupported()
+  const cameraOk = isCameraSupported()
+  if (!screenOk && !cameraOk) {
+    return (
+      <div className="stage-empty">
+        <p className="error">
+          이 브라우저는 송출을 지원하지 않습니다. PC는 Chrome·Edge, 휴대폰은 Safari(iOS)·Chrome(Android)을 사용하세요.
+        </p>
+      </div>
+    )
+  }
+  return (
+    <div className="stage-empty">
+      <ol className="stage-steps">
+        <li className="current">{screenOk ? '화면 또는 카메라 선택' : '카메라 켜기'}</li>
+        <li>소리 확인</li>
+        <li>방송 시작</li>
+      </ol>
+      <div className="stage-sources">
+        {screenOk && (
+          <button type="button" className="source-button" onClick={() => void publisher.selectSource('screen')} disabled={requesting}>
+            <Monitor size={28} aria-hidden="true" />
+            <span>화면 공유</span>
+            <small>게임·탭·창 + 시스템 소리</small>
+          </button>
+        )}
+        {cameraOk && (
+          <button type="button" className="source-button" onClick={() => void publisher.selectSource('camera')} disabled={requesting}>
+            <Camera size={28} aria-hidden="true" />
+            <span>카메라</span>
+            <small>카메라 + 마이크</small>
+          </button>
+        )}
+      </div>
+      {!screenOk && <p className="dim stage-note">이 브라우저는 화면 공유를 지원하지 않아 카메라로 송출합니다.</p>}
+    </div>
+  )
+}
+
+function Toolbar({
+  publisher,
+  state,
+  resumable,
+  canEnd,
+  ending,
+  onEnd,
+}: {
+  publisher: Publisher
+  state: PublisherState
+  resumable: boolean
+  canEnd: boolean
+  ending: boolean
+  onEnd: () => void
+}) {
+  const { phase, source } = state
+  const busy = phase === 'requesting'
+  return (
+    <div className="studio-toolbar">
+      <div className="toolbar-group">
+        {source && isScreenShareSupported() && (
+          <ToolButton
+            icon={<Monitor size={18} aria-hidden="true" />}
+            label={source === 'screen' ? '화면 공유 다시 선택' : '화면 공유'}
+            short={source === 'screen' ? '화면 변경' : '화면 공유'}
+            onClick={() => void publisher.selectSource('screen')}
+            disabled={busy}
+          />
+        )}
+        {source && isCameraSupported() && source !== 'camera' && (
+          <ToolButton
+            icon={<Camera size={18} aria-hidden="true" />}
+            label="카메라로 전환"
+            short="카메라"
+            onClick={() => void publisher.selectSource('camera')}
+            disabled={busy}
+          />
+        )}
+        {source === 'camera' && (
+          <ToolButton
+            icon={<SwitchCamera size={18} aria-hidden="true" />}
+            label="전면/후면 전환"
+            short="카메라 전환"
+            onClick={() => void publisher.switchCamera()}
+          />
+        )}
+        {source && state.hasMic && (
+          <ToolButton
+            icon={state.micMuted ? <MicOff size={18} aria-hidden="true" /> : <Mic size={18} aria-hidden="true" />}
+            label={state.micMuted ? '마이크 켜기' : '마이크 끄기'}
+            short={state.micMuted ? '마이크 켜기' : '마이크 끄기'}
+            off={state.micMuted}
+            pressed={state.micMuted}
+            onClick={() => publisher.setMicMuted(!state.micMuted)}
+          />
+        )}
+      </div>
+      <div className="toolbar-group toolbar-main">
+        {phase === 'preview' && (
+          <button type="button" className="primary go-live" onClick={() => void publisher.start()}>
+            {resumable ? '이어서 송출' : '방송 시작'}
+          </button>
+        )}
+        {canEnd && (
+          <button type="button" className="danger solid" onClick={onEnd} disabled={ending}>
+            {ending ? '종료 중…' : '방송 종료'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** 넓은 화면은 전체 이름, 휴대폰은 짧은 이름을 보여 준다 (접근성 이름은 항상 전체 이름) */
+function ToolButton({
+  icon,
+  label,
+  short,
+  off = false,
+  pressed,
+  onClick,
+  disabled,
+}: {
+  icon: ReactNode
+  label: string
+  short: string
+  off?: boolean
+  pressed?: boolean
+  onClick: () => void
+  disabled?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      className={`tool${off ? ' tool-off' : ''}`}
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      aria-pressed={pressed}
+    >
+      {icon}
+      <span className="label-full">{label}</span>
+      <span className="label-short" aria-hidden="true">
+        {short}
+      </span>
+    </button>
+  )
+}
+
+const percent = (v: number) => `${Math.round(v * 100)}%`
+
+/** 화면 공유: 화면 소리와 마이크를 따로 조절한다 */
+function AudioMixer({ publisher, state }: { publisher: Publisher; state: PublisherState }) {
+  return (
+    <ul className="audio-status">
+      <li>
+        <span className="audio-label">화면 소리</span>
+        {state.hasDisplayAudio ? (
+          <label className="slider">
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={state.displayVolume}
+              aria-label="화면 소리 음량"
+              onChange={(e) => publisher.setDisplayVolume(Number(e.target.value))}
+            />
+            <span className="slider-value">{percent(state.displayVolume)}</span>
+          </label>
+        ) : (
+          <span className="warn">
+            없음 — 탭 소리는 "탭" 선택 후 "탭 오디오도 공유", Windows 전체 화면은 "시스템 오디오도 공유"를 켜고 다시
+            선택하세요
+          </span>
+        )}
+      </li>
+      <li>
+        <span className="audio-label">마이크</span>
+        {state.hasMic ? (
+          <label className="slider">
+            <input
+              type="range"
+              min={0}
+              max={1.5}
+              step={0.05}
+              value={state.micVolume}
+              aria-label="마이크 음량"
+              disabled={state.micMuted}
+              onChange={(e) => publisher.setMicVolume(Number(e.target.value))}
+            />
+            <span className="slider-value">{state.micMuted ? '꺼짐' : percent(state.micVolume)}</span>
+          </label>
+        ) : (
+          <span className="warn">없음 — 주소창 왼쪽 아이콘에서 마이크를 허용한 뒤 화면을 다시 선택하세요</span>
+        )}
+      </li>
+    </ul>
+  )
+}
+
+/** 방송자에게는 수치보다 "괜찮은지"가 중요하다. 세부 수치는 툴팁으로 둔다 */
+function QualityLine({ stats }: { stats: RtcSummary }) {
+  const detail = [
+    stats.width && stats.height && `${stats.width}x${stats.height}`,
+    stats.fps !== undefined && `${stats.fps}fps`,
+    stats.videoKbps !== undefined && `${stats.videoKbps}kbps`,
+    stats.videoCodec,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  return (
+    <p className="muted stats" data-testid="studio-stats" title={detail}>
+      <span className="quality-dot" aria-hidden="true" /> 송출 안정 · {stats.height}p
+      {stats.videoKbps !== undefined && ` · ${stats.videoKbps}kbps`}
+    </p>
+  )
+}
+
+function EndedSummary({
+  broadcast,
+  peakViewers,
+  donationTotal,
+  chatCount,
+}: {
+  broadcast: Broadcast
+  peakViewers: number
+  donationTotal: { amount: number; count: number }
+  chatCount: number
+}) {
+  // 종료 시각은 이벤트로 바로 오지 않을 수 있어 지금을 기준으로 잰다
+  const [endedAt] = useState(() => Date.now())
+  const duration = broadcast.startedAt ? formatDuration(endedAt - Date.parse(broadcast.startedAt)) : '-'
+  return (
+    <section className="center-card studio-ended">
+      <h1>방송이 종료되었습니다</h1>
+      <p className="dim">카메라·마이크·화면 공유를 모두 껐습니다. 녹화는 잠시 뒤 다시보기로 볼 수 있습니다.</p>
+      <dl className="ended-stats">
+        <div>
+          <dt>방송 시간</dt>
+          <dd>{duration}</dd>
+        </div>
+        <div>
+          <dt>최고 시청자</dt>
+          <dd>{peakViewers}명</dd>
+        </div>
+        <div>
+          <dt>받은 후원</dt>
+          <dd>
+            {formatWon(donationTotal.amount)} <small className="dim">({donationTotal.count}건)</small>
+          </dd>
+        </div>
+        <div>
+          <dt>채팅</dt>
+          <dd>{chatCount}개</dd>
+        </div>
+      </dl>
+      <div className="row ended-actions">
+        <Link to={`/broadcasts/${broadcast.id}`} className="button primary">
+          다시보기 화면으로
+        </Link>
+        <Link to="/broadcasts/new" className="button">
+          새 방송 만들기
+        </Link>
       </div>
     </section>
   )

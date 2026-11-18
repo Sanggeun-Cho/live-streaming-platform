@@ -1,8 +1,12 @@
 import { ApiError, errorMessage } from '../api'
 import { WebRtcHttpError } from './whip'
 
-/** 송출 실패를 사용자가 다음에 할 일과 함께 안내한다 */
-export function publishErrorMessage(e: unknown): string {
+/** 송출 실패를 사용자가 다음에 할 일과 함께 안내한다. source는 화면을 고르다 실패했을 때 문구를 나누려고 받는다 */
+export function publishErrorMessage(e: unknown, source?: 'screen' | 'camera'): string {
+  // 화면 공유 선택 창의 "취소"도 NotAllowedError다. 카메라 권한 안내를 보여 주면 엉뚱하다
+  if (source === 'screen' && e instanceof DOMException && e.name === 'NotAllowedError') {
+    return '화면 공유를 취소했습니다. 공유할 화면이나 탭을 고른 뒤 "공유"를 누르세요'
+  }
   if (e instanceof DOMException && e.name === 'NotAllowedError') {
     return '카메라·마이크 권한이 거부되었습니다. 주소창의 자물쇠 아이콘에서 권한을 허용한 뒤 다시 시도하세요'
   }

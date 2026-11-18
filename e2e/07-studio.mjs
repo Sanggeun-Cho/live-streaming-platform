@@ -1,7 +1,7 @@
 // #7 PC 송출(방송 스튜디오) 시나리오 (docker compose 전체 구성 필요: E2E_BASE_URL=https://localhost)
 // Chrome 가짜 화면 공유(--auto-select-desktop-capture-source)와 가짜 카메라·마이크를 쓴다.
 import { execSync } from 'node:child_process'
-import { anonPage, BASE, expectEqual, expectMediaFlowing, finish, launch, liveCaptureTracks, signedUpPage, step } from './lib.mjs'
+import { confirmDialog, anonPage, BASE, expectEqual, expectMediaFlowing, finish, launch, liveCaptureTracks, signedUpPage, step } from './lib.mjs'
 
 const browser = await launch()
 const owner = await signedUpPage(browser, '스튜디오')
@@ -123,8 +123,8 @@ await step('방송을 종료하면 종료 화면으로 바뀌고 화면 공유·
   await owner.evaluate(() => {
     window.__studioTracks = document.querySelector('[data-testid=studio-preview]').srcObject.getTracks()
   })
-  owner.once('dialog', (d) => d.accept())
   await owner.getByRole('button', { name: '방송 종료' }).click()
+  await confirmDialog(owner, '종료하기')
   await owner.getByRole('heading', { name: '방송이 종료되었습니다' }).waitFor({ timeout: 10_000 })
   expectEqual(await liveCaptureTracks(owner), 0, '살아 있는 캡처 트랙')
   await viewer.getByTestId('status-line').getByText('방송 종료').waitFor({ timeout: 10_000 })

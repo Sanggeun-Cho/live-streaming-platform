@@ -1,5 +1,5 @@
 // #5 방송 CRUD 화면 시나리오: 소유자 / 다른 사용자 / 비로그인
-import { anonPage, BASE, escapeRe, expectEqual, finish, launch, signedUpPage, step } from './lib.mjs'
+import { confirmDialog, anonPage, BASE, escapeRe, expectEqual, finish, launch, signedUpPage, step } from './lib.mjs'
 
 const browser = await launch()
 const owner = await signedUpPage(browser, '방송자')
@@ -76,8 +76,8 @@ await step('소유자: 내 채널에서 내 방송이 보인다', async () => {
 
 await step('소유자: 삭제하면 내 채널로 이동하고, 상세는 "찾을 수 없음"이 된다', async () => {
   await owner.goto(`${BASE}/broadcasts/${id}`)
-  owner.once('dialog', (d) => d.accept())
   await owner.getByRole('button', { name: '삭제' }).click()
+  await confirmDialog(owner, '삭제하기')
   await owner.waitForURL(/\/channels\/\d+$/)
   await owner.getByText('아직 만든 방송이 없습니다').waitFor()
   await anon.goto(`${BASE}/broadcasts/${id}`)
@@ -91,8 +91,8 @@ await step('세션이 만료된 뒤 삭제를 누르면 로그인 화면으로 �
   await owner.waitForURL(/\/broadcasts\/\d+$/)
   const path = new URL(owner.url()).pathname
   await owner.context().clearCookies()
-  owner.once('dialog', (d) => d.accept())
   await owner.getByRole('button', { name: '삭제' }).click()
+  await confirmDialog(owner, '삭제하기')
   await owner.waitForURL((u) => u.pathname === '/login')
   expectEqual(new URL(owner.url()).searchParams.get('next'), path)
 })
