@@ -1,0 +1,1 @@
+ALTER TABLE `broadcasts` ADD `thumbnail_updated_at` integer;

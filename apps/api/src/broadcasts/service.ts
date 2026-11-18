@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, lt, ne, type SQL } from 'drizzle-orm'
+import { and, desc, eq, isNull, lt, ne, type SQL, sql } from 'drizzle-orm'
 import type { AuthUser } from '../auth/service.js'
 import type { Db } from '../db/client.js'
 import { type BroadcastStatus, broadcasts, channels, users } from '../db/schema.js'
@@ -15,6 +15,9 @@ export const broadcastColumns = {
   disconnectedAt: broadcasts.disconnectedAt,
   createdAt: broadcasts.createdAt,
   updatedAt: broadcasts.updatedAt,
+  // 올린 시각을 쿼리에 붙여 새 썸네일이 브라우저 캐시에 가리지 않게 한다 (routes/thumbnails.ts)
+  thumbnailUrl: sql<string | null>`case when ${broadcasts.thumbnailUpdatedAt} is null then null
+    else '/api/broadcasts/' || ${broadcasts.id} || '/thumbnail?v=' || ${broadcasts.thumbnailUpdatedAt} end`,
   channel: { id: channels.id, name: channels.name },
   streamer: { id: users.id, nickname: users.nickname },
 }
@@ -30,6 +33,8 @@ export type BroadcastView = {
   disconnectedAt: Date | null
   createdAt: Date
   updatedAt: Date
+  /** 방송 중 마지막 화면. 올린 적이 없으면 null */
+  thumbnailUrl: string | null
   channel: { id: number; name: string }
   streamer: { id: number; nickname: string }
 }
