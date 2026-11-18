@@ -1,32 +1,76 @@
-import { type FormEvent, useLayoutEffect, useRef, useState } from 'react'
+import { ArrowDown, HandCoins, MessagesSquare, Pencil, Send, Trash2 } from 'lucide-react'
+import { type ClipboardEvent, type FormEvent, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router'
 import { useAuth } from '../auth/context'
 import { useAuthErrorRedirect } from '../auth/useAuthErrorRedirect'
+import { useFeedback } from '../feedback/context'
 import type { CommentsState } from '../hooks/useComments'
 import { errorMessage } from '../lib/api'
-import { type Comment, COMMENT_MAX_LENGTH, createComment, deleteComment, updateComment } from '../lib/comments'
+import { colorOf } from '../lib/avatar'
+import type { BroadcastStatus } from '../lib/broadcasts'
+import {
+  type Comment,
+  COMMENT_MAX_LENGTH,
+  createComment,
+  deleteComment,
+  formatChatTime,
+  isRateLimited,
+  retryRateLimited,
+  updateComment,
+} from '../lib/comments'
 import { formatWon } from '../lib/donations'
+import './chat.css'
 
 // 맨 아래에서 이만큼(px) 이내면 "맨 아래를 보는 중"으로 보고 새 채팅이 오면 따라 내려간다
 const STICK_THRESHOLD_PX = 40
+// 글자 수는 상한이 가까워질 때만 보여 준다 (평소 채팅에는 군더더기다)
+const COUNTER_FROM = 250
+
+const PLACEHOLDER: Record<BroadcastStatus, string> = {
+  READY: '방송 전 인사를 남겨 보세요',
+  LIVE: '채팅을 입력하세요',
+  ENDED: '다시보기 감상을 남겨 보세요',
+}
+
+/** 붙여넣으면 maxLength에 걸려 뒷부분이 잘리는지 */
+function pasteOverflows(e: ClipboardEvent<HTMLInputElement>) {
+  const { value, selectionStart, selectionEnd } = e.currentTarget
+  const replaced = (selectionEnd ?? 0) - (selectionStart ?? 0)
+  return value.length - replaced + e.clipboardData.getData('text').length > COMMENT_MAX_LENGTH
+}
+
+const OVERFLOW_NOTICE = `채팅은 ${COMMENT_MAX_LENGTH}자까지 쓸 수 있어 넘친 부분은 붙여넣지 않았습니다`
 
 /**
  * 방송 채팅 패널 (#10). 목록·실시간 반영은 페이지가 넘겨준 useComments 상태를 쓴다.
+ * 높이는 부모가 정한다: 패널은 부모 높이를 채우고 목록만 스크롤한다 (시청 화면·방송 스튜디오에서 함께 쓴다).
  * 비로그인은 목록만 보고, 입력 자리에 "로그인하고 채팅하기"(로그인 후 이 방송으로 돌아옴)를 보여준다.
+ * broadcastStatus를 주면 상황에 맞는 입력 안내를 보여준다 (종료 후에도 다시보기 감상을 쓸 수 있다).
  */
-export function ChatPanel({ broadcastId, chat }: { broadcastId: number; chat: CommentsState }) {
+export function ChatPanel({
+  broadcastId,
+  chat,
+  broadcastStatus,
+}: {
+  broadcastId: number
+  chat: CommentsState
+  broadcastStatus?: BroadcastStatus
+}) {
   const { status, user } = useAuth()
+  const { confirm, toast } = useFeedback()
   const location = useLocation()
   const redirectIfUnauthorized = useAuthErrorRedirect()
   const listRef = useRef<HTMLDivElement>(null)
   // 사용자가 위로 스크롤해 지난 채팅을 읽는 중이면 새 채팅이 와도 끌어내리지 않는다
   const stickToBottom = useRef(true)
+  // 위로 스크롤해 읽는 중일 때, 떠날 때 마지막이던 채팅 id. 그 뒤에 온 채팅 수를 "새 채팅 N개"로 보여준다
+  const [readUpTo, setReadUpTo] = useState<number | null>(null)
   // 위에 댓글이 붙었을 때(이전 채팅 보기) 보던 위치를 유지하기 위한 기준: 직전 렌더의 첫 댓글과 그 위치.
   // 요청 시점이 아니라 실제로 붙은 렌더에서 비교하므로, 응답 전에 새 채팅이 와도·요청이 실패해도 기준이 어긋나지 않는다
   const anchor = useRef<{ id: number; top: number } | null>(null)
   const [text, setText] = useState('')
-  // 응답을 기다리는 전송 수 (연달아 보낼 수 있다)
-  const [sending, setSending] = useState(0)
+  // 도배 제한에 걸려 잠시 기다렸다 다시 보내는 중
+  const [throttled, setThrottled] = useState(false)
   // 연달아 보낸 채팅이 입력한 순서대로 서버에 도착하도록 전송을 한 줄로 세운다
   const sendQueue = useRef<Promise<void>>(Promise.resolve())
   // 보내지 못한 채팅. 다음 전송이 오류 문구를 지워도 내용이 사라지지 않게 따로 보관한다
@@ -58,14 +102,25 @@ export function ChatPanel({ broadcastId, chat }: { broadcastId: number; chat: Co
   function onScroll() {
     const el = listRef.current!
     stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_THRESHOLD_PX
+    const lastId = items.at(-1)?.id ?? 0
+    setReadUpTo((prev) => (stickToBottom.current ? null : (prev ?? lastId)))
   }
+
+  function scrollToLatest() {
+    const el = listRef.current!
+    stickToBottom.current = true
+    setReadUpTo(null)
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  }
+
+  const unread = readUpTo === null ? 0 : items.filter((c) => c.id > readUpTo).length
 
   async function onLoadOlder() {
     setError(null)
     try {
       await chat.loadOlder()
-    } catch (e) {
-      setError(`이전 채팅을 불러오지 못했습니다. ${errorMessage(e)} "이전 채팅 보기"를 다시 눌러 주세요.`)
+    } catch {
+      setError('이전 채팅을 불러오지 못했습니다. 다시 눌러 주세요.')
     }
   }
 
@@ -81,28 +136,37 @@ export function ChatPanel({ broadcastId, chat }: { broadcastId: number; chat: Co
     // 보내는 즉시 입력창을 비운다. 응답을 기다리는 동안 이어서 입력한 다음 채팅이 지워지지 않게 하기 위해서다.
     // 실패한 채팅은 failed에 보관해 "입력창으로 되돌리기"로 다시 보낼 수 있게 한다
     setText('')
-    setSending((n) => n + 1)
     setError(null)
     sendQueue.current = sendQueue.current.then(async () => {
       try {
-        const comment = await createComment(broadcastId, content)
+        // 빠르게 연달아 보내다 도배 제한에 걸리면 줄을 세운 채 기다렸다 보내므로 순서가 유지된다
+        const comment = await retryRateLimited(
+          () => createComment(broadcastId, content),
+          () => setThrottled(true),
+        )
         // SSE로도 오지만 내 화면에는 응답으로 바로 보여준다 (같은 id라 한 번만 표시된다)
         stickToBottom.current = true
         chat.apply(comment)
       } catch (err) {
         if (!redirectIfUnauthorized(err)) {
           setFailed((list) => [...list, content])
-          setError(errorMessage(err))
+          setError(isRateLimited(err) ? '채팅을 너무 빠르게 보냈습니다. 잠시 후 다시 보내 주세요.' : errorMessage(err))
         }
       } finally {
-        setSending((n) => n - 1)
+        setThrottled(false)
       }
     })
     await sendQueue.current
   }
 
   async function onDelete(comment: Comment) {
-    if (!window.confirm('이 채팅을 삭제할까요?')) return
+    const ok = await confirm({
+      title: '채팅을 삭제할까요?',
+      message: '삭제한 채팅은 되돌릴 수 없습니다.',
+      confirmLabel: '삭제',
+      danger: true,
+    })
+    if (!ok) return
     setError(null)
     try {
       chat.apply(await deleteComment(comment.id))
@@ -125,48 +189,74 @@ export function ChatPanel({ broadcastId, chat }: { broadcastId: number; chat: Co
 
   return (
     <aside className="chat-panel" aria-label="채팅">
-      <h2 className="chat-title">채팅</h2>
-      <div className="chat-list" ref={listRef} onScroll={onScroll} data-testid="chat-list">
-        {chat.nextCursor !== null && (
-          <button type="button" className="link-button chat-older" onClick={() => void onLoadOlder()}>
-            이전 채팅 보기
+      <header className="chat-head">
+        <h2 className="chat-title">채팅</h2>
+        <span className={`chat-conn${chat.connected ? ' is-live' : ''}`}>
+          <span className="chat-conn-dot" aria-hidden="true" />
+          {chat.connected ? '실시간' : '연결 중…'}
+        </span>
+      </header>
+
+      <div className="chat-body">
+        <div
+          className="chat-list"
+          ref={listRef}
+          onScroll={onScroll}
+          data-testid="chat-list"
+          role="log"
+          aria-label="채팅 메시지"
+        >
+          {chat.nextCursor !== null && (
+            <button type="button" className="chat-older" onClick={() => void onLoadOlder()}>
+              이전 채팅 보기
+            </button>
+          )}
+          {chat.status === 'loading' && <ChatSkeleton />}
+          {chat.status === 'error' && (
+            <div className="chat-state" role="alert">
+              <p>채팅을 불러오지 못했습니다.</p>
+              <p className="muted">{chat.error}</p>
+              <button type="button" onClick={chat.retry}>
+                다시 시도
+              </button>
+            </div>
+          )}
+          {chat.status === 'ready' && items.length === 0 && (
+            <div className="chat-state">
+              <MessagesSquare size={28} aria-hidden="true" />
+              <p>아직 채팅이 없습니다</p>
+              <p className="muted">첫 채팅을 남겨 보세요.</p>
+            </div>
+          )}
+          <ul className="chat-items">
+            {items.map((c) => (
+              <ChatItem
+                key={c.id}
+                comment={c}
+                mine={!!user && user.id === c.author?.id}
+                editing={editingId === c.id}
+                onStartEdit={() => {
+                  setError(null)
+                  setEditingId(c.id)
+                }}
+                onCancelEdit={() => setEditingId(null)}
+                onSave={(content) => onEdit(c, content)}
+                onDelete={() => void onDelete(c)}
+                onPasteOverflow={() => toast(OVERFLOW_NOTICE, 'info')}
+              />
+            ))}
+          </ul>
+        </div>
+        {unread > 0 && (
+          <button type="button" className="chat-jump" onClick={scrollToLatest}>
+            새 채팅 {unread > 99 ? '99+' : unread}개
+            <ArrowDown size={16} aria-hidden="true" />
           </button>
         )}
-        {chat.status === 'loading' && <p className="muted">채팅을 불러오는 중…</p>}
-        {chat.status === 'error' && (
-          <div role="alert">
-            <p className="error">
-              채팅을 불러오지 못했습니다. {chat.error} 잠시 후 아래 버튼으로 다시 시도하세요.
-            </p>
-            <button type="button" onClick={chat.retry}>
-              다시 시도
-            </button>
-          </div>
-        )}
-        {chat.status === 'ready' && chat.items.length === 0 && (
-          <p className="muted">아직 채팅이 없습니다. 첫 채팅을 남겨 보세요.</p>
-        )}
-        <ul className="chat-items">
-          {chat.items.map((c) => (
-            <ChatItem
-              key={c.id}
-              comment={c}
-              mine={!!user && user.id === c.author?.id}
-              editing={editingId === c.id}
-              onStartEdit={() => {
-                setError(null)
-                setEditingId(c.id)
-              }}
-              onCancelEdit={() => setEditingId(null)}
-              onSave={(content) => onEdit(c, content)}
-              onDelete={() => void onDelete(c)}
-            />
-          ))}
-        </ul>
       </div>
 
       {error && (
-        <p className="error chat-error" role="alert">
+        <p className="chat-error" role="alert">
           {error}
         </p>
       )}
@@ -191,17 +281,31 @@ export function ChatPanel({ broadcastId, chat }: { broadcastId: number; chat: Co
       )}
       {status === 'authenticated' && (
         <form className="chat-form" onSubmit={onSubmit}>
-          <input
-            aria-label="채팅 입력"
-            placeholder="채팅을 입력하세요"
-            value={text}
-            maxLength={COMMENT_MAX_LENGTH}
-            onChange={(e) => setText(e.target.value)}
-            autoComplete="off"
-          />
-          <button type="submit" disabled={!text.trim()}>
-            {sending > 0 && !text.trim() ? '전송 중…' : '전송'}
-          </button>
+          <div className="chat-input">
+            <input
+              aria-label="채팅 입력"
+              placeholder={PLACEHOLDER[broadcastStatus ?? 'LIVE']}
+              value={text}
+              maxLength={COMMENT_MAX_LENGTH}
+              onChange={(e) => setText(e.target.value)}
+              onPaste={(e) => pasteOverflows(e) && toast(OVERFLOW_NOTICE, 'info')}
+              autoComplete="off"
+              enterKeyHint="send"
+            />
+            {text.length >= COUNTER_FROM && (
+              <span className={`chat-count${text.length >= COMMENT_MAX_LENGTH ? ' is-full' : ''}`} aria-live="polite">
+                {text.length}/{COMMENT_MAX_LENGTH}
+              </span>
+            )}
+            <button type="submit" className="chat-send" disabled={!text.trim()} aria-label="전송" title="전송 (Enter)">
+              <Send size={18} aria-hidden="true" />
+            </button>
+          </div>
+          {throttled && (
+            <p className="chat-hint" role="status">
+              채팅이 몰려 잠시 후 이어서 보냅니다…
+            </p>
+          )}
         </form>
       )}
       {status === 'anonymous' && (
@@ -209,8 +313,31 @@ export function ChatPanel({ broadcastId, chat }: { broadcastId: number; chat: Co
           <Link to={loginPath}>로그인하고 채팅하기</Link>
         </p>
       )}
-      {status === 'error' && <p className="muted chat-login">로그인 상태를 확인하지 못해 채팅을 쓸 수 없습니다. 위쪽의 "다시 시도"를 누르거나 새로고침하세요.</p>}
+      {status === 'error' && (
+        <p className="muted chat-login">
+          로그인 상태를 확인하지 못해 채팅을 쓸 수 없습니다. 위쪽의 "다시 시도"를 누르거나 새로고침하세요.
+        </p>
+      )}
     </aside>
+  )
+}
+
+function ChatSkeleton() {
+  return (
+    <div className="chat-skeleton" role="status">
+      <span className="chat-sr-only">채팅을 불러오는 중…</span>
+      {[72, 48, 86, 60, 40, 78, 55].map((width, i) => (
+        <span key={i} className="chat-skeleton-row" style={{ width: `${width}%` }} aria-hidden="true" />
+      ))}
+    </div>
+  )
+}
+
+function ChatTime({ iso }: { iso: string }) {
+  return (
+    <time className="chat-time" dateTime={iso} title={new Date(iso).toLocaleString('ko-KR')}>
+      {formatChatTime(iso)}
+    </time>
   )
 }
 
@@ -222,51 +349,62 @@ type ItemProps = {
   onCancelEdit: () => void
   onSave: (content: string) => Promise<void>
   onDelete: () => void
+  onPasteOverflow: () => void
 }
 
-function ChatItem({ comment, mine, editing, onStartEdit, onCancelEdit, onSave, onDelete }: ItemProps) {
+function ChatItem({ comment, mine, editing, onStartEdit, onCancelEdit, onSave, onDelete, onPasteOverflow }: ItemProps) {
+  const base = { 'data-testid': 'comment', 'data-comment-id': comment.id }
   if (comment.content === null) {
     return (
-      <li className="chat-item chat-deleted" data-testid="comment" data-comment-id={comment.id}>
-        <span className="muted">삭제된 댓글입니다</span>
+      <li className="chat-item chat-deleted" {...base}>
+        <ChatTime iso={comment.createdAt} />
+        <span>삭제된 댓글입니다</span>
       </li>
     )
   }
   if (comment.donation) {
     // 후원 채팅: 후원 원장과 같은 기록이라 수정·삭제 버튼을 두지 않는다
     return (
-      <li className="chat-item chat-donation" data-testid="comment" data-comment-id={comment.id}>
+      <li className="chat-item chat-donation" {...base}>
         <span className="chat-donation-head">
+          <HandCoins size={16} aria-hidden="true" className="chat-donation-icon" />
           <strong className="chat-author">{comment.author?.nickname}</strong>
           <span className="chat-donation-amount">{formatWon(comment.donation.amount)} 후원</span>
+          <ChatTime iso={comment.createdAt} />
         </span>
         {comment.content && <span className="chat-content">{comment.content}</span>}
       </li>
     )
   }
+  const author = comment.author
   return (
     <li
-      className={`chat-item${comment.isStreamer ? ' chat-streamer' : ''}`}
-      data-testid="comment"
-      data-comment-id={comment.id}
+      className={`chat-item${comment.isStreamer ? ' chat-streamer' : ''}${mine ? ' chat-mine' : ''}`}
+      // 터치 화면에는 마우스 올림이 없으므로 내 채팅을 탭하면(포커스) 수정·삭제 버튼을 보인다
+      tabIndex={mine && !editing ? -1 : undefined}
+      {...base}
     >
-      <strong className="chat-author">
-        {comment.author?.nickname}
-        {comment.isStreamer && <span className="badge chat-badge">방송자</span>}
-      </strong>{' '}
+      <ChatTime iso={comment.createdAt} />
+      {comment.isStreamer && <span className="badge chat-badge">방송자</span>}
+      <strong
+        className="chat-author"
+        style={comment.isStreamer || !author ? undefined : { color: colorOf(author.id) }}
+      >
+        {author?.nickname}
+      </strong>
       {editing ? (
-        <EditForm initial={comment.content} onSave={onSave} onCancel={onCancelEdit} />
+        <EditForm initial={comment.content} onSave={onSave} onCancel={onCancelEdit} onPasteOverflow={onPasteOverflow} />
       ) : (
         <>
           <span className="chat-content">{comment.content}</span>
-          {comment.editedAt && <small className="muted"> (수정됨)</small>}
+          {comment.editedAt && <span className="chat-edited">(수정됨)</span>}
           {mine && (
             <span className="chat-actions">
-              <button type="button" className="link-button" onClick={onStartEdit} aria-label="댓글 수정">
-                수정
+              <button type="button" className="chat-icon-button" onClick={onStartEdit} aria-label="댓글 수정" title="수정">
+                <Pencil size={14} aria-hidden="true" />
               </button>
-              <button type="button" className="link-button" onClick={onDelete} aria-label="댓글 삭제">
-                삭제
+              <button type="button" className="chat-icon-button" onClick={onDelete} aria-label="댓글 삭제" title="삭제">
+                <Trash2 size={14} aria-hidden="true" />
               </button>
             </span>
           )}
@@ -280,10 +418,12 @@ function EditForm({
   initial,
   onSave,
   onCancel,
+  onPasteOverflow,
 }: {
   initial: string
   onSave: (content: string) => Promise<void>
   onCancel: () => void
+  onPasteOverflow: () => void
 }) {
   const [value, setValue] = useState(initial)
   const [saving, setSaving] = useState(false)
@@ -306,10 +446,11 @@ function EditForm({
         value={value}
         maxLength={COMMENT_MAX_LENGTH}
         onChange={(e) => setValue(e.target.value)}
+        onPaste={(e) => pasteOverflows(e) && onPasteOverflow()}
         onKeyDown={(e) => e.key === 'Escape' && onCancel()}
         autoFocus
       />
-      <button type="submit" disabled={saving || !value.trim()}>
+      <button type="submit" className="primary" disabled={saving || !value.trim()}>
         저장
       </button>
       <button type="button" onClick={onCancel}>
