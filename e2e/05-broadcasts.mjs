@@ -1,5 +1,5 @@
 // #5 방송 CRUD 화면 시나리오: 소유자 / 다른 사용자 / 비로그인
-import { confirmDialog, anonPage, BASE, escapeRe, expectEqual, finish, launch, signedUpPage, step } from './lib.mjs'
+import { accountMenu, confirmDialog, anonPage, BASE, escapeRe, expectEqual, finish, launch, signedUpPage, step } from './lib.mjs'
 
 const browser = await launch()
 const owner = await signedUpPage(browser, '방송자')
@@ -69,7 +69,7 @@ await step('소유자: 정보를 수정하면 상세에 반영된다', async () 
 })
 
 await step('소유자: 내 채널에서 내 방송이 보인다', async () => {
-  await owner.getByRole('banner').getByRole('link', { name: /내 채널/ }).click()
+  await accountMenu(owner, '내 채널')
   await owner.getByRole('heading', { name: '내 채널' }).waitFor()
   await owner.getByRole('link', { name: new RegExp(escapeRe(`${title} (수정)`)) }).waitFor()
 })

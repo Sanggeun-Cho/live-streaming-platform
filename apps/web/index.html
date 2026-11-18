@@ -8,7 +8,19 @@
       name="description"
       content="설치 없이 브라우저에서 바로 방송하고 시청하는 실시간 라이브 플랫폼. 채팅·후원·다시보기를 지원합니다."
     />
-    <meta name="theme-color" content="#0e0f12" />
+    <meta name="theme-color" content="#0e1117" />
+    <!-- 첫 화면이 그려지기 전에 테마를 정해 깜빡임을 막는다. 저장한 선택이 없으면 기기 설정을 따른다 (src/theme/theme.ts와 같은 키) -->
+    <script>
+      ;(function () {
+        var pref
+        try {
+          pref = localStorage.getItem('galle-theme')
+        } catch (e) {}
+        var dark = pref === 'dark' || (pref !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+        document.querySelector('meta[name="theme-color"]').content = dark ? '#0e1117' : '#ffffff'
+      })()
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 

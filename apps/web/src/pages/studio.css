@@ -275,7 +275,7 @@
 
 .tool-off {
   border-color: var(--live);
-  color: #ffb3c0;
+  color: var(--danger);
 }
 
 .go-live {
@@ -426,7 +426,7 @@
 
 .studio-donations strong {
   font-size: 1.15rem;
-  color: var(--accent);
+  color: var(--gift);
 }
 
 /* 스튜디오에서는 후원 알림을 채팅 위에 띄운다 (화면 가운데를 가리지 않게) */

@@ -11,7 +11,7 @@ export default defineConfig({
     proxy: {
       '/api': { target: process.env.API_PROXY_TARGET ?? 'http://localhost:3000', secure: false, changeOrigin: true },
       // WHIP/WHEP 시그널링. docker compose를 띄운 상태에서 개발 서버로 송출·시청을 확인할 때 쓴다 (로컬 인증서라 검증 생략)
-      '/live': { target: process.env.LIVE_PROXY_TARGET ?? 'https://localhost', secure: false, changeOrigin: true },
+      '^/live/': { target: process.env.LIVE_PROXY_TARGET ?? 'https://localhost', secure: false, changeOrigin: true },
     },
   },
 })
