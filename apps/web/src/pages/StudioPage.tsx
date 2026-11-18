@@ -1,4 +1,4 @@
-import { Camera, CircleAlert, ExternalLink, Lock, Mic, MicOff, Monitor, SearchX, ShieldAlert, SwitchCamera } from 'lucide-react'
+import { Camera, CircleAlert, ExternalLink, Link2, Lock, Mic, MicOff, Monitor, SearchX, ShieldAlert, SwitchCamera } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { type CSSProperties, type ReactNode, type RefObject, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Link, useBlocker, useParams } from 'react-router'
@@ -17,6 +17,7 @@ import { EmptyState } from '../components/EmptyState'
 import { Spinner } from '../components/Spinner'
 import { ApiError } from '../lib/api'
 import type { Broadcast } from '../lib/broadcasts'
+import type { Comment } from '../lib/comments'
 import { type Donation, formatWon } from '../lib/donations'
 import { formatDuration } from '../lib/recordings'
 import { captureFrame, uploadThumbnail } from '../lib/thumbnails'
@@ -137,7 +138,7 @@ function StudioMessage({ icon, title, text, children }: { icon: LucideIcon; titl
 function Studio({ broadcast, patch }: { broadcast: Broadcast; patch: (changes: Partial<Broadcast>) => void }) {
   const broadcastId = broadcast.id
   const { publisher, state } = usePublisher(broadcastId)
-  const { confirm } = useFeedback()
+  const { confirm, toast } = useFeedback()
   const redirectIfUnauthorized = useAuthErrorRedirect()
   const [viewers, setViewers] = useState(0)
   const [peakViewers, setPeakViewers] = useState(0)
@@ -165,6 +166,8 @@ function Studio({ broadcast, patch }: { broadcast: Broadcast; patch: (changes: P
     donation: (data) => {
       donations.push(data)
       setLatestDonation(data.donation)
+      // 휴대폰 방송자는 화면을 보지 않을 때도 많다: 진동으로도 알린다
+      navigator.vibrate?.(200)
     },
   })
   const chat = useComments(broadcastId, connected)
@@ -183,6 +186,16 @@ function Studio({ broadcast, patch }: { broadcast: Broadcast; patch: (changes: P
     return () => clearInterval(timer)
   }, [phase, publisher])
 
+  // 송출이 (다시) 시작된 순간을 알린다
+  const prevPhase = useRef(phase)
+  useEffect(() => {
+    const prev = prevPhase.current
+    prevPhase.current = phase
+    if (phase !== 'live' || prev === 'live' || prev === 'requesting') return
+    if (prev === 'connecting') toast('방송이 시작되었습니다')
+    else toast('송출이 다시 연결되었습니다', 'info')
+  }, [phase, toast])
+
   // 방송 중 새로고침·탭 닫기 경고 (브라우저 기본 창)
   useEffect(() => {
     if (!onAir) return
@@ -197,12 +210,22 @@ function Studio({ broadcast, patch }: { broadcast: Broadcast; patch: (changes: P
     if (blocker.state !== 'blocked') return
     void confirm({
       title: '방송 중입니다',
-      message: '이 화면을 떠나면 송출이 끊기고, 다시 돌아오지 않으면 잠시 뒤 방송이 자동으로 종료됩니다.',
+      message: `이 화면을 떠나면 송출이 끊깁니다. ${SOURCE_ENDED_TIMEOUT_MS / 1000}초 안에 돌아와 이어서 송출하지 않으면 방송이 자동으로 종료됩니다.`,
       confirmLabel: '떠나기',
       cancelLabel: '계속 방송하기',
       danger: true,
     }).then((ok) => (ok ? blocker.proceed() : blocker.reset()))
   }, [blocker, confirm])
+
+  async function copyWatchLink() {
+    const url = `${window.location.origin}/broadcasts/${broadcastId}`
+    try {
+      await navigator.clipboard.writeText(url)
+      toast('시청 링크를 복사했습니다')
+    } catch {
+      toast(`복사하지 못했습니다. 주소: ${url}`, 'error')
+    }
+  }
 
   async function onEnd() {
     const ok = await confirm({
@@ -238,14 +261,21 @@ function Studio({ broadcast, patch }: { broadcast: Broadcast; patch: (changes: P
         <div className="studio-head">
           <div className="studio-title">
             <h1>{broadcast.title}</h1>
-            <Link to={`/broadcasts/${broadcastId}`} target="_blank" rel="noreferrer" className="studio-watch-link">
-              시청 화면 보기 <ExternalLink size={14} aria-hidden="true" />
-            </Link>
+            <div className="studio-links">
+              <button type="button" className="link-button studio-watch-link" onClick={() => void copyWatchLink()}>
+                <Link2 size={14} aria-hidden="true" /> 시청 링크 복사
+              </button>
+              <Link to={`/broadcasts/${broadcastId}`} target="_blank" rel="noreferrer" className="studio-watch-link">
+                시청 화면 보기 <ExternalLink size={14} aria-hidden="true" />
+              </Link>
+            </div>
           </div>
-          <OnAirStatus phase={phase} state={state} broadcast={broadcast} viewers={viewers} />
+          <OnAirStatus phase={phase} state={state} broadcast={broadcast} viewers={viewers} resumable={resumable} />
         </div>
 
-        <Stage publisher={publisher} state={state} videoRef={previewRef} />
+        <Stage publisher={publisher} state={state} videoRef={previewRef}>
+          {onAir && <ReactionOverlay chat={chat.items} donation={latestDonation} />}
+        </Stage>
 
         {resumable && (
           <div className="notice" role="alert">
@@ -255,7 +285,7 @@ function Studio({ broadcast, patch }: { broadcast: Broadcast; patch: (changes: P
             </p>
           </div>
         )}
-        {state.error && (
+        {state.error && phase !== 'sourceEnded' && (
           <p className="error" role="alert">
             {state.error}
           </p>
@@ -264,8 +294,8 @@ function Studio({ broadcast, patch }: { broadcast: Broadcast; patch: (changes: P
           <div className="notice" role="alert">
             <p>
               {state.source === 'camera' ? '카메라가 꺼져' : '화면 공유가 중지되어'} 송출을 멈췄습니다(마이크 포함).{' '}
-              {SOURCE_ENDED_TIMEOUT_MS / 1000}초 안에 다시 선택하면 방송이 이어지고, 그렇지 않으면 방송이 자동으로
-              종료됩니다.
+              {state.error && `${state.error}. `}
+              <SourceEndedCountdown /> 안에 다시 선택하면 방송이 이어지고, 그렇지 않으면 방송이 자동으로 종료됩니다.
             </p>
             <div className="row">
               {isScreenShareSupported() && (
@@ -312,7 +342,7 @@ function Studio({ broadcast, patch }: { broadcast: Broadcast; patch: (changes: P
           <span className="dim">{donations.total.count}건</span>
         </div>
         {latestDonation && <DonationAlert key={latestDonation.id} donation={latestDonation} />}
-        <ChatPanel broadcastId={broadcastId} chat={chat} />
+        <ChatPanel broadcastId={broadcastId} chat={chat} ownerView />
       </aside>
     </div>
   )
@@ -323,11 +353,13 @@ function OnAirStatus({
   state,
   broadcast,
   viewers,
+  resumable,
 }: {
   phase: Phase
   state: PublisherState
   broadcast: Broadcast
   viewers: number
+  resumable: boolean
 }) {
   const live = phase === 'live'
   // 경과 시간은 초 단위로 갱신한다
@@ -335,9 +367,9 @@ function OnAirStatus({
   const elapsed = live && broadcast.startedAt ? formatDuration(now - Date.parse(broadcast.startedAt)) : null
   return (
     <div className="studio-status">
-      <span className={`studio-phase phase-${phase}`} data-testid="studio-phase">
+      <span className={`studio-phase phase-${resumable ? 'reconnecting' : phase}`} data-testid="studio-phase">
         {live && <span className="live-dot" aria-hidden="true" />}
-        {PHASE_LABEL[phase]}
+        {resumable && phase !== 'requesting' ? '송출 끊김' : PHASE_LABEL[phase]}
         {phase === 'reconnecting' && ` (${state.reconnectAttempt}/${MAX_RECONNECT})`}
       </span>
       {elapsed && (
@@ -356,10 +388,12 @@ function Stage({
   publisher,
   state,
   videoRef,
+  children,
 }: {
   publisher: Publisher
   state: PublisherState
   videoRef: RefObject<HTMLVideoElement | null>
+  children?: ReactNode
 }) {
   // 세로 카메라(휴대폰)도 작게 보이지 않도록 미리보기 틀을 영상 비율에 맞춘다
   const [ratio, setRatio] = useState(16 / 9)
@@ -395,9 +429,35 @@ function Stage({
           <MicOff size={14} aria-hidden="true" /> 마이크 꺼짐
         </span>
       )}
-      {!stream && <EmptyStage publisher={publisher} requesting={phase === 'requesting'} />}
+      {!stream && phase !== 'sourceEnded' && <EmptyStage publisher={publisher} requesting={phase === 'requesting'} />}
+      {!stream && phase === 'sourceEnded' && <p className="stage-paused">영상이 멈췄습니다</p>}
+      {children}
     </div>
   )
+}
+
+/** 휴대폰 방송자는 채팅 패널이 화면 밖에 있다: 미리보기 위에 최근 채팅과 새 후원을 겹쳐 보여 준다 */
+function ReactionOverlay({ chat, donation }: { chat: Comment[]; donation: Donation | null }) {
+  const recent = chat.filter((c) => c.content !== null && !c.donation).slice(-3)
+  return (
+    <div className="stage-overlay" aria-hidden="true">
+      {donation && <DonationAlert key={donation.id} donation={donation} />}
+      <ul className="overlay-chat">
+        {recent.map((c) => (
+          <li key={c.id}>
+            <strong>{c.author?.nickname}</strong> {c.content}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+/** 영상 소스가 멈춘 뒤 자동 종료까지 남은 시간 (이 화면에서 멈춘 것을 안 순간부터 센다) */
+function SourceEndedCountdown() {
+  const [deadline] = useState(() => Date.now() + SOURCE_ENDED_TIMEOUT_MS)
+  const now = useNow(1000)
+  return <strong className="countdown">{formatDuration(Math.max(0, deadline - now))}</strong>
 }
 
 function EmptyStage({ publisher, requesting }: { publisher: Publisher; requesting: boolean }) {
@@ -482,8 +542,9 @@ function Toolbar({
           <ToolButton
             icon={<SwitchCamera size={18} aria-hidden="true" />}
             label="전면/후면 전환"
-            short="카메라 전환"
+            short="전면/후면"
             onClick={() => void publisher.switchCamera()}
+            disabled={phase === 'sourceEnded'}
           />
         )}
         {source && state.hasMic && (
@@ -494,6 +555,7 @@ function Toolbar({
             off={state.micMuted}
             pressed={state.micMuted}
             onClick={() => publisher.setMicMuted(!state.micMuted)}
+            disabled={phase === 'sourceEnded'}
           />
         )}
       </div>
@@ -584,7 +646,7 @@ function AudioMixer({ publisher, state }: { publisher: Publisher; state: Publish
             <input
               type="range"
               min={0}
-              max={1.5}
+              max={1}
               step={0.05}
               value={state.micVolume}
               aria-label="마이크 음량"
@@ -603,6 +665,9 @@ function AudioMixer({ publisher, state }: { publisher: Publisher; state: Publish
 
 /** 방송자에게는 수치보다 "괜찮은지"가 중요하다. 세부 수치는 툴팁으로 둔다 */
 function QualityLine({ stats }: { stats: RtcSummary }) {
+  // 브라우저가 대역폭·CPU 때문에 화질을 낮췄거나 360p 미만이면 "안정"이라고 하지 않는다
+  const limited =
+    (stats.height ?? 0) < 360 || stats.qualityLimitation === 'bandwidth' || stats.qualityLimitation === 'cpu'
   const detail = [
     stats.width && stats.height && `${stats.width}x${stats.height}`,
     stats.fps !== undefined && `${stats.fps}fps`,
@@ -612,9 +677,11 @@ function QualityLine({ stats }: { stats: RtcSummary }) {
     .filter(Boolean)
     .join(' · ')
   return (
-    <p className="muted stats" data-testid="studio-stats" title={detail}>
-      <span className="quality-dot" aria-hidden="true" /> 송출 안정 · {stats.height}p
-      {stats.videoKbps !== undefined && ` · ${stats.videoKbps}kbps`}
+    <p className={`muted stats${limited ? ' stats-limited' : ''}`} data-testid="studio-stats" title={detail}>
+      <span className="quality-dot" aria-hidden="true" />
+      {limited
+        ? `화질 낮아짐 · ${stats.height}p — ${stats.qualityLimitation === 'cpu' ? '기기 부하가 높습니다' : '네트워크가 약합니다(Wi-Fi 권장)'}`
+        : `송출 안정 · ${stats.height}p`}
     </p>
   )
 }

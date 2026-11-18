@@ -51,10 +51,13 @@ export function ChatPanel({
   broadcastId,
   chat,
   broadcastStatus,
+  ownerView = false,
 }: {
   broadcastId: number
   chat: CommentsState
   broadcastStatus?: BroadcastStatus
+  /** 방송자가 보는 채팅(스튜디오): 빈 상태 문구를 방송자 입장으로 */
+  ownerView?: boolean
 }) {
   const { status, user } = useAuth()
   const { confirm, toast } = useFeedback()
@@ -225,7 +228,7 @@ export function ChatPanel({
             <div className="chat-state">
               <MessagesSquare size={28} aria-hidden="true" />
               <p>아직 채팅이 없습니다</p>
-              <p className="muted">첫 채팅을 남겨 보세요.</p>
+              <p className="muted">{ownerView ? '시청자 채팅이 이곳에 실시간으로 표시됩니다.' : '첫 채팅을 남겨 보세요.'}</p>
             </div>
           )}
           <ul className="chat-items">
